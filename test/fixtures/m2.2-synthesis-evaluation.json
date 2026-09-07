@@ -1,0 +1,41 @@
+{
+  "name": "M2.2 structured synthesis evaluation",
+  "version": "m2.2-local-v1",
+  "cases": [
+    {
+      "id": "ready-foundation-no-research",
+      "lead": {
+        "name": "Asha Mehta",
+        "email": "asha@example.com",
+        "company": "Design Co"
+      },
+      "expected_qualification_outcome": "READY_FOR_DEEPER_INTELLIGENCE",
+      "expected_recommendation_type": "READY_FOR_DEEPER_INTELLIGENCE"
+    },
+    {
+      "id": "ready-foundation-with-research",
+      "lead": {
+        "name": "Priya Sharma",
+        "email": "priya@example.com",
+        "company": "Northstar Interiors"
+      },
+      "research_evidence": [
+        {
+          "claim_field": "COMPANY_NAME",
+          "claim_value": "Northstar Interiors"
+        }
+      ],
+      "expected_qualification_outcome": "NEEDS_REVIEW",
+      "expected_recommendation_type": "REVIEW_LEAD_INTELLIGENCE"
+    },
+    {
+      "id": "incomplete-foundation",
+      "lead": {
+        "name": "Future Furniture",
+        "company": "Future Furniture"
+      },
+      "expected_qualification_outcome": "NEEDS_MORE_DATA",
+      "expected_recommendation_type": "GATHER_MORE_DATA"
+    }
+  ]
+}

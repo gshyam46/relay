@@ -1,0 +1,183 @@
+import { createHash } from "node:crypto";
+import { LocalRecommendationAgent } from "./localRecommendationAgent.js";
+import {
+  collectRecommendationEvidenceRefs,
+  INTELLIGENCE_RECOMMENDATION_PIPELINE_VERSION,
+  INTELLIGENCE_RECOMMENDATION_STATUS,
+  validateIntelligenceRecommendationOutput
+} from "./intelligenceRecommendationContract.js";
+
+export class IntelligenceRecommendationService {
+  constructor({
+    recommendationRepository,
+    synthesisService,
+    intelligenceRepository,
+    auditRepository = null,
+    recommendationAgent = new LocalRecommendationAgent()
+  }) {
+    this.recommendationRepository = recommendationRepository;
+    this.synthesisService = synthesisService;
+    this.intelligenceRepository = intelligenceRepository;
+    this.auditRepository = auditRepository;
+    this.recommendationAgent = recommendationAgent;
+  }
+
+  runForLead(lead, { simulate_failure_stage = null } = {}) {
+    const input = this.buildInput(lead);
+    const existing = this.recommendationRepository.findByFingerprint({
+      organization_id: lead.organization_id,
+      lead_id: lead.id,
+      input_fingerprint: input.input_fingerprint,
+      pipeline_version: INTELLIGENCE_RECOMMENDATION_PIPELINE_VERSION
+    });
+    if (existing?.status === INTELLIGENCE_RECOMMENDATION_STATUS.READY) {
+      return this.recommendationRepository.runDetail(existing);
+    }
+
+    const run =
+      existing ||
+      this.recommendationRepository.createDraft({
+        organization_id: lead.organization_id,
+        lead_id: lead.id,
+        synthesis_id: input.synthesis.id,
+        snapshot_id: input.snapshot.id,
+        pipeline_version: INTELLIGENCE_RECOMMENDATION_PIPELINE_VERSION,
+        input_fingerprint: input.input_fingerprint
+      });
+
+    try {
+      if (simulate_failure_stage === "AFTER_DRAFT") {
+        throw new Error("Simulated intelligence recommendation failure after draft run.");
+      }
+
+      const output = this.recommendationAgent.recommend({
+        lead,
+        snapshot: input.snapshot,
+        synthesis: input.synthesis
+      });
+      if (simulate_failure_stage === "AFTER_RECOMMENDATION") {
+        throw new Error("Simulated intelligence recommendation failure after output generation.");
+      }
+
+      const errors = validateIntelligenceRecommendationOutput(output);
+      if (errors.length > 0) {
+        throw new Error(errors.join(" "));
+      }
+
+      const finalized = this.recommendationRepository.markReady(run.id, {
+        priority: output.priority,
+        segment: output.segment,
+        personalization_context: output.personalization_context,
+        recommendation: output.recommendation,
+        evidence_refs: collectRecommendationEvidenceRefs(output)
+      });
+      this.recommendationRepository.supersedeReadyRuns({
+        organization_id: lead.organization_id,
+        lead_id: lead.id,
+        except_run_id: finalized.id
+      });
+      this.auditRepository?.record({
+        organization_id: lead.organization_id,
+        lead_id: lead.id,
+        event_type: "LeadIntelligenceRecommendationUpdated",
+        message: "Evidence-grounded Lead Intelligence recommendation generated.",
+        metadata: {
+          recommendation_id: finalized.id,
+          synthesis_id: input.synthesis.id,
+          snapshot_id: input.snapshot.id,
+          recommended_step: output.recommendation.step,
+          segment: output.segment.type,
+          priority_score: output.priority.score
+        }
+      });
+      return this.recommendationRepository.runDetail(finalized);
+    } catch (error) {
+      this.recommendationRepository.markFailed(run.id, error);
+      throw error;
+    }
+  }
+
+  currentForLead(lead) {
+    const input = this.tryBuildInput(lead);
+    if (!input.ready) {
+      return {
+        recommendation_status: "NOT_READY",
+        reason: input.reason,
+        intelligence_recommendation: null
+      };
+    }
+    const run = this.recommendationRepository.findByFingerprint({
+      organization_id: lead.organization_id,
+      lead_id: lead.id,
+      input_fingerprint: input.value.input_fingerprint,
+      pipeline_version: INTELLIGENCE_RECOMMENDATION_PIPELINE_VERSION
+    });
+    return {
+      recommendation_status: run?.status || "NOT_RUN",
+      reason: run ? null : "No intelligence recommendation has been generated for the current synthesis.",
+      intelligence_recommendation:
+        run?.status === INTELLIGENCE_RECOMMENDATION_STATUS.READY ? this.recommendationRepository.runDetail(run) : null
+    };
+  }
+
+  historyForLead(lead) {
+    return this.recommendationRepository.historyForLead(lead.id, lead.organization_id).map((run) => {
+      return this.recommendationRepository.runDetail(run);
+    });
+  }
+
+  buildInput(lead) {
+    const result = this.tryBuildInput(lead);
+    if (!result.ready) {
+      throw new Error(result.reason);
+    }
+    return result.value;
+  }
+
+  tryBuildInput(lead) {
+    const synthesisState = this.synthesisService.currentForLead(lead);
+    const synthesis = synthesisState.synthesis;
+    if (!synthesis || synthesis.status !== "READY") {
+      return {
+        ready: false,
+        reason: "Run Lead Intelligence synthesis before recommendation."
+      };
+    }
+    const snapshot = this.intelligenceRepository.snapshotDetail(
+      this.intelligenceRepository.getSnapshot(synthesis.snapshot_id),
+      lead.organization_id
+    );
+    if (!snapshot || snapshot.status !== "READY") {
+      return {
+        ready: false,
+        reason: "Run Lead Intelligence before recommendation."
+      };
+    }
+    return {
+      ready: true,
+      value: {
+        lead,
+        snapshot,
+        synthesis,
+        input_fingerprint: recommendationFingerprint({ lead, snapshot, synthesis })
+      }
+    };
+  }
+}
+
+function recommendationFingerprint({ lead, snapshot, synthesis }) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        lead_id: lead.id,
+        organization_id: lead.organization_id,
+        snapshot_id: snapshot.id,
+        synthesis_id: synthesis.id,
+        synthesis_version: synthesis.version,
+        synthesis_evidence_refs: synthesis.evidence_refs,
+        synthesis_qualification: synthesis.qualification,
+        synthesis_recommendation: synthesis.recommendation
+      })
+    )
+    .digest("hex");
+}

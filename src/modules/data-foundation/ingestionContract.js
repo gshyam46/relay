@@ -1,0 +1,35 @@
+export const IMPORT_STATES = Object.freeze({
+  UPLOADED: "UPLOADED",
+  PREVIEWED: "PREVIEWED",
+  READY_TO_COMMIT: "READY_TO_COMMIT",
+  COMMITTING: "COMMITTING",
+  COMMITTED: "COMMITTED",
+  FAILED: "FAILED"
+});
+
+export const IMPORT_ADAPTERS = Object.freeze({
+  CSV: "CSV"
+});
+
+export const PHONE_REGIONS = new Set(["IN", "US", "INTERNATIONAL_ONLY"]);
+
+export const IMPORT_VALIDATION_STATES = Object.freeze({
+  VALID: "VALID",
+  INVALID: "INVALID"
+});
+
+export const ISSUE_SEVERITIES = Object.freeze({
+  ERROR: "ERROR",
+  WARNING: "WARNING"
+});
+
+export const DUPLICATE_TYPES = Object.freeze({
+  STRONG_EMAIL: "STRONG_EMAIL",
+  STRONG_PHONE: "STRONG_PHONE",
+  POSSIBLE_NAME_COMPANY: "POSSIBLE_NAME_COMPANY"
+});
+
+export const DUPLICATE_CONFIDENCE = Object.freeze({
+  STRONG: "STRONG",
+  POSSIBLE: "POSSIBLE"
+});

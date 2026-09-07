@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI Lead Intelligence & Outbound Automation</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="brand-block">
+          <p class="eyebrow">Lead Intelligence Workspace</p>
+          <h1>AI Lead Intelligence & Outbound Automation</h1>
+        </div>
+
+        <nav class="nav-list" aria-label="Product areas">
+          <button class="nav-item active" data-view="Overview" type="button">Overview</button>
+          <button class="nav-item" data-view="Leads" type="button">Leads</button>
+          <button class="nav-item" data-view="Intelligence" type="button">Intelligence</button>
+          <button class="nav-item" data-view="Outbound" type="button">Outbound</button>
+          <button class="nav-item" data-view="Activity" type="button">Activity</button>
+        </nav>
+
+        <section class="workspace-switcher" aria-label="Workspace">
+          <div>
+            <span class="label-text">Workspace</span>
+            <strong id="workspace-current">No workspace selected</strong>
+          </div>
+          <select id="organization-select" aria-label="Select workspace"></select>
+          <details class="workspace-create">
+            <summary>Create</summary>
+            <form id="organization-form" class="stacked-form">
+              <label>
+                Workspace name
+                <input id="organization-name" name="organization_name" value="Demo Workspace" required>
+              </label>
+              <button type="submit">Create workspace</button>
+            </form>
+          </details>
+        </section>
+      </header>
+
+      <section class="workspace">
+        <div id="status-banner" class="status-banner" role="status">Loading workspace...</div>
+        <div id="organization-state" class="state-note"></div>
+
+        <section class="product-view active" data-view-panel="Overview">
+          <section class="overview-grid" id="overview"></section>
+        </section>
+
+        <section class="product-view" data-view-panel="Leads">
+          <section class="lead-page">
+            <section class="lead-board" id="lead-board">
+              <div class="page-header">
+                <div>
+                  <h2>Leads</h2>
+                  <p>Manage and prepare your leads for intelligence and outreach.</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="show-import-leads" type="button">Import leads</button>
+                  <button id="show-add-lead" class="secondary-button" type="button">Add lead</button>
+                </div>
+              </div>
+
+              <form id="lead-form" class="stacked-form compact-form" hidden>
+                <label>
+                  Lead name
+                  <input id="lead-name" name="name" value="Priya Sharma" required>
+                </label>
+                <label>
+                  Email
+                  <input id="lead-email" name="email" value="priya@example.com" type="email">
+                </label>
+                <label>
+                  Phone
+                  <input id="lead-phone" name="phone" value="+91 98765 43210">
+                </label>
+                <label>
+                  Company
+                  <input id="lead-company" name="company" value="Northstar Interiors">
+                </label>
+                <button type="submit">Create lead</button>
+              </form>
+
+              <section class="lead-toolbar" aria-label="Lead filters">
+                <label class="search-field">
+                  Search leads
+                  <input id="lead-search" placeholder="Name, company, email, or phone">
+                </label>
+                <label>
+                  Source
+                  <select id="source-filter">
+                    <option value="">All sources</option>
+                    <option value="MANUAL">Manual</option>
+                    <option value="CSV">CSV</option>
+                  </select>
+                </label>
+                <label>
+                  Status
+                  <select id="status-filter">
+                    <option value="">All statuses</option>
+                    <option value="NEW">New</option>
+                    <option value="NORMALIZED">Data normalized</option>
+                    <option value="ACTIVE">Active</option>
+                    <option value="FAILED">Failed</option>
+                    <option value="SUPPRESSED">Suppressed</option>
+                    <option value="OPTED_OUT">Opted out</option>
+                  </select>
+                </label>
+                <label>
+                  Intelligence
+                  <select id="intelligence-filter">
+                    <option value="">All intelligence states</option>
+                    <option value="NOT_ANALYZED">Not analyzed</option>
+                    <option value="READY">Ready</option>
+                    <option value="NEEDS_MORE_DATA">Needs more information</option>
+                  </select>
+                </label>
+                <label>
+                  Attention
+                  <select id="attention-filter">
+                    <option value="">All leads</option>
+                    <option value="NEEDS_ATTENTION">Needs attention</option>
+                    <option value="DUPLICATE">Possible duplicates</option>
+                    <option value="READY_FOR_OUTBOUND_REVIEW">Ready for outbound review</option>
+                  </select>
+                </label>
+              </section>
+
+              <div class="lead-table-header" aria-hidden="true">
+                <span>Lead</span>
+                <span>Company</span>
+                <span>Contact</span>
+                <span>Lead status</span>
+                <span>Intelligence</span>
+                <span>Next step</span>
+              </div>
+              <div id="lead-list" class="lead-list" aria-live="polite"></div>
+
+              <section class="import-history">
+                <div class="section-heading">
+                  <h3>Import history</h3>
+                </div>
+                <div id="import-history" class="detail-empty">No imports yet.</div>
+              </section>
+            </section>
+
+            <section class="import-flow" id="import-flow" hidden>
+              <div class="page-header">
+                <div>
+                  <h2>Import leads</h2>
+                  <p>Bring in your existing lead data. We'll check, normalize, and flag potential duplicates before anything is added.</p>
+                </div>
+                <button id="close-import-flow" class="secondary-button" type="button">Back to leads</button>
+              </div>
+              <ol id="import-steps" class="step-indicator" aria-label="Import progress">
+                <li data-import-step="upload">1 Upload</li>
+                <li data-import-step="review">2 Review</li>
+                <li data-import-step="complete">3 Complete</li>
+              </ol>
+              <form id="import-form" class="stacked-form import-upload">
+                <label>
+                  CSV file
+                  <input id="csv-file" name="csv_file" type="file" accept=".csv,text/csv" required>
+                </label>
+                <fieldset>
+                  <legend>Phone number region</legend>
+                  <p class="section-note">Used to normalize local phone numbers during import.</p>
+                  <label class="radio-row"><input name="default_phone_region" type="radio" value="IN" checked> India (+91)</label>
+                  <label class="radio-row"><input name="default_phone_region" type="radio" value="US"> United States (+1)</label>
+                  <label class="radio-row"><input name="default_phone_region" type="radio" value="INTERNATIONAL_ONLY"> International only</label>
+                </fieldset>
+                <button type="submit">Continue to review</button>
+              </form>
+              <section id="import-preview" class="import-preview" hidden></section>
+            </section>
+
+            <section class="detail-panel">
+              <div class="section-heading">
+                <h3>Lead detail</h3>
+              </div>
+              <div id="lead-detail" class="detail-empty">Select or create a lead.</div>
+            </section>
+          </section>
+        </section>
+
+        <section class="product-view" data-view-panel="Intelligence">
+          <section class="panel">
+            <div class="page-header">
+              <div>
+                <h3>Lead Intelligence</h3>
+                <p>Understand what we know about this lead and what should happen next.</p>
+              </div>
+              <div class="inline-actions">
+                <button id="enroll-lead-sequence" class="secondary-button" type="button">Enroll follow-up</button>
+                <button id="create-follow-up-sequence" class="secondary-button" type="button">Create sequence</button>
+                <button id="run-intelligence-recommendation" type="button">Prepare recommendation</button>
+                <button id="run-synthesis" type="button">Prepare insights</button>
+                <button id="refresh-intelligence" class="secondary-button" type="button">Refresh intelligence</button>
+              </div>
+            </div>
+            <div id="intelligence-view" class="detail-empty">Select a lead to inspect what the system knows.</div>
+          </section>
+        </section>
+
+        <section class="product-view" data-view-panel="Outbound">
+          <section class="panel">
+            <div class="page-header">
+              <div>
+                <h3>Outbound</h3>
+                <p>Decide what should happen next before anything is sent.</p>
+              </div>
+              <button id="plan-next-best-action" type="button">Review recommendation</button>
+            </div>
+            <div id="outbound-view" class="detail-empty">Select a lead to inspect recommended action and outbound activity.</div>
+          </section>
+        </section>
+
+        <section class="product-view" data-view-panel="Activity">
+          <section class="panel">
+            <h3>Activity</h3>
+            <div id="activity-view" class="detail-empty">Workspace activity will appear here.</div>
+          </section>
+        </section>
+
+        <section class="panel developer-panel">
+          <details>
+            <summary>Developer / Test Controls</summary>
+            <div class="developer-controls">
+              <button id="run-worker" type="button">Run worker</button>
+              <button id="add-retry-action" type="button">Add retry action</button>
+              <button id="add-blocked-action" type="button">Add blocked action</button>
+              <button id="simulate-callback" type="button">Simulate callback</button>
+              <button id="run-due-workflows" type="button">Run due workflows</button>
+              <button id="simulate-inbound-question" type="button">Simulate question</button>
+              <button id="simulate-inbound-positive" type="button">Simulate positive reply</button>
+              <button id="simulate-inbound-opt-out" type="button">Simulate opt-out</button>
+            </div>
+            <pre id="developer-output" class="log">No developer action yet.</pre>
+          </details>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

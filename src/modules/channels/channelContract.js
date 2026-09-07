@@ -1,0 +1,59 @@
+export const CHANNEL_TYPES = {
+  EMAIL: "EMAIL",
+  WHATSAPP: "WHATSAPP",
+  SMS: "SMS",
+  VOICE: "VOICE",
+  HUMAN_TASK: "HUMAN_TASK",
+  CRM: "CRM"
+};
+
+export const CHANNEL_DIRECTION = {
+  OUTBOUND: "OUTBOUND",
+  INBOUND: "INBOUND"
+};
+
+export const CHANNEL_MESSAGE_STATUS = {
+  QUEUED: "QUEUED",
+  SENT: "SENT",
+  DELIVERED: "DELIVERED",
+  FAILED: "FAILED",
+  RECEIVED: "RECEIVED",
+  COMPLETED: "COMPLETED"
+};
+
+export const INBOUND_EVENT_TYPES = {
+  POSITIVE_REPLY: "POSITIVE_REPLY",
+  NEGATIVE_REPLY: "NEGATIVE_REPLY",
+  QUESTION: "QUESTION",
+  OPT_OUT: "OPT_OUT",
+  UNKNOWN: "UNKNOWN"
+};
+
+export const FOLLOW_UP_STATUS = {
+  PLANNED: "PLANNED",
+  DUE: "DUE",
+  COMPLETED: "COMPLETED",
+  CANCELLED: "CANCELLED",
+  BLOCKED: "BLOCKED"
+};
+
+export function channelForActionType(actionType) {
+  const map = {
+    SEND_EMAIL: CHANNEL_TYPES.EMAIL,
+    SEND_WHATSAPP: CHANNEL_TYPES.WHATSAPP,
+    CREATE_HUMAN_TASK: CHANNEL_TYPES.HUMAN_TASK,
+    UPDATE_CRM: CHANNEL_TYPES.CRM,
+    RUN_RESEARCH: CHANNEL_TYPES.HUMAN_TASK,
+    WAIT: CHANNEL_TYPES.HUMAN_TASK
+  };
+  return map[actionType] || CHANNEL_TYPES.HUMAN_TASK;
+}
+
+export function validateChannel(channel) {
+  return Object.values(CHANNEL_TYPES).includes(channel);
+}
+
+export function validateInboundEventType(eventType) {
+  return Object.values(INBOUND_EVENT_TYPES).includes(eventType);
+}
+
