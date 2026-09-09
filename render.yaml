@@ -1,0 +1,80 @@
+# Render blueprint for the Relay staging service.
+#
+# Apply with: Render dashboard -> New -> Blueprint -> point at this repository.
+#
+# The database is deliberately NOT defined here. Supabase hosts Postgres, so
+# DATABASE_URL is set as a Render secret rather than provisioned by Render. See
+# docs/DEPLOYMENT.md for the exact values and the order to do things in.
+
+services:
+  - type: web
+    name: relay-staging
+    runtime: node
+    plan: starter
+    region: singapore
+    branch: mvp
+
+    # The client is built here because the server serves client/dist. Skipping
+    # this leaves the app serving a stale bundle, or nothing at all.
+    #
+    # --include=dev on the client install is deliberate: vite and typescript are
+    # devDependencies, and npm omits those whenever NODE_ENV is "production".
+    # NODE_ENV is "staging" here so they would install anyway, but relying on
+    # that would make the build break the day this is copied to production.
+    buildCommand: npm ci && npm --prefix client ci --include=dev && npm --prefix client run build
+
+    # Migrations run BEFORE the new instance replaces the old one, so a bad
+    # migration fails the deploy instead of taking the service down. The script
+    # exits non-zero if anything is still pending.
+    #
+    # preDeployCommand requires a paid instance type; it is unavailable on the
+    # free plan, which is one of the reasons this uses Starter.
+    preDeployCommand: npm run db:migrate
+
+    startCommand: npm start
+
+    # Readiness, not liveness: this also reports 503 while migrations are
+    # pending, so a half-deployed instance never receives traffic.
+    healthCheckPath: /api/health/ready
+
+    autoDeploy: false
+
+    envVars:
+      - key: NODE_ENV
+        value: staging
+
+      # Render injects PORT; config.js reads it. Listed for clarity only.
+      - key: NODE_VERSION
+        value: "24"
+
+      # Supabase connection string — the POOLER one (port 6543), because a web
+      # service opens many short-lived connections and Supabase's direct port
+      # exhausts quickly. Set in the dashboard; never commit it.
+      - key: DATABASE_URL
+        sync: false
+
+      - key: LOG_LEVEL
+        value: info
+      - key: LOG_FORMAT
+        value: json
+
+      # Render terminates TLS and forwards over plain HTTP, so the original
+      # scheme only survives in X-Forwarded-Proto.
+      - key: TRUST_PROXY
+        value: "true"
+      - key: FORCE_SECURE_COOKIES
+        value: "true"
+
+      # Single instance for staging, so the in-process worker is correct here.
+      # Before scaling to more than one instance, set this to false on the extra
+      # instances (or split the worker into its own service) — otherwise several
+      # instances race to execute the same actions.
+      - key: WORKER_ENABLED
+        value: "true"
+
+      # Optional. Without it the deterministic local agents are used and the
+      # product still works end to end.
+      - key: LLM_PROVIDER
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
