@@ -22,6 +22,6 @@ if (existsSync(databaseFile)) {
   console.log(`Backed up existing local database to ${backupFile}`);
 }
 
-const db = createDatabase(databaseFile);
-db.close();
+const db = await createDatabase(databaseFile);
+await db.close();
 console.log(`Created clean local development database at ${databaseFile}`);

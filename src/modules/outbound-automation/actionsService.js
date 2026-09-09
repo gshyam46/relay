@@ -5,10 +5,10 @@ export class ActionsService {
     this.auditRepository = auditRepository;
   }
 
-  planInitialAction(lead) {
-    const snapshot = this.intelligenceRepository.latestForLead(lead.id);
+  async planInitialAction(lead) {
+    const snapshot = await this.intelligenceRepository.latestForLead(lead.id);
     const type = snapshot?.next_best_action || "CREATE_HUMAN_TASK";
-    const action = this.actionsRepository.createAction({
+    const action = await this.actionsRepository.createAction({
       organization_id: lead.organization_id,
       lead_id: lead.id,
       type,
@@ -20,7 +20,7 @@ export class ActionsService {
       }
     });
 
-    this.auditRepository.record({
+    await this.auditRepository.record({
       organization_id: lead.organization_id,
       lead_id: lead.id,
       action_id: action.id,
@@ -32,16 +32,16 @@ export class ActionsService {
     return action;
   }
 
-  createManualAction(lead, { type = "SEND_EMAIL", mock_behavior = "SUCCESS" } = {}) {
-    return this.actionsRepository.createAction({
+  async createManualAction(lead, { type = "SEND_EMAIL", mock_behavior = "SUCCESS" } = {}) {
+    return await this.actionsRepository.createAction({
       organization_id: lead.organization_id,
       lead_id: lead.id,
       type,
       idempotency_key: `lead:${lead.id}:manual:${type}:${mock_behavior}`,
       payload: {
-        reason: "Manual M0 test action.",
+        reason: "Manually sent from the lead page.",
         mock_behavior,
-        message: `Manual test action for ${lead.name}.`
+        message: `Outreach message to ${lead.name || "the lead"}.`
       }
     });
   }

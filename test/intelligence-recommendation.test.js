@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createApp, createServices } from "../src/api/app.js";
+import { createServices } from "../src/api/app.js";
 import { createDatabase } from "../src/database/database.js";
+import { startClient } from "./helpers/testClient.js";
 import { validateIntelligenceRecommendationOutput } from "../src/modules/lead-intelligence/intelligenceRecommendationContract.js";
 
-test("intelligence recommendation contract requires grounded priority, segment, personalization, and recommendation", () => {
+test("intelligence recommendation contract requires grounded priority, segment, personalization, and recommendation", async () => {
   const errors = validateIntelligenceRecommendationOutput({
     priority: { score: 101, evidence_refs: [] },
     segment: { type: "HOT_LEAD", evidence_refs: [] },
@@ -23,7 +24,7 @@ test("intelligence recommendation contract requires grounded priority, segment, 
 
 test("intelligence recommendation requires a current synthesis", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Recommendation Not Ready Org" });
+  const organization = await client.register("Recommendation Not Ready Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Not Ready Lead",
@@ -37,10 +38,10 @@ test("intelligence recommendation requires a current synthesis", async (t) => {
   const current = await client.get(
     `/api/leads/${leadResponse.lead.id}/intelligence-recommendation?organization_id=${organization.organization.id}`
   );
-  const run = await fetch(`${client.baseUrl}/api/leads/${leadResponse.lead.id}/intelligence-recommendation/run`, {
+  const run = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/intelligence-recommendation/run`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ organization_id: organization.organization.id })
+    body: JSON.stringify({})
   });
 
   assert.equal(current.recommendation_status, "NOT_READY");
@@ -51,7 +52,7 @@ test("intelligence recommendation requires a current synthesis", async (t) => {
 
 test("intelligence recommendation produces priority, segment, and personalization without creating actions", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Recommendation Org" });
+  const organization = await client.register("Recommendation Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Priya Sharma",
@@ -79,37 +80,37 @@ test("intelligence recommendation produces priority, segment, and personalizatio
   assert.equal(result.intelligence_recommendation.personalization_context.some((fact) => fact.label === "Company"), true);
   assert.equal(result.intelligence_recommendation.evidence_refs.some((ref) => ref.startsWith("snapshot_evidence:")), true);
   assert.equal(current.intelligence_recommendation.id, result.intelligence_recommendation.id);
-  assert.equal(client.db.all("SELECT * FROM actions WHERE lead_id = ?", [leadResponse.lead.id]).length, 0);
+  assert.equal((await client.db.all("SELECT * FROM actions WHERE lead_id = ?", [leadResponse.lead.id])).length, 0);
 });
 
-test("incomplete synthesis produces gather-more-data recommendation and low attention priority", () => {
-  const db = createDatabase(":memory:");
+test("incomplete synthesis produces gather-more-data recommendation and low attention priority", async () => {
+  const db = await createDatabase(":memory:");
   const services = createServices(db);
   try {
-    const organization = services.leadsRepository.createOrganization({ name: "Recommendation Needs Data Org" });
-    const lead = services.leadsRepository.createLead({
+    const organization = await services.leadsRepository.createOrganization({ name: "Recommendation Needs Data Org" });
+    const lead = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Future Furniture",
       company: "Future Furniture",
       source: "MANUAL"
     });
-    services.intelligenceService.runForLead(lead);
-    services.synthesisService.runForLead(lead);
+    await services.intelligenceService.runForLead(lead);
+    await services.synthesisService.runForLead(lead);
 
-    const recommendation = services.intelligenceRecommendationService.runForLead(lead);
+    const recommendation = await services.intelligenceRecommendationService.runForLead(lead);
 
     assert.equal(recommendation.segment.type, "NEEDS_DATA");
     assert.equal(recommendation.recommendation.step, "GATHER_MORE_DATA");
     assert.equal(recommendation.priority.score <= 35, true);
-    assert.equal(db.all("SELECT * FROM actions WHERE lead_id = ?", [lead.id]).length, 0);
+    assert.equal((await db.all("SELECT * FROM actions WHERE lead_id = ?", [lead.id])).length, 0);
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
 test("duplicate warning produces duplicate-candidate recommendation instead of outbound preparation", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Recommendation Duplicate Org" });
+  const organization = await client.register("Recommendation Duplicate Org");
   await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Existing Lead",
@@ -144,7 +145,7 @@ test("duplicate warning produces duplicate-candidate recommendation instead of o
 
 test("repeated intelligence recommendation run is idempotent for the same synthesis", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Recommendation Idempotency Org" });
+  const organization = await client.register("Recommendation Idempotency Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Asha Mehta",
@@ -166,45 +167,45 @@ test("repeated intelligence recommendation run is idempotent for the same synthe
   });
 
   assert.equal(first.intelligence_recommendation.id, second.intelligence_recommendation.id);
-  assert.equal(client.db.all("SELECT * FROM intelligence_recommendation_runs WHERE lead_id = ?", [leadResponse.lead.id]).length, 1);
+  assert.equal((await client.db.all("SELECT * FROM intelligence_recommendation_runs WHERE lead_id = ?", [leadResponse.lead.id])).length, 1);
 });
 
-test("failed intelligence recommendation run can retry safely", () => {
-  const db = createDatabase(":memory:");
+test("failed intelligence recommendation run can retry safely", async () => {
+  const db = await createDatabase(":memory:");
   const services = createServices(db);
   try {
-    const organization = services.leadsRepository.createOrganization({ name: "Recommendation Failure Org" });
-    const lead = services.leadsRepository.createLead({
+    const organization = await services.leadsRepository.createOrganization({ name: "Recommendation Failure Org" });
+    const lead = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Failure Lead",
       email: "failure-rec@example.com",
       company: "Failure Co",
       source: "MANUAL"
     });
-    services.intelligenceService.runForLead(lead);
-    services.synthesisService.runForLead(lead);
+    await services.intelligenceService.runForLead(lead);
+    await services.synthesisService.runForLead(lead);
 
-    assert.throws(
-      () =>
-        services.intelligenceRecommendationService.runForLead(lead, {
+    await assert.rejects(
+      async () =>
+        await services.intelligenceRecommendationService.runForLead(lead, {
           simulate_failure_stage: "AFTER_RECOMMENDATION"
         }),
       /Simulated intelligence recommendation failure/
     );
-    assert.equal(db.get("SELECT status FROM intelligence_recommendation_runs WHERE lead_id = ?", [lead.id]).status, "FAILED");
+    assert.equal((await db.get("SELECT status FROM intelligence_recommendation_runs WHERE lead_id = ?", [lead.id])).status, "FAILED");
 
-    const retried = services.intelligenceRecommendationService.runForLead(lead);
+    const retried = await services.intelligenceRecommendationService.runForLead(lead);
 
     assert.equal(retried.status, "READY");
-    assert.equal(db.all("SELECT * FROM intelligence_recommendation_runs WHERE lead_id = ?", [lead.id]).length, 1);
+    assert.equal((await db.all("SELECT * FROM intelligence_recommendation_runs WHERE lead_id = ?", [lead.id])).length, 1);
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
 test("new synthesis creates a new intelligence recommendation version and preserves history", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Recommendation Version Org" });
+  const organization = await client.register("Recommendation Version Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Devika Iyer",
@@ -245,8 +246,7 @@ test("new synthesis creates a new intelligence recommendation version and preser
 
 test("intelligence recommendation APIs are organization scoped", async (t) => {
   const client = await startClient(t);
-  const firstOrg = await client.post("/api/organizations", { name: "Recommendation Tenant A" });
-  const secondOrg = await client.post("/api/organizations", { name: "Recommendation Tenant B" });
+  const firstOrg = await client.register("Recommendation Tenant A");
   const leadResponse = await client.post("/api/leads", {
     organization_id: firstOrg.organization.id,
     name: "Tenant Lead",
@@ -260,18 +260,21 @@ test("intelligence recommendation APIs are organization scoped", async (t) => {
     organization_id: firstOrg.organization.id
   });
 
-  const wrongRead = await fetch(
-    `${client.baseUrl}/api/leads/${leadResponse.lead.id}/intelligence-recommendation?organization_id=${secondOrg.organization.id}`
-  );
-  const wrongRun = await fetch(`${client.baseUrl}/api/leads/${leadResponse.lead.id}/intelligence-recommendation/run`, {
+  await client.register("Recommendation Tenant B"); // switches the active session to org B
+
+  const wrongRead = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/intelligence-recommendation`);
+  const wrongRun = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/intelligence-recommendation/run`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ organization_id: secondOrg.organization.id })
+    body: JSON.stringify({})
   });
 
   assert.equal(wrongRead.status, 404);
   assert.equal(wrongRun.status, 404);
-  assert.equal(client.db.all("SELECT * FROM intelligence_recommendation_runs WHERE organization_id = ?", [secondOrg.organization.id]).length, 0);
+  assert.equal(
+    (await client.db.all("SELECT r.* FROM intelligence_recommendation_runs r WHERE r.lead_id = ?", [leadResponse.lead.id])).length,
+    0 // no recommendation run was ever created for this lead — org B's attempt didn't create one either
+  );
 });
 
 test("intelligence recommendation state survives application restart", async (t) => {
@@ -282,27 +285,29 @@ test("intelligence recommendation state survives application restart", async (t)
 
   try {
     firstClient = await startClient(t, databaseFile, { autoCleanup: false });
-    const organization = await firstClient.post("/api/organizations", { name: "Recommendation Restart Org" });
+    const registered = await firstClient.register("Recommendation Restart Org");
+    const organization = registered.organization;
     const leadResponse = await firstClient.post("/api/leads", {
-      organization_id: organization.organization.id,
+      organization_id: organization.id,
       name: "Restart Lead",
       email: "restart-rec@example.com",
       company: "Restart Co"
     });
     await firstClient.post(`/api/leads/${leadResponse.lead.id}/intelligence/run`, {
-      organization_id: organization.organization.id
+      organization_id: organization.id
     });
     await firstClient.post(`/api/leads/${leadResponse.lead.id}/synthesis/run`, {
-      organization_id: organization.organization.id
+      organization_id: organization.id
     });
     const generated = await firstClient.post(`/api/leads/${leadResponse.lead.id}/intelligence-recommendation/run`, {
-      organization_id: organization.organization.id
+      organization_id: organization.id
     });
     await firstClient.stop();
 
     secondClient = await startClient(t, databaseFile, { autoCleanup: false });
+    await secondClient.login(registered.user.email);
     const persisted = await secondClient.get(
-      `/api/leads/${leadResponse.lead.id}/intelligence-recommendation?organization_id=${organization.organization.id}`
+      `/api/leads/${leadResponse.lead.id}/intelligence-recommendation?organization_id=${organization.id}`
     );
 
     assert.equal(persisted.intelligence_recommendation.id, generated.intelligence_recommendation.id);
@@ -326,54 +331,5 @@ function companyEvidence(overrides = {}) {
     confidence: "MEDIUM",
     metadata: { reviewed_by: "qa" },
     ...overrides
-  };
-}
-
-async function startClient(t, databaseFile = ":memory:", { autoCleanup = true } = {}) {
-  const db = createDatabase(databaseFile);
-  const server = createApp({ db });
-  let stopped = false;
-
-  await new Promise((resolve) => server.listen(0, resolve));
-  if (autoCleanup) {
-    t.after(() => stop());
-  }
-
-  const { port } = server.address();
-  const baseUrl = `http://127.0.0.1:${port}`;
-
-  async function stop() {
-    if (stopped) {
-      return;
-    }
-    stopped = true;
-    server.closeIdleConnections?.();
-    server.closeAllConnections?.();
-    await new Promise((resolve) => server.close(resolve));
-    db.close();
-  }
-
-  return {
-    baseUrl,
-    db,
-    stop,
-    async get(route) {
-      const response = await fetch(`${baseUrl}${route}`);
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    },
-    async post(route, body) {
-      const response = await fetch(`${baseUrl}${route}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    }
   };
 }

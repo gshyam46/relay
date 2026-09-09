@@ -8,7 +8,7 @@ export class ActionsRepository {
     this.db = db;
   }
 
-  createAction({
+  async createAction({
     organization_id,
     lead_id,
     type,
@@ -21,7 +21,7 @@ export class ActionsRepository {
     execution_mode = EXECUTION_MODE.SANDBOX,
     provider = "mock-n8n"
   }) {
-    const existing = this.getByIdempotencyKey(idempotency_key);
+    const existing = await this.getByIdempotencyKey(idempotency_key);
     if (existing) {
       return existing;
     }
@@ -45,7 +45,7 @@ export class ActionsRepository {
       updated_at: timestamp
     };
 
-    this.db.run(
+    await this.db.run(
       `INSERT INTO actions
           (id, organization_id, lead_id, type, status, payload_json, idempotency_key,
            next_best_action_plan_id, approval_requirement, execution_mode, provider, last_error,
@@ -72,56 +72,60 @@ export class ActionsRepository {
     return action;
   }
 
-  getByIdempotencyKey(idempotencyKey) {
-    return this.db.get("SELECT * FROM actions WHERE idempotency_key = ?", [idempotencyKey]);
+  async getByIdempotencyKey(idempotencyKey) {
+    return await this.db.get("SELECT * FROM actions WHERE idempotency_key = ?", [idempotencyKey]);
   }
 
-  getAction(id) {
-    return this.db.get("SELECT * FROM actions WHERE id = ?", [id]);
+  async getAction(id) {
+    return await this.db.get("SELECT * FROM actions WHERE id = ?", [id]);
   }
 
-  getActionForOrganization(id, organizationId) {
-    return this.db.get("SELECT * FROM actions WHERE id = ? AND organization_id = ?", [id, organizationId]);
+  async getActionForOrganization(id, organizationId) {
+    return await this.db.get("SELECT * FROM actions WHERE id = ? AND organization_id = ?", [id, organizationId]);
   }
 
-  getByPlanId(planId, organizationId) {
-    return this.db.get("SELECT * FROM actions WHERE next_best_action_plan_id = ? AND organization_id = ?", [
+  async getByPlanId(planId, organizationId) {
+    return await this.db.get("SELECT * FROM actions WHERE next_best_action_plan_id = ? AND organization_id = ?", [
       planId,
       organizationId
     ]);
   }
 
-  listForLead(leadId) {
-    return this.db.all("SELECT * FROM actions WHERE lead_id = ? ORDER BY created_at DESC", [leadId]);
+  async listForLead(leadId) {
+    return await this.db.all("SELECT * FROM actions WHERE lead_id = ? ORDER BY created_at DESC", [leadId]);
   }
 
-  listForLeadScoped(leadId, organizationId) {
-    return this.db.all("SELECT * FROM actions WHERE lead_id = ? AND organization_id = ? ORDER BY created_at DESC", [
+  async listForLeadScoped(leadId, organizationId) {
+    return await this.db.all("SELECT * FROM actions WHERE lead_id = ? AND organization_id = ? ORDER BY created_at DESC", [
       leadId,
       organizationId
     ]);
   }
 
-  nextExecutable(limit = 25) {
-    return this.db.all(
+  async nextExecutable(limit = 25) {
+    return await this.db.all(
       "SELECT * FROM actions WHERE status IN ('PLANNED', 'APPROVED', 'RETRYING') ORDER BY created_at ASC LIMIT ?",
       [limit]
     );
   }
 
-  updateStatus(id, status, { last_error = null } = {}) {
-    this.db.run("UPDATE actions SET status = ?, last_error = ?, updated_at = ? WHERE id = ?", [status, last_error, nowIso(), id]);
-    return this.getAction(id);
+  async listByStatus(status, limit = 50) {
+    return await this.db.all("SELECT * FROM actions WHERE status = ? ORDER BY created_at ASC LIMIT ?", [status, limit]);
   }
 
-  mergePayload(id, patch) {
-    const action = this.getAction(id);
+  async updateStatus(id, status, { last_error = null } = {}) {
+    await this.db.run("UPDATE actions SET status = ?, last_error = ?, updated_at = ? WHERE id = ?", [status, last_error, nowIso(), id]);
+    return await this.getAction(id);
+  }
+
+  async mergePayload(id, patch) {
+    const action = await this.getAction(id);
     const payload = {
       ...this.actionPayload(action),
       ...patch
     };
-    this.db.run("UPDATE actions SET payload_json = ?, updated_at = ? WHERE id = ?", [stringifyJson(payload), nowIso(), id]);
-    return this.getAction(id);
+    await this.db.run("UPDATE actions SET payload_json = ?, updated_at = ? WHERE id = ?", [stringifyJson(payload), nowIso(), id]);
+    return await this.getAction(id);
   }
 
   actionPayload(action) {

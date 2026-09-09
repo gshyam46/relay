@@ -7,7 +7,7 @@ export class InboundEventsRepository {
     this.db = db;
   }
 
-  create({
+  async create({
     organization_id,
     lead_id,
     channel,
@@ -15,10 +15,13 @@ export class InboundEventsRepository {
     provider_event_id,
     event_type,
     sentiment = null,
+    confidence = null,
+    reason = null,
+    suggested_next_step = null,
     payload = {},
     received_at = nowIso()
   }) {
-    const existing = this.getByProviderEventId({ organization_id, provider, provider_event_id });
+    const existing = await this.getByProviderEventId({ organization_id, provider, provider_event_id });
     if (existing) {
       return { inbound_event: existing, duplicate: true };
     }
@@ -32,15 +35,18 @@ export class InboundEventsRepository {
       provider_event_id,
       event_type,
       sentiment,
+      confidence,
+      reason,
+      suggested_next_step,
       payload_json: stringifyJson(payload),
       received_at,
       created_at: nowIso()
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO inbound_events
           (id, organization_id, lead_id, channel, provider, provider_event_id, event_type, sentiment,
-           payload_json, received_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           confidence, reason, suggested_next_step, payload_json, received_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         event.id,
         event.organization_id,
@@ -50,6 +56,9 @@ export class InboundEventsRepository {
         event.provider_event_id,
         event.event_type,
         event.sentiment,
+        event.confidence,
+        event.reason,
+        event.suggested_next_step,
         event.payload_json,
         event.received_at,
         event.created_at
@@ -58,23 +67,22 @@ export class InboundEventsRepository {
     return { inbound_event: this.eventDetail(event), duplicate: false };
   }
 
-  getByProviderEventId({ organization_id, provider, provider_event_id }) {
-    const row = this.db.get(
+  async getByProviderEventId({ organization_id, provider, provider_event_id }) {
+    const row = await this.db.get(
       "SELECT * FROM inbound_events WHERE organization_id = ? AND provider = ? AND provider_event_id = ?",
       [organization_id, provider, provider_event_id]
     );
     return row ? this.eventDetail(row) : null;
   }
 
-  listForLead(organizationId, leadId) {
-    return this.db
-      .all(
-        `SELECT * FROM inbound_events
+  async listForLead(organizationId, leadId) {
+    const rows = await this.db.all(
+      `SELECT * FROM inbound_events
          WHERE organization_id = ? AND lead_id = ?
          ORDER BY received_at DESC, created_at DESC`,
-        [organizationId, leadId]
-      )
-      .map((row) => this.eventDetail(row));
+      [organizationId, leadId]
+    );
+    return rows.map((row) => this.eventDetail(row));
   }
 
   eventDetail(row) {

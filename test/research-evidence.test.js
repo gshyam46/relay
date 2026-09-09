@@ -3,14 +3,15 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createApp, createServices } from "../src/api/app.js";
+import { createServices } from "../src/api/app.js";
 import { createDatabase } from "../src/database/database.js";
+import { startClient } from "./helpers/testClient.js";
 import {
   normalizeResearchEvidenceItem,
   validateResearchEvidenceItem
 } from "../src/modules/lead-intelligence/researchProviderContract.js";
 
-test("research evidence contract normalizes approved provider evidence", () => {
+test("research evidence contract normalizes approved provider evidence", async () => {
   const normalized = normalizeResearchEvidenceItem(
     {
       source_type: " approved_research ",
@@ -39,7 +40,7 @@ test("research evidence contract normalizes approved provider evidence", () => {
   assert.deepEqual(validateResearchEvidenceItem(normalized), []);
 });
 
-test("research evidence contract rejects unsupported fields and invalid source URLs", () => {
+test("research evidence contract rejects unsupported fields and invalid source URLs", async () => {
   const invalid = normalizeResearchEvidenceItem(
     {
       source_type: "APPROVED_RESEARCH",
@@ -59,7 +60,7 @@ test("research evidence contract rejects unsupported fields and invalid source U
 
 test("research evidence ingestion persists normalized evidence without mutating snapshots", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Research Evidence Org" });
+  const organization = await client.register("Research Evidence Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Priya Sharma",
@@ -87,13 +88,13 @@ test("research evidence ingestion persists normalized evidence without mutating 
   assert.equal(listed.evidence_items.length, 1);
   assert.equal(listed.evidence_items[0].claim_field, "COMPANY_NAME");
   assert.equal(after.intelligence.id, snapshot.intelligence.id);
-  assert.equal(client.db.all("SELECT * FROM intelligence_evidence WHERE lead_id = ?", [leadResponse.lead.id]).length > 0, true);
-  assert.equal(client.db.all("SELECT * FROM research_evidence_items WHERE lead_id = ?", [leadResponse.lead.id]).length, 1);
+  assert.equal((await client.db.all("SELECT * FROM intelligence_evidence WHERE lead_id = ?", [leadResponse.lead.id])).length > 0, true);
+  assert.equal((await client.db.all("SELECT * FROM research_evidence_items WHERE lead_id = ?", [leadResponse.lead.id])).length, 1);
 });
 
 test("research evidence ingestion is idempotent for repeated commit attempts", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Research Idempotency Org" });
+  const organization = await client.register("Research Idempotency Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Asha Mehta",
@@ -115,25 +116,25 @@ test("research evidence ingestion is idempotent for repeated commit attempts", a
 
   assert.equal(first.ingestion.id, second.ingestion.id);
   assert.equal(first.ingestion.evidence_items[0].id, second.ingestion.evidence_items[0].id);
-  assert.equal(client.db.all("SELECT * FROM research_evidence_ingestions WHERE lead_id = ?", [leadResponse.lead.id]).length, 1);
-  assert.equal(client.db.all("SELECT * FROM research_evidence_items WHERE lead_id = ?", [leadResponse.lead.id]).length, 1);
+  assert.equal((await client.db.all("SELECT * FROM research_evidence_ingestions WHERE lead_id = ?", [leadResponse.lead.id])).length, 1);
+  assert.equal((await client.db.all("SELECT * FROM research_evidence_items WHERE lead_id = ?", [leadResponse.lead.id])).length, 1);
 });
 
-test("failed research evidence ingestion can retry safely", () => {
-  const db = createDatabase(":memory:");
+test("failed research evidence ingestion can retry safely", async () => {
+  const db = await createDatabase(":memory:");
   const services = createServices(db);
   try {
-    const organization = services.leadsRepository.createOrganization({ name: "Research Failure Org" });
-    const lead = services.leadsRepository.createLead({
+    const organization = await services.leadsRepository.createOrganization({ name: "Research Failure Org" });
+    const lead = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Failure Lead",
       email: "failure@example.com",
       source: "MANUAL"
     });
 
-    assert.throws(
-      () =>
-        services.researchEvidenceService.ingestForLead({
+    await assert.rejects(
+      async () =>
+        await services.researchEvidenceService.ingestForLead({
           lead,
           provider_key: "APPROVED_MANUAL_RESEARCH",
           idempotency_key: "retry-research-evidence",
@@ -142,10 +143,10 @@ test("failed research evidence ingestion can retry safely", () => {
         }),
       /Simulated research evidence ingestion failure/
     );
-    assert.equal(db.get("SELECT state FROM research_evidence_ingestions WHERE lead_id = ?", [lead.id]).state, "FAILED");
-    assert.equal(db.all("SELECT * FROM research_evidence_items WHERE lead_id = ?", [lead.id]).length, 0);
+    assert.equal((await db.get("SELECT state FROM research_evidence_ingestions WHERE lead_id = ?", [lead.id])).state, "FAILED");
+    assert.equal((await db.all("SELECT * FROM research_evidence_items WHERE lead_id = ?", [lead.id])).length, 0);
 
-    const retried = services.researchEvidenceService.ingestForLead({
+    const retried = await services.researchEvidenceService.ingestForLead({
       lead,
       provider_key: "APPROVED_MANUAL_RESEARCH",
       idempotency_key: "retry-research-evidence",
@@ -154,31 +155,29 @@ test("failed research evidence ingestion can retry safely", () => {
 
     assert.equal(retried.state, "PERSISTED");
     assert.equal(retried.evidence_items.length, 1);
-    assert.equal(db.all("SELECT * FROM research_evidence_ingestions WHERE lead_id = ?", [lead.id]).length, 1);
-    assert.equal(db.all("SELECT * FROM research_evidence_items WHERE lead_id = ?", [lead.id]).length, 1);
+    assert.equal((await db.all("SELECT * FROM research_evidence_ingestions WHERE lead_id = ?", [lead.id])).length, 1);
+    assert.equal((await db.all("SELECT * FROM research_evidence_items WHERE lead_id = ?", [lead.id])).length, 1);
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
 test("research evidence APIs are organization scoped", async (t) => {
   const client = await startClient(t);
-  const firstOrg = await client.post("/api/organizations", { name: "Research Tenant A" });
-  const secondOrg = await client.post("/api/organizations", { name: "Research Tenant B" });
+  const firstOrg = await client.register("Research Tenant A");
   const leadResponse = await client.post("/api/leads", {
     organization_id: firstOrg.organization.id,
     name: "Tenant Lead",
     email: "tenant-research@example.com"
   });
 
-  const wrongList = await fetch(
-    `${client.baseUrl}/api/leads/${leadResponse.lead.id}/research-evidence?organization_id=${secondOrg.organization.id}`
-  );
-  const wrongIngest = await fetch(`${client.baseUrl}/api/leads/${leadResponse.lead.id}/research-evidence`, {
+  await client.register("Research Tenant B"); // switches the active session to org B
+
+  const wrongList = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/research-evidence`);
+  const wrongIngest = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/research-evidence`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      organization_id: secondOrg.organization.id,
       provider_key: "APPROVED_MANUAL_RESEARCH",
       idempotency_key: "wrong-tenant",
       evidence_items: [companyEvidence()]
@@ -187,7 +186,7 @@ test("research evidence APIs are organization scoped", async (t) => {
 
   assert.equal(wrongList.status, 404);
   assert.equal(wrongIngest.status, 404);
-  assert.equal(client.db.all("SELECT * FROM research_evidence_ingestions WHERE organization_id = ?", [secondOrg.organization.id]).length, 0);
+  assert.equal((await client.db.all("SELECT * FROM research_evidence_ingestions WHERE lead_id = ?", [leadResponse.lead.id])).length, 0);
 });
 
 test("research evidence state survives application restart", async (t) => {
@@ -198,7 +197,7 @@ test("research evidence state survives application restart", async (t) => {
 
   try {
     firstClient = await startClient(t, databaseFile, { autoCleanup: false });
-    const organization = await firstClient.post("/api/organizations", { name: "Research Restart Org" });
+    const organization = await firstClient.register("Research Restart Org");
     const leadResponse = await firstClient.post("/api/leads", {
       organization_id: organization.organization.id,
       name: "Restart Lead",
@@ -213,6 +212,7 @@ test("research evidence state survives application restart", async (t) => {
     await firstClient.stop();
 
     secondClient = await startClient(t, databaseFile, { autoCleanup: false });
+    await secondClient.login(organization.user.email);
     const listed = await secondClient.get(
       `/api/leads/${leadResponse.lead.id}/research-evidence?organization_id=${organization.organization.id}`
     );
@@ -237,54 +237,5 @@ function companyEvidence() {
     claim_value: "Northstar Interiors",
     confidence: "MEDIUM",
     metadata: { reviewed_by: "qa" }
-  };
-}
-
-async function startClient(t, databaseFile = ":memory:", { autoCleanup = true } = {}) {
-  const db = createDatabase(databaseFile);
-  const server = createApp({ db });
-  let stopped = false;
-
-  await new Promise((resolve) => server.listen(0, resolve));
-  if (autoCleanup) {
-    t.after(() => stop());
-  }
-
-  const { port } = server.address();
-  const baseUrl = `http://127.0.0.1:${port}`;
-
-  async function stop() {
-    if (stopped) {
-      return;
-    }
-    stopped = true;
-    server.closeIdleConnections?.();
-    server.closeAllConnections?.();
-    await new Promise((resolve) => server.close(resolve));
-    db.close();
-  }
-
-  return {
-    baseUrl,
-    db,
-    stop,
-    async get(route) {
-      const response = await fetch(`${baseUrl}${route}`);
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    },
-    async post(route, body) {
-      const response = await fetch(`${baseUrl}${route}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    }
   };
 }

@@ -22,9 +22,9 @@ export class IntelligenceRecommendationService {
     this.recommendationAgent = recommendationAgent;
   }
 
-  runForLead(lead, { simulate_failure_stage = null } = {}) {
-    const input = this.buildInput(lead);
-    const existing = this.recommendationRepository.findByFingerprint({
+  async runForLead(lead, { simulate_failure_stage = null } = {}) {
+    const input = await this.buildInput(lead);
+    const existing = await this.recommendationRepository.findByFingerprint({
       organization_id: lead.organization_id,
       lead_id: lead.id,
       input_fingerprint: input.input_fingerprint,
@@ -36,7 +36,7 @@ export class IntelligenceRecommendationService {
 
     const run =
       existing ||
-      this.recommendationRepository.createDraft({
+      await this.recommendationRepository.createDraft({
         organization_id: lead.organization_id,
         lead_id: lead.id,
         synthesis_id: input.synthesis.id,
@@ -50,7 +50,7 @@ export class IntelligenceRecommendationService {
         throw new Error("Simulated intelligence recommendation failure after draft run.");
       }
 
-      const output = this.recommendationAgent.recommend({
+      const output = await this.recommendationAgent.recommend({
         lead,
         snapshot: input.snapshot,
         synthesis: input.synthesis
@@ -64,19 +64,19 @@ export class IntelligenceRecommendationService {
         throw new Error(errors.join(" "));
       }
 
-      const finalized = this.recommendationRepository.markReady(run.id, {
+      const finalized = await this.recommendationRepository.markReady(run.id, {
         priority: output.priority,
         segment: output.segment,
         personalization_context: output.personalization_context,
         recommendation: output.recommendation,
         evidence_refs: collectRecommendationEvidenceRefs(output)
       });
-      this.recommendationRepository.supersedeReadyRuns({
+      await this.recommendationRepository.supersedeReadyRuns({
         organization_id: lead.organization_id,
         lead_id: lead.id,
         except_run_id: finalized.id
       });
-      this.auditRepository?.record({
+      await this.auditRepository?.record({
         organization_id: lead.organization_id,
         lead_id: lead.id,
         event_type: "LeadIntelligenceRecommendationUpdated",
@@ -92,13 +92,13 @@ export class IntelligenceRecommendationService {
       });
       return this.recommendationRepository.runDetail(finalized);
     } catch (error) {
-      this.recommendationRepository.markFailed(run.id, error);
+      await this.recommendationRepository.markFailed(run.id, error);
       throw error;
     }
   }
 
-  currentForLead(lead) {
-    const input = this.tryBuildInput(lead);
+  async currentForLead(lead) {
+    const input = await this.tryBuildInput(lead);
     if (!input.ready) {
       return {
         recommendation_status: "NOT_READY",
@@ -106,7 +106,7 @@ export class IntelligenceRecommendationService {
         intelligence_recommendation: null
       };
     }
-    const run = this.recommendationRepository.findByFingerprint({
+    const run = await this.recommendationRepository.findByFingerprint({
       organization_id: lead.organization_id,
       lead_id: lead.id,
       input_fingerprint: input.value.input_fingerprint,
@@ -120,22 +120,22 @@ export class IntelligenceRecommendationService {
     };
   }
 
-  historyForLead(lead) {
-    return this.recommendationRepository.historyForLead(lead.id, lead.organization_id).map((run) => {
+  async historyForLead(lead) {
+    return (await this.recommendationRepository.historyForLead(lead.id, lead.organization_id)).map((run) => {
       return this.recommendationRepository.runDetail(run);
     });
   }
 
-  buildInput(lead) {
-    const result = this.tryBuildInput(lead);
+  async buildInput(lead) {
+    const result = await this.tryBuildInput(lead);
     if (!result.ready) {
       throw new Error(result.reason);
     }
     return result.value;
   }
 
-  tryBuildInput(lead) {
-    const synthesisState = this.synthesisService.currentForLead(lead);
+  async tryBuildInput(lead) {
+    const synthesisState = await this.synthesisService.currentForLead(lead);
     const synthesis = synthesisState.synthesis;
     if (!synthesis || synthesis.status !== "READY") {
       return {
@@ -143,8 +143,8 @@ export class IntelligenceRecommendationService {
         reason: "Run Lead Intelligence synthesis before recommendation."
       };
     }
-    const snapshot = this.intelligenceRepository.snapshotDetail(
-      this.intelligenceRepository.getSnapshot(synthesis.snapshot_id),
+    const snapshot = await this.intelligenceRepository.snapshotDetail(
+      await this.intelligenceRepository.getSnapshot(synthesis.snapshot_id),
       lead.organization_id
     );
     if (!snapshot || snapshot.status !== "READY") {

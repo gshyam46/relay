@@ -23,9 +23,9 @@ export class SynthesisService {
     this.synthesisAgent = synthesisAgent;
   }
 
-  runForLead(lead, { simulate_failure_stage = null } = {}) {
-    const input = this.buildInput(lead);
-    const existing = this.synthesisRepository.findByFingerprint({
+  async runForLead(lead, { simulate_failure_stage = null } = {}) {
+    const input = await this.buildInput(lead);
+    const existing = await this.synthesisRepository.findByFingerprint({
       organization_id: lead.organization_id,
       lead_id: lead.id,
       input_fingerprint: input.input_fingerprint,
@@ -37,7 +37,7 @@ export class SynthesisService {
 
     const run =
       existing ||
-      this.synthesisRepository.createDraft({
+      await this.synthesisRepository.createDraft({
         organization_id: lead.organization_id,
         lead_id: lead.id,
         snapshot_id: input.snapshot.id,
@@ -50,7 +50,7 @@ export class SynthesisService {
         throw new Error("Simulated synthesis failure after draft run.");
       }
 
-      const output = this.synthesisAgent.synthesize({
+      const output = await this.synthesisAgent.synthesize({
         lead,
         snapshot: input.snapshot,
         researchEvidenceItems: input.research_evidence_items
@@ -64,19 +64,19 @@ export class SynthesisService {
         throw new Error(errors.join(" "));
       }
 
-      const finalized = this.synthesisRepository.markReady(run.id, {
+      const finalized = await this.synthesisRepository.markReady(run.id, {
         summary: output.summary,
         findings: output.findings,
         qualification: output.qualification,
         recommendation: output.recommendation,
         evidence_refs: collectEvidenceRefs(output)
       });
-      this.synthesisRepository.supersedeReadyRuns({
+      await this.synthesisRepository.supersedeReadyRuns({
         organization_id: lead.organization_id,
         lead_id: lead.id,
         except_run_id: finalized.id
       });
-      this.auditRepository?.record({
+      await this.auditRepository?.record({
         organization_id: lead.organization_id,
         lead_id: lead.id,
         event_type: "LeadIntelligenceSynthesized",
@@ -90,13 +90,13 @@ export class SynthesisService {
       });
       return this.synthesisRepository.runDetail(finalized);
     } catch (error) {
-      this.synthesisRepository.markFailed(run.id, error);
+      await this.synthesisRepository.markFailed(run.id, error);
       throw error;
     }
   }
 
-  currentForLead(lead) {
-    const input = this.tryBuildInput(lead);
+  async currentForLead(lead) {
+    const input = await this.tryBuildInput(lead);
     if (!input.ready) {
       return {
         synthesis_status: "NOT_READY",
@@ -104,7 +104,7 @@ export class SynthesisService {
         synthesis: null
       };
     }
-    const run = this.synthesisRepository.findByFingerprint({
+    const run = await this.synthesisRepository.findByFingerprint({
       organization_id: lead.organization_id,
       lead_id: lead.id,
       input_fingerprint: input.value.input_fingerprint,
@@ -117,22 +117,22 @@ export class SynthesisService {
     };
   }
 
-  historyForLead(lead) {
-    return this.synthesisRepository.historyForLead(lead.id, lead.organization_id).map((run) => {
+  async historyForLead(lead) {
+    return (await this.synthesisRepository.historyForLead(lead.id, lead.organization_id)).map((run) => {
       return this.synthesisRepository.runDetail(run);
     });
   }
 
-  buildInput(lead) {
-    const result = this.tryBuildInput(lead);
+  async buildInput(lead) {
+    const result = await this.tryBuildInput(lead);
     if (!result.ready) {
       throw new Error(result.reason);
     }
     return result.value;
   }
 
-  tryBuildInput(lead) {
-    const intelligenceContext = this.intelligenceService.assessLead(lead);
+  async tryBuildInput(lead) {
+    const intelligenceContext = await this.intelligenceService.assessLead(lead);
     const snapshot = intelligenceContext.snapshot;
     if (!snapshot || snapshot.status !== "READY") {
       return {
@@ -140,9 +140,11 @@ export class SynthesisService {
         reason: "Run Lead Intelligence before synthesis."
       };
     }
-    const researchEvidenceItems = this.researchEvidenceRepository
-      .evidenceItemsForLead(lead.id, lead.organization_id)
-      .map(serializeEvidenceItem);
+    const researchEvidenceRecords = await this.researchEvidenceRepository.evidenceItemsForLead(
+      lead.id,
+      lead.organization_id
+    );
+    const researchEvidenceItems = researchEvidenceRecords.map(serializeEvidenceItem);
     return {
       ready: true,
       value: {

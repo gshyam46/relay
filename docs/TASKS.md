@@ -639,27 +639,31 @@ Every meaningful task should track:
 - [x] Idempotent provider event handling
 - [x] Question creates human-review follow-up
 - [x] Opt-out updates lead state and stops follow-ups
-- [ ] ReplyClassifier
+- [x] ReplyClassifier — rule-based (`LocalReplyClassifier`) with an optional LLM classifier (`LlmReplyClassifier`) that falls back to the local one on any provider error; confidence/reason/suggested-next-step persisted as first-class columns on `inbound_events` and `channel_messages`, not just embedded JSON
 - [x] Positive response handling foundation
 - [x] Negative response handling foundation
 - [x] Question handling foundation
 - [x] Opt-out handling foundation
-- [ ] Human escalation
-- [ ] Intelligence update
-- [ ] Reply tests
-- [ ] Human QA
+- [x] Human escalation — `follow_up_tasks.escalated` is a real column (not a `reason LIKE 'Escalated:%'` string match) driving the dashboard Attention queue; resolved via the existing complete/cancel follow-up actions
+- [x] Intelligence update — a reply auto-triggers `IntelligenceService.runForLead`, adding a `LEAD_REPLIED_POSITIVE`/`_NEGATIVE`/`LEAD_ASKED_QUESTION`/`LEAD_OPTED_OUT` signal and surfacing it on the Lead 360 Intelligence tab and Conversations
+- [x] Reply tests — `test/reply-intelligence.test.js` (classification persistence, escalation, signal generation, fingerprint/versioning, idempotency)
+- [x] Human QA — verified live in-browser: simulated positive reply and low-confidence reply, confirmed badges/suggested-next-step on Conversations, Lead 360, and the Escalated follow-up badge on Outbound
 
 ---
 
 # M8 — Additional Channels
 
-- [ ] Email handler
-- [ ] WhatsApp handler
-- [ ] Human task handler
+- [x] Email handler — sandbox default; real send via SendGrid or Resend (`EmailAdapter`); real inbound replies via SendGrid Inbound Parse webhook (`POST /api/webhooks/sendgrid/inbound/:token`, multipart-parsed, reuses the full M7 reply pipeline); delivery/bounce tracking via the SendGrid Event Webhook (`POST /api/webhooks/sendgrid/events/:token`, mapped through `custom_args` back to the sending action, idempotent, org-scoped)
+- [x] WhatsApp handler — adapter-ready (sandbox default, Meta Cloud API path implemented), not exercised against a real account this milestone
+- [x] SMS handler — adapter-ready (sandbox default, Twilio path implemented), not exercised against a real account this milestone
+- [x] Voice handler — adapter-ready (sandbox default, Twilio path implemented), not exercised against a real account this milestone
+- [x] Human task handler
 - [ ] CRM handler
-- [ ] Provider abstraction tests
-- [ ] Channel failure tests
-- [ ] Human channel QA
+- [x] Provider abstraction tests — `test/email-webhooks.test.js` (multipart parser, inbound webhook token auth, event webhook delivered/bounce/tracking-only, cross-tenant rejection, idempotency)
+- [x] Channel failure tests — `mock_behavior` (`TRANSIENT_FAIL_ONCE`/`PERMANENT_FAILURE`) covers retryable vs. permanent failures; bounce webhook covers real post-send failure
+- [ ] Human channel QA — real SendGrid account not yet connected to a live workspace; verified end-to-end against the local webhook routes with synthetic SendGrid-shaped payloads only
+
+Known gap carried into M10: webhook auth today is an opaque per-org URL token, not SendGrid's ECDSA Event Webhook signature verification — adequate to block casual discovery, not a substitute for real signature verification before production traffic.
 
 ---
 
@@ -693,13 +697,73 @@ Every meaningful task should track:
 
 ---
 
+# React Frontend Migration (Phase 2)
+
+- [x] Scaffold React 19 + Vite 8 + TailwindCSS v4 + shadcn/ui in `client/`
+- [x] Vite config with API proxy to backend (localhost:3000)
+- [x] App shell with sidebar navigation
+- [x] Workspace store (Zustand) and org switcher
+- [x] API client with typed hooks (use-leads, use-intelligence, use-outbound)
+- [x] Dashboard page with KPI cards
+- [x] Leads page with search, pagination, Import CSV dialog, Add Lead dialog
+- [x] Lead Detail page with intelligence, timeline, actions
+- [x] Intelligence page with status filters and run controls
+- [x] Intelligence Detail page (dedicated intelligence workspace per lead)
+- [x] Outbound page with status filters
+- [x] Conversations page (placeholder)
+- [x] Activity page
+- [x] Settings page (General, AI Provider, Email, WhatsApp, SMS, Telegram, Call)
+- [x] CSV Import: fixed field names (csv_text, filename, default_phone_region), response shape, selected_row_ids
+- [x] Timeline: fixed occurred_at → timestamp mapping
+- [x] Intelligence navigation: Intelligence/Outbound rows navigate to /intelligence/:leadId
+- [x] Lead Detail: added feedback toasts for Run Intelligence, Send Message, Schedule Follow-Up
+- [x] AI Provider settings: shows connected provider status, supported providers list
+- [x] TypeScript zero errors, lint pass, format pass
+- [ ] Full end-to-end human QA of all pages
+- [ ] Remove legacy `public/` frontend once React frontend is complete
+
+# LLM Provider Integration
+
+- [x] LLM provider abstraction (Groq, OpenAI, OpenRouter, Ollama)
+- [x] AI status endpoint (`GET /api/ai/status`)
+- [x] Settings API for channel and AI provider categories
+- [x] Groq configured and verified (llama-3.1-8b-instant)
+- [ ] LLM-powered synthesis (replace localSynthesisAgent)
+- [ ] LLM-powered recommendations (replace localRecommendationAgent)
+- [ ] LLM-powered message generation
+- [ ] ReplyClassifier with LLM
+
+# Workspace / Tabbed Record UX Correction
+
+- [x] Point server static serving at `client/dist`; add `client:build` npm script; SPA fallback routing
+- [x] Merge Lead Detail + Intelligence Detail into one page; fix findings/recommendation data-shape bug
+- [x] Server-side bulk intelligence pipeline (`POST /api/intelligence/bulk-run`) + real dashboard attention queue
+- [x] Auto-run background worker; auto-complete mock/sandbox channel executions
+- [x] SMS + Voice mock channels; free inbound-reply simulator; real cross-lead Conversations inbox
+- [x] Outbound tabbed queues (Ready/Approved/Scheduled/Sent/Replies/Follow-ups/Failed) + bulk approve
+- [x] Split `/leads/:id` into Overview / Intelligence / Outbound & Activity tabs, addressable via `?tab=`
+- [x] Intelligence and Outbound workspace rows (and Dashboard attention items) deep-link to the matching tab
+- [x] Intelligence workspace: attention-priority breakdown widget (HIGH/MEDIUM/LOW) added alongside existing stat cards; analyzed/not-analyzed/pending/failed/recommendations/action-ready counts
+- [x] Outbound workspace: summary row now covers total/ready-for-review/approved/scheduled/sent/replies/follow-ups-due/failed
+- [x] Terminology pass: "Analyze lead" / "Refresh intelligence" (context-sensitive on one CTA), removed "NBA"/"Run All Pending"/"NBA pipeline" customer-facing jargon
+- [x] Provenance rendered human-readable (`Imported from CSV (filename) · Row 18`) in Overview; raw claim/evidence IDs never shown, only source_type + field labels
+- [x] Distinguish customer-provided lead data (Overview: "Lead Information", explicitly labeled "not AI-generated") from AI-generated analysis (Intelligence tab: readiness, qualification, recommendation, evidence) — dropped the old "Intelligence Findings" section that just echoed lead fields
+- [x] Per-lead Outbound & Activity tab: chat-bubble conversation thread (sender side by direction, channel badge, timestamp, status dot) sourced from the existing timeline API's `kind` field; follow-ups rendered as task cards with Mark done/Cancel
+- [x] General UX pass: persistent contact-hero header across tabs, tab badge counts, consistent empty states
+- [x] Full functional verification: individual + bulk Intelligence, individual + bulk Outbound (approve/reject/execute via new per-lead UI), deep links, callbacks/auto-complete, follow-ups, inbound events, conversation display, tenant isolation (cross-org 404 verified), restart persistence, full test suite (134/137, same 3 pre-existing failures)
+
+### Bugs found and fixed during this verification pass
+- Next-best-action "current plan" lookup included the lead's live `status` in its idempotency fingerprint. Since any unrelated action completing on a lead flips its status (e.g. NORMALIZED → ACTIVE), this silently orphaned every already-planned NBA record the moment *anything* executed — `next_best_action_status` would report `NOT_RUN` even though a real `PLANNED` plan (and sometimes an already-executing action) existed. Fixed in `nextBestActionService.js` by dropping `lead_status` from the fingerprint. This was latent before this session — the new always-on background worker (added this session) is what made it fire on effectively every lead.
+- `Worker.runOnce()` briefly grew a bundled "auto-complete mock executions" step; in tests that share a db across multiple `test()` blocks in one file, this swept up EXECUTING actions left over from an earlier test, breaking two `m0-flow.test.js` assertions. Decoupled into a separate `Worker.autoCompleteMockExecutions()` method called only from the live-server background interval, leaving `runOnce()`'s behavior unchanged for every other caller (tests, `WorkflowsService`, `POST /api/worker/run`).
+- The new per-lead Outbound & Activity tab's approve/reject/execute/follow-up-complete/follow-up-cancel mutations weren't invalidating the `lead-outbound`/`lead-timeline` query keys (those hooks didn't exist yet when the original mutations were written), so the UI silently didn't refresh after a successful action until a manual reload. Fixed by adding the missing `invalidateQueries` calls across `use-outbound.ts`, `use-follow-ups.ts`, and `use-intelligence.ts`.
+
 # Current Milestone
 
-**M6 - Sequence and Follow-Up Foundation Slice**
+**Workspace/Tab UX Correction — complete and verified**
 
 # Current Task
 
-**Campaigns, sequences, sequence steps, idempotent enrollment, due-step runner, and basic stop conditions implemented; ready for human sequence QA**
+**UX correction shipped and verified end-to-end (see checklist above). Next: decide the next feature phase — see the architecture-change entry below for a starting menu of options to brainstorm from before committing to one.**
 
 # Current Blockers
 
@@ -805,3 +869,302 @@ Record significant changes here with:
 - rationale: sequence automation must not create a second outbound execution path or bypass human review/idempotency rules.
 - affected modules: `src/modules/workflows`, `src/api`, `src/database`, `public`, `test`.
 - migration requirements: M6 foundation adds `campaigns`, `sequences`, `sequence_steps`, and `workflow_runs`.
+
+## 2026-09-08 - React frontend migration
+
+- decision: build a React 19 + Vite 8 + TailwindCSS v4 + shadcn/ui frontend in `client/` alongside the legacy `public/` frontend.
+- rationale: the vanilla HTML/CSS/JS frontend cannot deliver a premium SaaS experience. React provides component reuse, TypeScript type safety, and a modern ecosystem. Both frontends consume the same `/api/*` endpoints, enabling gradual migration.
+- affected modules: `client/` (new), `src/api/app.js` (settings categories), Vite proxy config.
+- migration requirements: `client/` requires `npm install` and runs on port 5173. Backend API unchanged. Legacy `public/` remains until React frontend is feature-complete.
+
+## 2026-09-08 - LLM provider abstraction
+
+- decision: add multi-provider LLM support (Groq, OpenAI, OpenRouter, Ollama) behind environment-based configuration, with deterministic local agents as fallback.
+- rationale: AI-powered synthesis, recommendations, and message generation require LLM access, but the system must remain functional without an API key for local development and testing.
+- affected modules: `src/modules/handlers/` (LLM provider), `src/modules/ai/` (new), `src/api/app.js` (AI status endpoint, settings categories).
+- migration requirements: optional `.env` file with `LLM_PROVIDER` and provider API key. Server started with `node --env-file=.env src/server.js`. No database changes.
+
+## 2026-09-08 - Intelligence as dedicated workspace (superseded 2026-09-08, see below)
+
+- decision: create a dedicated Intelligence Detail page (`/intelligence/:leadId`) separate from Lead Detail (`/leads/:id`). Intelligence and Outbound row clicks navigate to the intelligence view, not the leads view.
+- rationale: Intelligence is the primary workspace for understanding leads; Leads is for data management. Keeping them separate avoids confusing navigation and lets each page focus on its purpose.
+- affected modules: `client/src/pages/intelligence-detail.tsx` (new), `client/src/pages/intelligence.tsx`, `client/src/pages/outbound.tsx`, `client/src/App.tsx`.
+- migration requirements: none — new frontend route only.
+- superseded by: two separate lead-detail-shaped pages duplicated fetch logic, split "why did AI recommend this" across two URLs, and left Conversations/timeline disconnected from the recommendation that produced them. Replaced same-day by a single unified `/leads/:id` page. See next entry for the current, further-refined shape.
+
+## 2026-09-08 - Wire React client as the live frontend; unify Lead + Intelligence into one page
+
+- decision: point the server's static file serving at `client/dist` instead of legacy `public/`; merge `lead-detail.tsx` and `intelligence-detail.tsx` into one `/leads/:id` page; fix the intelligence-detail data-shape bug (findings live on the synthesis object, not the snapshot, so the page always showed "no structured findings"); add a real bulk `/api/intelligence/bulk-run` pipeline and `/api/dashboard/attention` queue; auto-run the background worker on an interval so approved actions execute without a dev-tools button; auto-complete mock/sandbox channel executions (nothing was ever calling the completion callback for them); add SMS and Voice as real mock channels (`SEND_SMS`, `SEND_VOICE_CALL`) alongside existing Email/WhatsApp; add a free "simulate inbound reply" control and a real cross-lead Conversations inbox; restructure Outbound into tabbed queues (Ready for review/Approved/Scheduled/Sent/Replies/Follow-ups/Failed) with bulk approve.
+- rationale: `client/` was an 80%-built, fully-wired React app that nobody had ever pointed the server at — `public/` (thin, single-lead-centric, with a permanently visible developer-controls panel) was still the live product. Finishing and shipping the already-better-shaped app was faster and more coherent than redesigning the legacy one.
+- affected modules: `src/api/app.js`, `src/server.js`, `src/shared/http.js` (SPA fallback), `src/modules/events/worker.js`, `src/modules/handlers/channelRouter.js`, `src/modules/channels/channelContract.js`, `src/modules/channels/channelWorkflowService.js`, `src/modules/outbound-automation/actionContract.js`, `client/src/pages/*`, `client/src/hooks/*`.
+- migration requirements: `npm run client:build` (new root script) before `npm start` in any environment serving the app for real; `public/` is left in the repo untouched but is no longer served.
+- known follow-up not done in this pass: `EmailAdapter`'s real Resend/SendGrid HTTP calls are still dead code — `ChannelRouter#routeEmail` never calls them. Wiring that in requires making the action-execution call chain (`ActionExecutor.execute` → `Worker.runOnce` → `WorkflowsService`/`OutboundAutomationService` call sites) async, which is a wider, riskier change than this pass took on.
+
+## 2026-09-08 - Three workspaces + tabbed 360 lead record
+
+- decision: reshape the product around three distinct top-level workspaces — Leads (list/manage), Intelligence (bulk analysis workspace with KPIs), Outbound (bulk execution workspace with KPIs) — plus one individual-record page, `/leads/:id`, with Overview / Intelligence / Outbound & Activity tabs addressable via `?tab=`. Intelligence and Outbound workspace rows deep-link straight to the matching tab, never to a bare, tab-less lead page.
+- rationale: the prior unified page (previous entry) put everything on one long scroll with no way to land a user directly on "why did AI recommend this" vs "what's the outbound status" from the workspace they came from; it also blurred customer-provided lead data (name/email/phone/source) together with actual AI-generated analysis (readiness, qualification, recommendation) under one "Intelligence Findings" heading, and showed raw provenance IDs (`import_batch:import_row`) as if they were content.
+- affected modules: `client/src/App.tsx`, `client/src/pages/lead-detail.tsx` (rewritten with tabs), `client/src/pages/intelligence.tsx`, `client/src/pages/outbound.tsx`, `client/src/pages/dashboard.tsx`, `client/src/hooks/*`, `src/modules/next-best-action/nextBestActionService.js` (fingerprint bug fix), `src/modules/events/worker.js` (auto-complete decoupled from `runOnce`), `src/modules/channels/channelWorkflowService.js` (contextual message summaries), `src/modules/outbound-automation/actionsService.js` (manual-action copy).
+- migration requirements: none — no backend contract changes; two real bugs were fixed along the way (see `## Bugs found and fixed` above the checklist) — both proven safe by the full test suite staying at the same 3 pre-existing, unrelated failures.
+- status: shipped and verified end-to-end in-browser (bulk analyze, tab deep-links, approve/reject/execute, follow-up complete/cancel, inbound simulation, tenant isolation, restart persistence) plus the automated suite. Not moving to a new feature phase until this was true — see the "Next phase options" entry below for what's on the table now that it is.
+
+## 2026-09-08 - Next phase: options to brainstorm from (not yet decided)
+
+Recorded here as a starting menu for the next planning conversation, not a commitment. Ranked roughly by how directly each one builds on what's now solid vs. how much new surface it opens:
+
+1. **Close the loop on `M7` reply intelligence** — `ReplyClassifier`, human escalation, and "intelligence update on reply" are the three items still unchecked in `M7`. The inbound pipeline (mock events → follow-ups → conversation thread) is now real and visibly working; classifying real reply *text* (not just a hand-picked event type) and feeding it back into the lead's intelligence/recommendation is the most natural next increment.
+2. **Real provider wiring for one channel, opt-in** — `EmailAdapter`'s Resend/SendGrid code is written but dead (see the known-follow-up note above); making it live behind the existing Settings toggle would be the first channel that leaves "sandbox" for real, without touching the other three.
+3. **Sequences UX** (`M6` — campaigns/sequences/wait-steps exist server-side with real tests, but there is no frontend for building or watching one run). Two of the three pre-existing test failures (`workflows.test.js`) live in this area and are worth fixing alongside giving it a UI, not before — they're pre-existing and unrelated to this session's work but block confidently building on top of the runner.
+4. **Lead Discovery (`M9`)** — explicitly scoped as an optional plugin in `CLAUDE.md`; only worth picking up once the core loop (this milestone) is proven, which it now is.
+5. **Auth/production hardening (`M10`)** — tenant isolation, rate limiting, secrets, observability. Not urgent for continued local/demo use, but the actual gate before this could run for a real customer.
+- rationale for logging this now: the user asked for an ongoing "architect" role — surfacing a menu instead of unilaterally picking one keeps the next milestone a decision rather than a default.
+
+## 2026-09-09 - Phase 5: production foundation (async DatabaseClient + PostgreSQL)
+
+- decision: make the `DatabaseClient` contract asynchronous and add a PostgreSQL
+  adapter, versioned migrations, environment-driven configuration, and structured
+  logging/errors.
+- rationale: the contract was synchronous because `node:sqlite` is synchronous,
+  which made `CLAUDE.md`'s and `ARCHITECTURE.md`'s claim — "enables a future
+  PostgreSQL adapter without changing any module code" — impossible to keep. Every
+  PostgreSQL driver is asynchronous, and 200 call sites across 19 repositories
+  consumed query results directly as values. The alternatives were a
+  sync-over-async worker-thread bridge (which serialises every query and blocks
+  the event loop, a permanent throughput ceiling) or staying on SQLite (no managed
+  backups, single instance only). Converting now was chosen deliberately because
+  every later phase builds on this layer, and the cost only grows.
+- affected modules: `src/database/` (split into `database.js`, `sqliteClient.js`,
+  `postgresClient.js`, `sql.js`, `migrate.js`, `migrations/`), all 19 repositories,
+  every service that consumes them, `src/api/app.js`, `src/modules/events/worker.js`,
+  `src/modules/handlers/*`, `src/server.js`, `src/config.js`, `src/shared/http.js`,
+  new `src/shared/logger.js` and `src/shared/errors.js`, `scripts/`, `test/`.
+- migration requirements: `npm install` (adds `pg`, the project's first runtime
+  dependency). No schema change: migration `0001_baseline_schema` is the existing
+  schema, written idempotently so existing development databases adopt the
+  migration runner without being rebuilt. Setting `DATABASE_URL` is the entire
+  switch to PostgreSQL.
+- deviation from "zero npm dependencies": `pg` is now a runtime dependency. The
+  zero-dependency property was worth keeping while the database was SQLite; it is
+  not worth hand-rolling the PostgreSQL wire protocol (TLS + SCRAM-SHA-256 auth +
+  connection pooling) to preserve. This is recorded as a deliberate trade, not an
+  oversight.
+
+### Bugs found and fixed along the way
+
+- `sendError()` returned any error's `.message` verbatim, including unhandled
+  defects. In production that would have leaked SQL fragments and internal state
+  to browsers. Expected (4xx) errors still return their message; unexpected (5xx)
+  ones now return a generic message plus a request id, with the real error in the
+  structured log only.
+- `X-Forwarded-Proto` was trusted unconditionally when deciding whether to set the
+  `Secure` flag on session cookies. A direct client could claim HTTPS and be
+  issued a Secure cookie over plaintext. Now gated on `TRUST_PROXY`, off by
+  default in local development.
+- The background worker interval had no overlap guard. Harmless while every query
+  was synchronous; with awaited network round trips, a slow tick could have had
+  the next tick start beside it and execute the same action twice.
+- `client:build` was broken on `main` (`TS6133: 'prev' is declared but its value
+  is never read` in `client/src/pages/outbound.tsx`), so the frontend the server
+  serves could not be rebuilt. Fixed.
+- `npm run smoke` was broken: it still called `POST /api/organizations`, a route
+  removed when session auth landed, so the smoke check had been failing with a 401
+  rather than exercising anything. It now registers a workspace and carries the
+  session cookie, and additionally asserts `/api/health/ready` reports no pending
+  migrations.
+
+### Known product gaps found while verifying end to end (for the Phase 5 UX pass)
+
+- **"Analyze eligible leads" is permanently disabled.** `client/src/pages/intelligence.tsx:171`
+  disables it on `!totals.not_run`, where `not_run` counts leads with no snapshot
+  at all — but every lead gets an initial readiness snapshot at creation, so that
+  count is always 0. The server's own eligibility rule (`POST /api/intelligence/bulk-run`)
+  is different and correct: leads without a *READY recommendation*. The bulk
+  workspace action is therefore unusable exactly when it is needed.
+- **The per-row "Run" in the Intelligence workspace only calls
+  `/intelligence/run`**, not synthesis -> recommendation -> next-best-action. A lead
+  cannot be taken to "recommendation ready" from that workspace at all; only the
+  lead detail page's "Refresh intelligence" runs the full pipeline.
+- **Copy mismatch on the lead detail page**: the empty states say `Click "Analyze
+  lead" above` but the button is labelled "Refresh intelligence".
+- The Add Lead dialog has no `role="dialog"` and is not focus-trapped.
+
+### Verification
+
+- `npm run ci`: lint + format + 180 tests, 176 pass, 0 fail, 4 skipped (the
+  PostgreSQL integration tests, which need `TEST_DATABASE_URL`).
+- Browser end-to-end against a real server on an isolated port/database
+  (`npm run dev:e2e`): register -> create lead -> full intelligence pipeline ->
+  outbound action created -> approve -> execute (sandbox email) -> conversation
+  thread -> auto-scheduled follow-up -> simulated inbound reply classified as
+  "Question / Needs reply". Zero 5xx across the run. Server restarted mid-session:
+  session, data and migration state all survived.
+- **Not verified: PostgreSQL against a real server.** No Docker or PostgreSQL was
+  available on the development machine. `test/postgres-adapter.test.js` exists and
+  covers migrations, the client contract, numeric-type coercion, unique
+  constraints, and a full API flow — it runs as soon as `TEST_DATABASE_URL` points
+  at a throwaway database, and is the gate for the Phase 2 staging deploy.
+
+## 2026-09-09 - Phase 2: PostgreSQL verified for real, deployment prepared
+
+- decision: chose **Supabase (PostgreSQL)** over MongoDB, and proved the adapter by running
+  the entire test suite against a real PostgreSQL server rather than only the four
+  adapter-specific tests.
+- rationale for Postgres over Mongo: the data is relational and the relations are
+  load-bearing. Idempotency — the property this codebase claims "everywhere" — is
+  implemented as `UNIQUE(organization_id, idempotency_key)` constraints across imports,
+  actions, executions, callbacks, channel messages and workflow runs; that is the
+  database enforcing correctness, not the application. Multi-tenancy is
+  `organization_id` foreign keys on all 22+ tables, and the dashboard is
+  COUNT/SUM/GROUP BY/JOIN. Mongo would mean rewriting all 19 repositories and
+  re-implementing those uniqueness guarantees in application code, where they would be
+  racy. Document stores earn their place with schema-fluid, denormalized, aggregate-shaped
+  data, which this is the opposite of.
+- affected modules: `test/helpers/testClient.js` (PostgreSQL mode), `scripts/run-postgres-tests.js`
+  (new), `.github/workflows/ci.yml`, `render.yaml` (new), `docs/DEPLOYMENT.md` (new),
+  `package.json`.
+- migration requirements: none.
+
+### The Phase 1 verification gap is closed
+
+The first Phase 1 report flagged that the PostgreSQL adapter had never run against a real
+PostgreSQL, because no Docker or database was available. That turned out to be wrong:
+PostgreSQL 18 was already installed on the machine as a running Windows service. Rather
+than use it (its superuser password is unknown, and it holds unrelated data), a throwaway
+cluster was created with `initdb --auth=trust` on port 55432, used, and discarded.
+
+Result: **all 180 tests pass against real PostgreSQL 18.1**, not just the 4 adapter tests —
+imports, intelligence, synthesis, recommendations, next-best-action, outbound, approvals,
+workflows, channel workflows, bulk operations, auth, and every restart-persistence test.
+
+`RELAY_TEST_PG=1` (via `npm run test:pg`) points every `startClient()` at PostgreSQL, giving
+each test client its own schema via `search_path` in the connection string's `options`.
+Schemas are milliseconds where databases are hundreds, and the suite starts ~50 servers.
+
+### Bug found by running the full suite on PostgreSQL
+
+- 11 "survives restart" tests failed on the first PostgreSQL run. The cause was in the new
+  test harness, not the product: those tests call `startClient()` twice with the same
+  database file to simulate a restart, and the harness was handing out a fresh random schema
+  on each call, so the "restarted" server opened an empty database. Schema names are now
+  derived from the database path (`:memory:` gets a random, dropped-on-stop schema; a file
+  path gets a deterministic, persistent one), which mirrors SQLite's semantics exactly.
+  Worth recording because it is precisely the class of difference that only a full
+  cross-engine run surfaces.
+
+### CI now covers what it was missing
+
+Three jobs instead of one:
+
+- **SQLite** — lint, format check, full suite. The fast signal, and the engine local
+  development uses.
+- **PostgreSQL** — the full suite against a `postgres:16` service container. Without this, a
+  query that only works on SQLite reaches production.
+- **Client** — typecheck and build. `client:build` had been broken on the branch and nothing
+  caught it, even though the server serves `client/dist`.
+
+Note: `node --test` auto-discovers any file matching `test-*.js` or `*-test.js` anywhere in
+the repository. A helper script initially named `scripts/test-pg.js` was therefore picked up
+as a test file and failed the suite; it is now `scripts/run-postgres-tests.js`.
+
+### Deployment artifacts
+
+- `render.yaml` — blueprint for the staging web service: client build in the build command,
+  `npm run db:migrate` as `preDeployCommand` (so a bad migration fails the deploy instead of
+  taking the service down), `/api/health/ready` as the health check (503 while migrations are
+  pending, so a half-deployed instance never takes traffic), `TRUST_PROXY` and
+  `FORCE_SECURE_COOKIES` on. Secrets are `sync: false` and never committed.
+- `docs/DEPLOYMENT.md` — the runbook: why the Supabase *pooler* string (port 6543) is the one
+  for `DATABASE_URL` and the direct string (5432) is for migrations and testing, the exact
+  secrets to set, a 10-step post-deploy verification checklist, and operational notes on
+  scaling past one instance (the in-process worker must be disabled on extra instances, or
+  split into its own service, or instances will race to execute the same actions), rollback,
+  and backups.
+
+### Still blocked on account creation
+
+Creating the Supabase project and the Render service requires Shyam's accounts and produces
+secrets. Everything up to that point is done and locally proven.
+
+## 2026-09-09 - Phase 2 (continued): deployment tooling, verified against real PostgreSQL
+
+- decision: build the deployment verification path as scripts that read secrets from the
+  environment or a gitignored `.env`, never from arguments or chat, and rehearse the whole
+  Supabase/Render sequence locally before any account exists.
+- rationale: the deploy sequence is where a mistake is most expensive and least reversible.
+  Every step that could be proven without Shyam's credentials was proven, so what remains for
+  him is account creation and dashboard configuration rather than debugging.
+- affected modules: `scripts/verify-deployment.js` (new), `scripts/run-postgres-tests.js`,
+  `test/postgres-adapter.test.js`, `test/helpers/testClient.js`, `render.yaml`,
+  `docs/DEPLOYMENT.md`, `.env.example`, `CLAUDE.md`, `README.md`, `package.json`.
+- migration requirements: none.
+
+### A data-loss footgun, found and removed
+
+`test/postgres-adapter.test.js` ran `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` in
+two places. That was tolerable while the documented invocation pointed at a throwaway
+database — but the instruction for this phase was to run `npm run test:pg` against **the
+configured `DATABASE_URL`**, which is the staging database. Following the documented
+workflow would have destroyed it.
+
+Every test now creates its own schema (`relay_adapter_*`), works inside it via `search_path`,
+and drops it in `t.after()` so a failing assertion still cleans up. Nothing touches `public`.
+This was verified rather than assumed: after a full 180-test run against a database whose
+`public` schema held a migrated Relay install, `public` still had all 33 tables, the
+`schema_migrations` row still had its original timestamp, and zero test schemas were left
+behind.
+
+### One SSL variable, not two
+
+The test harness read `TEST_DATABASE_SSL` while the application reads `DATABASE_SSL`. Setting
+only `DATABASE_SSL=disable` in `.env` — the natural thing to do — left the tests trying TLS
+against a non-TLS server, failing 96 tests with "The server does not support SSL connections".
+`TEST_DATABASE_SSL` now falls back to `DATABASE_SSL`, so one entry configures both, and the
+override still exists for when the test database genuinely differs.
+
+Worth recording because it only appeared when the tooling was exercised the way a person
+would actually use it, rather than with variables set explicitly on the command line.
+
+### Secrets handling
+
+- `npm start`, `db:migrate`, `db:status`, `test:pg` and `verify:deploy` all run with
+  `--env-file-if-exists=.env`. `node --env-file=.env src/server.js` is no longer needed, and
+  connection strings stay out of shell history.
+- `verify-deployment.js` and `run-postgres-tests.js` print only host and database name.
+  `describeConfig()` was already redaction-safe and is covered by a test asserting the
+  password never appears in the boot summary.
+
+### `render.yaml` validated
+
+- `branch` corrected to `mvp` (it still said `intial-build`, which would have deployed the
+  wrong branch or failed outright).
+- Client install changed to `npm --prefix client ci --include=dev`. vite and typescript are
+  devDependencies, which npm omits when `NODE_ENV=production`. It is `staging` here so they
+  would install anyway, but the build would break the day the blueprint is copied to
+  production.
+- Both lockfiles confirmed in sync (`npm ci --dry-run`), since `npm ci` fails the build on
+  drift.
+- The blueprint's build sequence was run locally end to end and produces `client/dist`.
+- Boot gating confirmed: with `NODE_ENV=staging` and no `DATABASE_URL`, both `src/server.js`
+  and `scripts/db-migrate.js` log a structured `boot.invalid_configuration` and exit **1**,
+  which is what makes Render fail the deploy rather than serve a broken instance.
+
+### Rehearsal against a real PostgreSQL
+
+A throwaway cluster (`initdb --auth=trust`, port 55433, deleted afterwards — the machine's own
+PostgreSQL 18 service was never touched) stood in for Supabase for the full sequence:
+
+1. `npm run verify:deploy` — all seven checks pass, 33 tables, 68 indexes.
+2. `npm run test:pg` — **180/180**, then cleaned up 11 leftover schemas.
+3. `npm run verify:deploy` again — idempotent, "already up to date".
+4. `npm start` against PostgreSQL — boots, `/api/health/ready` reports ready.
+5. A live `POST /api/auth/register` — the row lands in PostgreSQL.
+6. Session cookie correctly has **no** `Secure` flag locally (no TLS, `TRUST_PROXY` off in
+   development), which confirms the proxy gate behaves as designed rather than always-on.
+
+### Not done
+
+- No Supabase project and no Render service exist — both need Shyam's accounts. The exact
+  remaining steps are in `docs/DEPLOYMENT.md`.
+- Graceful SIGTERM shutdown is implemented but was not exercised: Windows does not deliver
+  SIGTERM the way Linux does, so it will first be exercised on Render.
+- No product features were added in this phase, by instruction.

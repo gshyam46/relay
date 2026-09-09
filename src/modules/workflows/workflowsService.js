@@ -19,15 +19,15 @@ export class WorkflowsService {
     this.auditRepository = auditRepository;
   }
 
-  createCampaign({ organization_id, name, objective = null }) {
+  async createCampaign({ organization_id, name, objective = null }) {
     requireNoErrors(validateCampaignInput({ name }));
-    const campaign = this.workflowsRepository.createCampaign({
+    const campaign = await this.workflowsRepository.createCampaign({
       organization_id,
       name,
       objective,
       status: CAMPAIGN_STATUS.ACTIVE
     });
-    this.auditRepository?.record({
+    await this.auditRepository?.record({
       organization_id,
       event_type: "CampaignCreated",
       message: "Campaign created.",
@@ -36,17 +36,17 @@ export class WorkflowsService {
     return { campaign };
   }
 
-  listCampaigns({ organization_id }) {
-    return { campaigns: this.workflowsRepository.listCampaigns(organization_id) };
+  async listCampaigns({ organization_id }) {
+    return { campaigns: await this.workflowsRepository.listCampaigns(organization_id) };
   }
 
-  createSequence({ organization_id, campaign_id, name, stop_on_reply = true, steps }) {
+  async createSequence({ organization_id, campaign_id, name, stop_on_reply = true, steps }) {
     requireNoErrors(validateSequenceInput({ name, steps }));
-    const campaign = this.workflowsRepository.getCampaignForOrganization(campaign_id, organization_id);
+    const campaign = await this.workflowsRepository.getCampaignForOrganization(campaign_id, organization_id);
     if (!campaign) {
       throw notFoundError("Campaign not found for workspace.");
     }
-    const sequence = this.workflowsRepository.createSequence({
+    const sequence = await this.workflowsRepository.createSequence({
       organization_id,
       campaign_id,
       name,
@@ -54,7 +54,7 @@ export class WorkflowsService {
       stop_on_reply,
       steps: steps.map(normalizeStep)
     });
-    this.auditRepository?.record({
+    await this.auditRepository?.record({
       organization_id,
       event_type: "SequenceCreated",
       message: "Sequence created.",
@@ -63,15 +63,15 @@ export class WorkflowsService {
     return { sequence };
   }
 
-  listSequences({ organization_id }) {
-    return { sequences: this.workflowsRepository.listSequences(organization_id) };
+  async listSequences({ organization_id }) {
+    return { sequences: await this.workflowsRepository.listSequences(organization_id) };
   }
 
-  enrollLeads({ organization_id, sequence_id, lead_ids }) {
+  async enrollLeads({ organization_id, sequence_id, lead_ids }) {
     if (!Array.isArray(lead_ids) || lead_ids.length === 0) {
       throw validationError("lead_ids must include at least one lead.");
     }
-    const sequence = this.workflowsRepository.getSequenceForOrganization(sequence_id, organization_id);
+    const sequence = await this.workflowsRepository.getSequenceForOrganization(sequence_id, organization_id);
     if (!sequence) {
       throw notFoundError("Sequence not found for workspace.");
     }
@@ -79,58 +79,67 @@ export class WorkflowsService {
       throw validationError("Only active sequences can enroll leads.");
     }
     const uniqueLeadIds = Array.from(new Set(lead_ids));
-    const runs = uniqueLeadIds.map((leadId) => {
-      const lead = this.leadsRepository.getLead(leadId);
+    const runs = [];
+    for (const leadId of uniqueLeadIds) {
+      const lead = await this.leadsRepository.getLead(leadId);
       if (!lead || lead.organization_id !== organization_id) {
         throw notFoundError("Lead not found for workspace.");
       }
       if (lead.status === "OPTED_OUT" || lead.status === "SUPPRESSED") {
-        return this.workflowsRepository.enrollLead({
+        runs.push(
+          await this.workflowsRepository.enrollLead({
+            organization_id,
+            campaign_id: sequence.campaign_id,
+            sequence_id: sequence.id,
+            lead_id: lead.id,
+            idempotency_key: `sequence:${sequence.id}:lead:${lead.id}:v1`,
+            next_run_at: nowIso()
+          })
+        );
+        continue;
+      }
+      runs.push(
+        await this.workflowsRepository.enrollLead({
           organization_id,
           campaign_id: sequence.campaign_id,
           sequence_id: sequence.id,
           lead_id: lead.id,
           idempotency_key: `sequence:${sequence.id}:lead:${lead.id}:v1`,
           next_run_at: nowIso()
-        });
-      }
-      return this.workflowsRepository.enrollLead({
-        organization_id,
-        campaign_id: sequence.campaign_id,
-        sequence_id: sequence.id,
-        lead_id: lead.id,
-        idempotency_key: `sequence:${sequence.id}:lead:${lead.id}:v1`,
-        next_run_at: nowIso()
-      });
-    });
+        })
+      );
+    }
     return { workflow_runs: runs };
   }
 
-  listRuns({ organization_id, status = null }) {
-    return { workflow_runs: this.workflowsRepository.listRuns(organization_id, { status }) };
+  async listRuns({ organization_id, status = null }) {
+    return { workflow_runs: await this.workflowsRepository.listRuns(organization_id, { status }) };
   }
 
-  runDue({ organization_id, due_at = nowIso(), limit = 25 }) {
-    const dueRuns = this.workflowsRepository.dueRuns(organization_id, due_at, limit);
-    const processed = dueRuns.map((run) => this.processRun(run, due_at));
+  async runDue({ organization_id, due_at = nowIso(), limit = 25 }) {
+    const dueRuns = await this.workflowsRepository.dueRuns(organization_id, due_at, limit);
+    const processed = [];
+    for (const run of dueRuns) {
+      processed.push(await this.processRun(run, due_at));
+    }
     return { processed_runs: processed };
   }
 
-  stopOpenRunsForLead({ organization_id, lead_id, reason }) {
-    this.workflowsRepository.stopOpenForLead(organization_id, lead_id, reason);
+  async stopOpenRunsForLead({ organization_id, lead_id, reason }) {
+    await this.workflowsRepository.stopOpenForLead(organization_id, lead_id, reason);
   }
 
-  processRun(run, dueAt) {
-    const lead = this.leadsRepository.getLead(run.lead_id);
+  async processRun(run, dueAt) {
+    const lead = await this.leadsRepository.getLead(run.lead_id);
     if (!lead || lead.organization_id !== run.organization_id) {
-      return this.workflowsRepository.advanceRun(run, {
+      return await this.workflowsRepository.advanceRun(run, {
         status: WORKFLOW_RUN_STATUS.BLOCKED,
         current_step_order: run.current_step_order,
         stop_reason: "Lead is no longer available for this workspace."
       });
     }
     if (lead.status === "OPTED_OUT" || lead.status === "SUPPRESSED") {
-      return this.workflowsRepository.advanceRun(run, {
+      return await this.workflowsRepository.advanceRun(run, {
         status: WORKFLOW_RUN_STATUS.STOPPED,
         current_step_order: run.current_step_order,
         stop_reason: `Lead is ${lead.status}.`
@@ -138,19 +147,19 @@ export class WorkflowsService {
     }
 
     if (run.status === WORKFLOW_RUN_STATUS.WAITING_APPROVAL) {
-      return this.processApprovalWait(run, dueAt);
+      return await this.processApprovalWait(run, dueAt);
     }
 
-    const step = this.workflowsRepository.getStepByOrder(run.sequence_id, run.organization_id, run.current_step_order);
+    const step = await this.workflowsRepository.getStepByOrder(run.sequence_id, run.organization_id, run.current_step_order);
     if (!step) {
-      return this.workflowsRepository.advanceRun(run, {
+      return await this.workflowsRepository.advanceRun(run, {
         status: WORKFLOW_RUN_STATUS.COMPLETED,
         current_step_order: run.current_step_order,
         stop_reason: "Sequence completed."
       });
     }
     if (step.type === "WAIT") {
-      return this.workflowsRepository.advanceRun(run, {
+      return await this.workflowsRepository.advanceRun(run, {
         status: WORKFLOW_RUN_STATUS.WAITING,
         current_step_order: run.current_step_order + 1,
         next_run_at: plusHoursFrom(dueAt, step.delay_hours)
@@ -159,7 +168,7 @@ export class WorkflowsService {
 
     const approvalRequirement = step.requires_approval ? "REQUIRED" : "NOT_REQUIRED";
     const actionStatus = step.requires_approval ? ACTION_STATUS.AWAITING_APPROVAL : ACTION_STATUS.PLANNED;
-    const action = this.actionsRepository.createAction({
+    const action = await this.actionsRepository.createAction({
       organization_id: run.organization_id,
       lead_id: run.lead_id,
       type: step.type,
@@ -179,10 +188,10 @@ export class WorkflowsService {
       }
     });
     if (step.requires_approval) {
-      this.approvalsService?.requestForAction(action, {
+      await this.approvalsService?.requestForAction(action, {
         requested_reason: "Review this sequence step before it can proceed."
       });
-      return this.workflowsRepository.advanceRun(run, {
+      return await this.workflowsRepository.advanceRun(run, {
         status: WORKFLOW_RUN_STATUS.WAITING_APPROVAL,
         current_step_order: run.current_step_order,
         next_run_at: null,
@@ -190,9 +199,9 @@ export class WorkflowsService {
       });
     }
 
-    const execution = this.actionExecutor.execute(action);
+    const execution = await this.actionExecutor.execute(action);
     const nextStatus = execution.status === ACTION_STATUS.BLOCKED ? WORKFLOW_RUN_STATUS.BLOCKED : WORKFLOW_RUN_STATUS.WAITING;
-    return this.workflowsRepository.advanceRun(run, {
+    return await this.workflowsRepository.advanceRun(run, {
       status: nextStatus,
       current_step_order: run.current_step_order + 1,
       next_run_at: nextStatus === WORKFLOW_RUN_STATUS.BLOCKED ? null : plusHoursFrom(dueAt, step.delay_hours),
@@ -201,10 +210,10 @@ export class WorkflowsService {
     });
   }
 
-  processApprovalWait(run, dueAt) {
-    const action = run.last_action_id ? this.actionsRepository.getActionForOrganization(run.last_action_id, run.organization_id) : null;
+  async processApprovalWait(run, dueAt) {
+    const action = run.last_action_id ? await this.actionsRepository.getActionForOrganization(run.last_action_id, run.organization_id) : null;
     if (!action) {
-      return this.workflowsRepository.advanceRun(run, {
+      return await this.workflowsRepository.advanceRun(run, {
         status: WORKFLOW_RUN_STATUS.BLOCKED,
         current_step_order: run.current_step_order,
         stop_reason: "Approval action is no longer available."
@@ -214,23 +223,23 @@ export class WorkflowsService {
       return run;
     }
     if (action.status === ACTION_STATUS.BLOCKED || action.status === ACTION_STATUS.FAILED) {
-      return this.workflowsRepository.advanceRun(run, {
+      return await this.workflowsRepository.advanceRun(run, {
         status: WORKFLOW_RUN_STATUS.BLOCKED,
         current_step_order: run.current_step_order,
         stop_reason: "Sequence step was rejected or failed."
       });
     }
     if (action.status === ACTION_STATUS.APPROVED) {
-      const execution = this.actionExecutor.execute(action);
+      const execution = await this.actionExecutor.execute(action);
       if (execution.status === ACTION_STATUS.BLOCKED) {
-        return this.workflowsRepository.advanceRun(run, {
+        return await this.workflowsRepository.advanceRun(run, {
           status: WORKFLOW_RUN_STATUS.BLOCKED,
           current_step_order: run.current_step_order,
           stop_reason: "Approved sequence step execution failed."
         });
       }
     }
-    return this.workflowsRepository.advanceRun(run, {
+    return await this.workflowsRepository.advanceRun(run, {
       status: WORKFLOW_RUN_STATUS.WAITING,
       current_step_order: run.current_step_order + 1,
       next_run_at: dueAt

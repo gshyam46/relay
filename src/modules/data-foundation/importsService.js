@@ -22,7 +22,7 @@ export class ImportsService {
     this.auditRepository = auditRepository;
   }
 
-  previewCsv({ organization_id, filename, csv_text, default_phone_region }) {
+  async previewCsv({ organization_id, filename, csv_text, default_phone_region }) {
     validatePreviewInput({ organization_id, filename, csv_text, default_phone_region });
     const idempotencyKey = buildImportIdempotencyKey({
       organization_id,
@@ -30,9 +30,9 @@ export class ImportsService {
       csv_text,
       default_phone_region
     });
-    const existing = this.importsRepository.getBatchByIdempotencyKey(idempotencyKey);
+    const existing = await this.importsRepository.getBatchByIdempotencyKey(idempotencyKey);
     if (existing) {
-      return this.getImport(existing.id, organization_id);
+      return await this.getImport(existing.id, organization_id);
     }
 
     const sourceMetadata = {
@@ -40,7 +40,7 @@ export class ImportsService {
       filename,
       default_phone_region
     };
-    const batch = this.importsRepository.createBatch({
+    const batch = await this.importsRepository.createBatch({
       organization_id,
       filename,
       adapter_type: IMPORT_ADAPTERS.CSV,
@@ -49,7 +49,7 @@ export class ImportsService {
       idempotency_key: idempotencyKey,
       summary: emptySummary()
     });
-    this.importsRepository.updateBatchState(batch.id, IMPORT_STATES.PREVIEWED);
+    await this.importsRepository.updateBatchState(batch.id, IMPORT_STATES.PREVIEWED);
 
     const parsed = parseCsvLeadRows(csv_text);
     const rows = parsed.rows.map((row) => {
@@ -78,12 +78,12 @@ export class ImportsService {
         rowNumber: row.rowNumber,
         normalizedValues: row.normalizedValues
       })),
-      existingLeads: this.leadsRepository.listLeads(organization_id)
+      existingLeads: await this.leadsRepository.listLeads(organization_id)
     });
 
     for (const row of rows) {
       row.duplicateCandidates = duplicateCandidates.get(row.id) || [];
-      this.importsRepository.createRow({
+      await this.importsRepository.createRow({
         id: row.id,
         import_id: row.import_id,
         organization_id: row.organization_id,
@@ -95,7 +95,7 @@ export class ImportsService {
         duplicate_candidates: row.duplicateCandidates
       });
       for (const issue of row.validationIssues) {
-        this.importsRepository.createIssue({
+        await this.importsRepository.createIssue({
           import_id: batch.id,
           import_row_id: row.id,
           organization_id,
@@ -103,7 +103,7 @@ export class ImportsService {
         });
       }
       for (const candidate of row.duplicateCandidates) {
-        this.importsRepository.createIssue({
+        await this.importsRepository.createIssue({
           import_id: batch.id,
           import_row_id: row.id,
           organization_id,
@@ -117,7 +117,7 @@ export class ImportsService {
     }
 
     for (const parserIssue of parsed.parserIssues) {
-      this.importsRepository.createIssue({
+      await this.importsRepository.createIssue({
         import_id: batch.id,
         organization_id,
         issue_type: parserIssue.issue_type,
@@ -134,27 +134,27 @@ export class ImportsService {
       committedRows: 0,
       selectedRows: 0
     });
-    this.importsRepository.updateBatchState(batch.id, IMPORT_STATES.READY_TO_COMMIT, { summary });
-    this.auditRepository?.record({
+    await this.importsRepository.updateBatchState(batch.id, IMPORT_STATES.READY_TO_COMMIT, { summary });
+    await this.auditRepository?.record({
       organization_id,
       event_type: "ImportPreviewed",
       message: "CSV import preview generated for Lead Data Foundation.",
       metadata: { import_id: batch.id, filename, summary }
     });
-    return this.getImport(batch.id, organization_id);
+    return await this.getImport(batch.id, organization_id);
   }
 
-  listImports(organizationId) {
+  async listImports(organizationId) {
     return {
-      imports: this.importsRepository.listBatches(organizationId).map((batch) => serializeImportBatch(batch))
+      imports: (await this.importsRepository.listBatches(organizationId)).map((batch) => serializeImportBatch(batch))
     };
   }
 
-  getImport(importId, organizationId) {
-    const batch = this.getBatchForOrganization(importId, organizationId);
+  async getImport(importId, organizationId) {
+    const batch = await this.getBatchForOrganization(importId, organizationId);
     const serializedBatch = serializeImportBatch(batch);
-    const rows = this.importsRepository.listRows(importId, organizationId).map((row) => serializeImportRow(row));
-    const issues = this.importsRepository.listIssues(importId, organizationId).map((issue) => serializeImportIssue(issue));
+    const rows = (await this.importsRepository.listRows(importId, organizationId)).map((row) => serializeImportRow(row));
+    const issues = (await this.importsRepository.listIssues(importId, organizationId)).map((issue) => serializeImportIssue(issue));
     return {
       import_id: batch.id,
       state: batch.state,
@@ -172,28 +172,27 @@ export class ImportsService {
     };
   }
 
-  commitImport({ import_id, organization_id, selected_row_ids, simulate_failure_after_rows = null }) {
+  async commitImport({ import_id, organization_id, selected_row_ids, simulate_failure_after_rows = null }) {
     if (!Array.isArray(selected_row_ids) || selected_row_ids.length === 0) {
       throw httpError(400, "selected_row_ids is required.");
     }
-    const batch = this.getBatchForOrganization(import_id, organization_id);
+    const batch = await this.getBatchForOrganization(import_id, organization_id);
     if (batch.state === IMPORT_STATES.COMMITTED) {
-      return this.getImport(import_id, organization_id);
+      return await this.getImport(import_id, organization_id);
     }
     if (batch.state === IMPORT_STATES.COMMITTING) {
-      return this.getImport(import_id, organization_id);
+      return await this.getImport(import_id, organization_id);
     }
     if (![IMPORT_STATES.READY_TO_COMMIT, IMPORT_STATES.FAILED].includes(batch.state)) {
       throw httpError(409, "Import is not ready to commit.");
     }
     if (batch.state === IMPORT_STATES.FAILED) {
-      this.importsRepository.updateBatchState(import_id, IMPORT_STATES.READY_TO_COMMIT, { last_error: null });
+      await this.importsRepository.updateBatchState(import_id, IMPORT_STATES.READY_TO_COMMIT, { last_error: null });
     }
 
     const rowIds = [...new Set(selected_row_ids)];
-    const selectedRows = this.importsRepository
-      .getRowsByIds(import_id, organization_id, rowIds)
-      .map((row) => serializeImportRow(row));
+    const selectedRowRecords = await this.importsRepository.getRowsByIds(import_id, organization_id, rowIds);
+    const selectedRows = selectedRowRecords.map((row) => serializeImportRow(row));
     if (selectedRows.length !== rowIds.length) {
       throw httpError(404, "One or more selected rows were not found for this import.");
     }
@@ -202,8 +201,8 @@ export class ImportsService {
       throw httpError(400, "Invalid rows cannot be committed.");
     }
 
-    this.importsRepository.markRowsSelected(import_id, organization_id, rowIds);
-    this.importsRepository.updateBatchState(import_id, IMPORT_STATES.COMMITTING, { last_error: null });
+    await this.importsRepository.markRowsSelected(import_id, organization_id, rowIds);
+    await this.importsRepository.updateBatchState(import_id, IMPORT_STATES.COMMITTING, { last_error: null });
 
     let committedThisRequest = 0;
     try {
@@ -213,7 +212,7 @@ export class ImportsService {
         }
         const normalizedValues = row.normalized_values;
         const duplicateCandidates = row.duplicate_candidates;
-        const lead = this.leadsRepository.createLead({
+        const lead = await this.leadsRepository.createLead({
           organization_id,
           name: displayNameForImportedLead(normalizedValues),
           email: normalizedValues.email,
@@ -233,8 +232,8 @@ export class ImportsService {
             duplicate_candidate_count: duplicateCandidates.length
           }
         });
-        this.importsRepository.markRowCommitted(row.id, lead.id);
-        this.eventsRepository?.publish({
+        await this.importsRepository.markRowCommitted(row.id, lead.id);
+        await this.eventsRepository?.publish({
           organization_id,
           lead_id: lead.id,
           type: "LeadCreated",
@@ -246,8 +245,8 @@ export class ImportsService {
         }
       }
 
-      const rows = this.importsRepository.listRows(import_id, organization_id).map((row) => serializeImportRow(row));
-      const issues = this.importsRepository.listIssues(import_id, organization_id).map((issue) => serializeImportIssue(issue));
+      const rows = (await this.importsRepository.listRows(import_id, organization_id)).map((row) => serializeImportRow(row));
+      const issues = (await this.importsRepository.listIssues(import_id, organization_id)).map((issue) => serializeImportIssue(issue));
       const duplicateCandidateRows = rows.filter((row) => row.duplicate_candidates.length > 0).length;
       const invalidRows = rows.filter((row) => row.validation_state === IMPORT_VALIDATION_STATES.INVALID).length;
       const summary = {
@@ -259,26 +258,26 @@ export class ImportsService {
         selected_rows: rows.filter((row) => row.selected).length,
         committed_rows: rows.filter((row) => row.committed).length
       };
-      this.importsRepository.updateBatchState(import_id, IMPORT_STATES.COMMITTED, {
+      await this.importsRepository.updateBatchState(import_id, IMPORT_STATES.COMMITTED, {
         summary,
         committed_at: nowIso(),
         last_error: null
       });
-      this.auditRepository?.record({
+      await this.auditRepository?.record({
         organization_id,
         event_type: "ImportCommitted",
         message: "CSV import committed to leads.",
         metadata: { import_id, committed_rows: committedThisRequest }
       });
-      return this.getImport(import_id, organization_id);
+      return await this.getImport(import_id, organization_id);
     } catch (error) {
-      const rows = this.importsRepository.listRows(import_id, organization_id).map((row) => serializeImportRow(row));
+      const rows = (await this.importsRepository.listRows(import_id, organization_id)).map((row) => serializeImportRow(row));
       const summary = {
-        ...serializeImportBatch(this.importsRepository.getBatch(import_id)).summary,
+        ...serializeImportBatch(await this.importsRepository.getBatch(import_id)).summary,
         committed_rows: rows.filter((row) => row.committed).length,
         selected_rows: rows.filter((row) => row.selected).length
       };
-      this.importsRepository.updateBatchState(import_id, IMPORT_STATES.FAILED, {
+      await this.importsRepository.updateBatchState(import_id, IMPORT_STATES.FAILED, {
         summary,
         last_error: error.message || String(error)
       });
@@ -286,8 +285,8 @@ export class ImportsService {
     }
   }
 
-  getBatchForOrganization(importId, organizationId) {
-    const batch = this.importsRepository.getBatch(importId);
+  async getBatchForOrganization(importId, organizationId) {
+    const batch = await this.importsRepository.getBatch(importId);
     if (!batch || batch.organization_id !== organizationId) {
       throw httpError(404, "Import not found for organization.");
     }

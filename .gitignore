@@ -12,6 +12,8 @@ logs/
 # Local environment
 .env
 .env.*
+# ...but the reference file documenting WHICH variables exist is committed.
+!.env.example
 
 # Test/build output
 coverage/

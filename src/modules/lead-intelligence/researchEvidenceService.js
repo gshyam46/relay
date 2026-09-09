@@ -13,7 +13,7 @@ export class ResearchEvidenceService {
     this.auditRepository = auditRepository;
   }
 
-  ingestForLead({
+  async ingestForLead({
     lead,
     provider_key,
     idempotency_key,
@@ -26,18 +26,18 @@ export class ResearchEvidenceService {
       throw new Error("evidence_items must contain at least one item.");
     }
 
-    const existing = this.researchEvidenceRepository.findIngestionByIdempotencyKey({
+    const existing = await this.researchEvidenceRepository.findIngestionByIdempotencyKey({
       organization_id: lead.organization_id,
       lead_id: lead.id,
       idempotency_key
     });
     if (existing?.state === RESEARCH_EVIDENCE_INGESTION_STATES.PERSISTED) {
-      return this.researchEvidenceRepository.ingestionDetail(existing);
+      return await this.researchEvidenceRepository.ingestionDetail(existing);
     }
 
     const ingestion =
       existing ||
-      this.researchEvidenceRepository.createIngestion({
+      await this.researchEvidenceRepository.createIngestion({
         organization_id: lead.organization_id,
         lead_id: lead.id,
         adapter_type: RESEARCH_EVIDENCE_ADAPTER_TYPES.APPROVED_MANUAL_RESEARCH,
@@ -60,24 +60,27 @@ export class ResearchEvidenceService {
         throw new Error(errors.join(" "));
       }
 
-      this.researchEvidenceRepository.updateIngestionState(ingestion.id, {
+      await this.researchEvidenceRepository.updateIngestionState(ingestion.id, {
         state: RESEARCH_EVIDENCE_INGESTION_STATES.VALIDATED
       });
-      this.researchEvidenceRepository.replaceEvidenceItems(ingestion.id);
-      const persisted = normalizedItems.map((item) =>
-        this.researchEvidenceRepository.createEvidenceItem({
-          ingestion_id: ingestion.id,
-          organization_id: lead.organization_id,
-          lead_id: lead.id,
-          ...item
-        })
-      );
-      const completed = this.researchEvidenceRepository.updateIngestionState(ingestion.id, {
+      await this.researchEvidenceRepository.replaceEvidenceItems(ingestion.id);
+      const persisted = [];
+      for (const item of normalizedItems) {
+        persisted.push(
+          await this.researchEvidenceRepository.createEvidenceItem({
+            ingestion_id: ingestion.id,
+            organization_id: lead.organization_id,
+            lead_id: lead.id,
+            ...item
+          })
+        );
+      }
+      const completed = await this.researchEvidenceRepository.updateIngestionState(ingestion.id, {
         state: RESEARCH_EVIDENCE_INGESTION_STATES.PERSISTED,
         summary: { evidence_count: persisted.length },
         completed: true
       });
-      this.auditRepository?.record({
+      await this.auditRepository?.record({
         organization_id: lead.organization_id,
         lead_id: lead.id,
         event_type: "ResearchEvidenceIngested",
@@ -88,9 +91,9 @@ export class ResearchEvidenceService {
           evidence_count: persisted.length
         }
       });
-      return this.researchEvidenceRepository.ingestionDetail(completed);
+      return await this.researchEvidenceRepository.ingestionDetail(completed);
     } catch (error) {
-      this.researchEvidenceRepository.updateIngestionState(ingestion.id, {
+      await this.researchEvidenceRepository.updateIngestionState(ingestion.id, {
         state: RESEARCH_EVIDENCE_INGESTION_STATES.FAILED,
         last_error: error.message || String(error)
       });
@@ -98,10 +101,11 @@ export class ResearchEvidenceService {
     }
   }
 
-  listForLead(lead) {
+  async listForLead(lead) {
+    const evidenceItems = await this.researchEvidenceRepository.evidenceItemsForLead(lead.id, lead.organization_id);
     return {
-      ingestions: this.researchEvidenceRepository.listIngestionsForLead(lead.id, lead.organization_id),
-      evidence_items: this.researchEvidenceRepository.evidenceItemsForLead(lead.id, lead.organization_id).map(serializeEvidenceItem)
+      ingestions: await this.researchEvidenceRepository.listIngestionsForLead(lead.id, lead.organization_id),
+      evidence_items: evidenceItems.map(serializeEvidenceItem)
     };
   }
 }

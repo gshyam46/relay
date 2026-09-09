@@ -7,11 +7,11 @@ export class CallbacksRepository {
     this.db = db;
   }
 
-  getByProviderEventId(providerEventId) {
-    return this.db.get("SELECT * FROM callbacks WHERE provider_event_id = ?", [providerEventId]);
+  async getByProviderEventId(providerEventId) {
+    return await this.db.get("SELECT * FROM callbacks WHERE provider_event_id = ?", [providerEventId]);
   }
 
-  record({
+  async record({
     organization_id = null,
     lead_id = null,
     action_id,
@@ -21,7 +21,7 @@ export class CallbacksRepository {
     provider_reference = null,
     payload
   }) {
-    const existing = this.getByProviderEventId(provider_event_id);
+    const existing = await this.getByProviderEventId(provider_event_id);
     if (existing) {
       return { callback: this.callbackDetail(existing), duplicate: true };
     }
@@ -38,7 +38,7 @@ export class CallbacksRepository {
       payload_json: stringifyJson(payload),
       received_at: nowIso()
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO callbacks
           (id, organization_id, lead_id, action_id, action_execution_id, provider_event_id, status,
            provider_reference, payload_json, received_at)
@@ -59,10 +59,9 @@ export class CallbacksRepository {
     return { callback: this.callbackDetail(callback), duplicate: false };
   }
 
-  listForAction(actionId) {
-    return this.db.all("SELECT * FROM callbacks WHERE action_id = ? ORDER BY received_at ASC", [actionId]).map((callback) => {
-      return this.callbackDetail(callback);
-    });
+  async listForAction(actionId) {
+    const callbacks = await this.db.all("SELECT * FROM callbacks WHERE action_id = ? ORDER BY received_at ASC", [actionId]);
+    return callbacks.map((callback) => this.callbackDetail(callback));
   }
 
   callbackDetail(callback) {

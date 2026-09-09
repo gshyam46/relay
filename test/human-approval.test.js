@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createApp } from "../src/api/app.js";
-import { createDatabase } from "../src/database/database.js";
+import { startClient } from "./helpers/testClient.js";
 
 test("approval-required action creates one pending approval request", async (t) => {
   const client = await startClient(t);
@@ -23,7 +22,7 @@ test("approval-required action creates one pending approval request", async (t) 
   assert.equal(first.action.approval.status, "PENDING");
   assert.equal(queue.approvals.length, 1);
   assert.equal(queue.approvals[0].lead_id, lead.id);
-  assert.equal(client.db.all("SELECT * FROM action_approvals WHERE action_id = ?", [first.action.id]).length, 1);
+  assert.equal((await client.db.all("SELECT * FROM action_approvals WHERE action_id = ?", [first.action.id])).length, 1);
 });
 
 test("approving an action is idempotent and allows sandbox execution", async (t) => {
@@ -51,7 +50,7 @@ test("approving an action is idempotent and allows sandbox execution", async (t)
   assert.equal(approved.action.status, "APPROVED");
   assert.equal(repeated.approval.id, approved.approval.id);
   assert.equal(started.execution_result.status, "EXECUTING");
-  assert.equal(client.db.all("SELECT * FROM action_approvals WHERE action_id = ?", [prepared.action.id]).length, 1);
+  assert.equal((await client.db.all("SELECT * FROM action_approvals WHERE action_id = ?", [prepared.action.id])).length, 1);
 });
 
 test("edit and approve stores reviewed payload without losing action metadata", async (t) => {
@@ -93,12 +92,12 @@ test("rejecting an action blocks execution and cannot be reversed by approve", a
     reviewer_name: "Manager",
     reviewer_note: "Do not contact yet."
   });
-  const execute = await fetch(`${client.baseUrl}/api/actions/${prepared.action.id}/execute`, {
+  const execute = await client.rawFetch(`/api/actions/${prepared.action.id}/execute`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ organization_id: organization.id })
   });
-  const approveAfterReject = await fetch(`${client.baseUrl}/api/actions/${prepared.action.id}/approval/approve`, {
+  const approveAfterReject = await client.rawFetch(`/api/actions/${prepared.action.id}/approval/approve`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ organization_id: organization.id })
@@ -114,21 +113,23 @@ test("rejecting an action blocks execution and cannot be reversed by approve", a
 test("approval APIs are organization scoped and validate decision inputs", async (t) => {
   const client = await startClient(t);
   const first = await createReadyPlan(client, "M5 Tenant A");
-  const secondOrg = await client.post("/api/organizations", { name: "M5 Tenant B" });
   const prepared = await client.post(`/api/next-best-action-plans/${first.plan.id}/action`, {
     organization_id: first.organization.id
   });
 
-  const wrongQueue = await client.get(`/api/approvals?organization_id=${secondOrg.organization.id}`);
-  const wrongApprove = await fetch(`${client.baseUrl}/api/actions/${prepared.action.id}/approval/approve`, {
+  await client.register("M5 Tenant B"); // switches the active session to org B
+  const wrongQueue = await client.get("/api/approvals");
+  const wrongApprove = await client.rawFetch(`/api/actions/${prepared.action.id}/approval/approve`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ organization_id: secondOrg.organization.id })
+    body: JSON.stringify({})
   });
-  const invalidApprove = await fetch(`${client.baseUrl}/api/actions/${prepared.action.id}/approval/approve`, {
+
+  await client.login(first.user.email); // back to org A: this call tests input validation, not isolation
+  const invalidApprove = await client.rawFetch(`/api/actions/${prepared.action.id}/approval/approve`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ organization_id: first.organization.id, reviewer_name: 123 })
+    body: JSON.stringify({ reviewer_name: 123 })
   });
 
   assert.equal(wrongQueue.approvals.length, 0);
@@ -144,7 +145,7 @@ test("approval state survives restart", async (t) => {
 
   try {
     firstClient = await startClient(t, databaseFile, { autoCleanup: false });
-    const { organization, plan } = await createReadyPlan(firstClient, "M5 Restart Org");
+    const { organization, plan, user } = await createReadyPlan(firstClient, "M5 Restart Org");
     const prepared = await firstClient.post(`/api/next-best-action-plans/${plan.id}/action`, {
       organization_id: organization.id
     });
@@ -155,6 +156,7 @@ test("approval state survives restart", async (t) => {
     await firstClient.stop();
 
     secondClient = await startClient(t, databaseFile, { autoCleanup: false });
+    await secondClient.login(user.email);
     const detail = await secondClient.get(`/api/actions/${prepared.action.id}/approval?organization_id=${organization.id}`);
     const queue = await secondClient.get(`/api/approvals?organization_id=${organization.id}&status=APPROVED`);
 
@@ -169,8 +171,8 @@ test("approval state survives restart", async (t) => {
 });
 
 async function createReadyPlan(client, organizationName) {
-  const organizationResponse = await client.post("/api/organizations", { name: organizationName });
-  const organization = organizationResponse.organization;
+  const registered = await client.register(organizationName);
+  const organization = registered.organization;
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.id,
     name: "M5 Ready Lead",
@@ -189,54 +191,5 @@ async function createReadyPlan(client, organizationName) {
   const planned = await client.post(`/api/leads/${leadResponse.lead.id}/next-best-action/plan`, {
     organization_id: organization.id
   });
-  return { organization, lead: leadResponse.lead, plan: planned.next_best_action_plan };
-}
-
-async function startClient(t, databaseFile = ":memory:", { autoCleanup = true } = {}) {
-  const db = createDatabase(databaseFile);
-  const server = createApp({ db });
-  let stopped = false;
-
-  await new Promise((resolve) => server.listen(0, resolve));
-  if (autoCleanup) {
-    t.after(() => stop());
-  }
-
-  const { port } = server.address();
-  const baseUrl = `http://127.0.0.1:${port}`;
-
-  async function stop() {
-    if (stopped) {
-      return;
-    }
-    stopped = true;
-    server.closeIdleConnections?.();
-    server.closeAllConnections?.();
-    await new Promise((resolve) => server.close(resolve));
-    db.close();
-  }
-
-  return {
-    baseUrl,
-    db,
-    stop,
-    async get(route) {
-      const response = await fetch(`${baseUrl}${route}`);
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    },
-    async post(route, body) {
-      const response = await fetch(`${baseUrl}${route}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    }
-  };
+  return { organization, user: registered.user, lead: leadResponse.lead, plan: planned.next_best_action_plan };
 }

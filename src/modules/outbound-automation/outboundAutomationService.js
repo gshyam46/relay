@@ -21,8 +21,8 @@ export class OutboundAutomationService {
     this.auditRepository = auditRepository;
   }
 
-  createActionFromPlan({ organization_id, plan_id }) {
-    const plan = this.nextBestActionRepository.planDetail(this.nextBestActionRepository.getPlan(plan_id), organization_id);
+  async createActionFromPlan({ organization_id, plan_id }) {
+    const plan = this.nextBestActionRepository.planDetail(await this.nextBestActionRepository.getPlan(plan_id), organization_id);
     if (!plan) {
       throw httpError(404, "Next-best-action plan not found.");
     }
@@ -33,15 +33,15 @@ export class OutboundAutomationService {
       throw httpError(409, "Only planned next-best-action records can become outbound actions.");
     }
 
-    const existing = this.actionsRepository.getByPlanId(plan.id, organization_id);
+    const existing = await this.actionsRepository.getByPlanId(plan.id, organization_id);
     if (existing) {
-      this.approvalsService?.requestForAction(existing, { requested_reason: plan.approval?.reason || "Human approval is required." });
-      return this.actionDetail(existing);
+      await this.approvalsService?.requestForAction(existing, { requested_reason: plan.approval?.reason || "Human approval is required." });
+      return await this.actionDetail(existing);
     }
 
     const approvalRequirement = plan.approval?.requirement || "NOT_REQUIRED";
     const status = approvalRequirement === "REQUIRED" ? ACTION_STATUS.AWAITING_APPROVAL : ACTION_STATUS.PLANNED;
-    const action = this.actionsRepository.createAction({
+    const action = await this.actionsRepository.createAction({
       organization_id,
       lead_id: plan.lead_id,
       type: actionTypeForPlan(plan),
@@ -60,7 +60,7 @@ export class OutboundAutomationService {
         mock_behavior: "SUCCESS"
       }
     });
-    this.auditRepository?.record({
+    await this.auditRepository?.record({
       organization_id,
       lead_id: action.lead_id,
       action_id: action.id,
@@ -73,14 +73,14 @@ export class OutboundAutomationService {
         approval_requirement: approvalRequirement
       }
     });
-    this.approvalsService?.requestForAction(action, {
+    await this.approvalsService?.requestForAction(action, {
       requested_reason: plan.approval?.reason || "Human approval is required."
     });
-    return this.actionDetail(action);
+    return await this.actionDetail(action);
   }
 
-  executeAction({ organization_id, action_id }) {
-    const action = this.actionsRepository.getActionForOrganization(action_id, organization_id);
+  async executeAction({ organization_id, action_id }) {
+    const action = await this.actionsRepository.getActionForOrganization(action_id, organization_id);
     if (!action) {
       throw httpError(404, "Action not found.");
     }
@@ -89,36 +89,41 @@ export class OutboundAutomationService {
     }
     if (!EXECUTABLE_ACTION_STATUSES.has(action.status)) {
       return {
-        action: this.actionDetail(action),
+        action: await this.actionDetail(action),
         execution_result: {
           action_id: action.id,
           status: action.status,
-          execution: this.executionsRepository.latestForAction(action.id),
+          execution: await this.executionsRepository.latestForAction(action.id),
           executable: false
         }
       };
     }
-    const executionResult = this.actionExecutor.execute(action);
+    const executionResult = await this.actionExecutor.execute(action);
     return {
-      action: this.actionDetail(this.actionsRepository.getAction(action.id)),
+      action: await this.actionDetail(await this.actionsRepository.getAction(action.id)),
       execution_result: executionResult
     };
   }
 
-  listForLead({ organization_id, lead_id }) {
-    return this.actionsRepository.listForLeadScoped(lead_id, organization_id).map((action) => this.actionDetail(action));
+  async listForLead({ organization_id, lead_id }) {
+    const actions = await this.actionsRepository.listForLeadScoped(lead_id, organization_id);
+    const details = [];
+    for (const action of actions) {
+      details.push(await this.actionDetail(action));
+    }
+    return details;
   }
 
-  actionDetail(action) {
+  async actionDetail(action) {
     if (!action) {
       return null;
     }
     return {
       ...action,
       payload: this.actionsRepository.actionPayload(action),
-      approval: this.approvalsRepository?.getByActionId(action.id, action.organization_id) || null,
-      executions: this.executionsRepository.listForAction(action.id),
-      callbacks: this.callbacksRepository.listForAction(action.id)
+      approval: await this.approvalsRepository?.getByActionId(action.id, action.organization_id) || null,
+      executions: await this.executionsRepository.listForAction(action.id),
+      callbacks: await this.callbacksRepository.listForAction(action.id)
     };
   }
 }

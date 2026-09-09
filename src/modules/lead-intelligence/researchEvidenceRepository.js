@@ -7,7 +7,7 @@ export class ResearchEvidenceRepository {
     this.db = db;
   }
 
-  createIngestion({ organization_id, lead_id, adapter_type, provider_key, idempotency_key, request = {} }) {
+  async createIngestion({ organization_id, lead_id, adapter_type, provider_key, idempotency_key, request = {} }) {
     const ingestion = {
       id: createId("research_ingestion"),
       organization_id,
@@ -23,7 +23,7 @@ export class ResearchEvidenceRepository {
       updated_at: nowIso(),
       completed_at: null
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO research_evidence_ingestions
         (id, organization_id, lead_id, adapter_type, provider_key, state, idempotency_key,
          request_json, summary_json, last_error, created_at, updated_at, completed_at)
@@ -47,8 +47,8 @@ export class ResearchEvidenceRepository {
     return ingestion;
   }
 
-  findIngestionByIdempotencyKey({ organization_id, lead_id, idempotency_key }) {
-    return this.db.get(
+  async findIngestionByIdempotencyKey({ organization_id, lead_id, idempotency_key }) {
+    return await this.db.get(
       `SELECT * FROM research_evidence_ingestions
         WHERE organization_id = ? AND lead_id = ? AND idempotency_key = ?
         LIMIT 1`,
@@ -56,24 +56,24 @@ export class ResearchEvidenceRepository {
     );
   }
 
-  updateIngestionState(id, { state, summary = null, last_error = null, completed = false }) {
+  async updateIngestionState(id, { state, summary = null, last_error = null, completed = false }) {
     const updatedAt = nowIso();
     const completedAt = completed ? updatedAt : null;
-    this.db.run(
+    await this.db.run(
       `UPDATE research_evidence_ingestions
         SET state = ?, summary_json = COALESCE(?, summary_json), last_error = ?, updated_at = ?,
             completed_at = COALESCE(?, completed_at)
         WHERE id = ?`,
       [state, summary ? stringifyJson(summary) : null, last_error, updatedAt, completedAt, id]
     );
-    return this.getIngestion(id);
+    return await this.getIngestion(id);
   }
 
-  replaceEvidenceItems(ingestionId) {
-    this.db.run("DELETE FROM research_evidence_items WHERE ingestion_id = ?", [ingestionId]);
+  async replaceEvidenceItems(ingestionId) {
+    await this.db.run("DELETE FROM research_evidence_items WHERE ingestion_id = ?", [ingestionId]);
   }
 
-  createEvidenceItem({
+  async createEvidenceItem({
     ingestion_id,
     organization_id,
     lead_id,
@@ -107,7 +107,7 @@ export class ResearchEvidenceRepository {
       metadata_json: stringifyJson(metadata),
       created_at: nowIso()
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO research_evidence_items
         (id, ingestion_id, organization_id, lead_id, source_type, source_reference, source_url,
          title, raw_content_reference, claim_field, claim_value, evidence_timestamp, retrieved_at,
@@ -135,42 +135,42 @@ export class ResearchEvidenceRepository {
     return evidence;
   }
 
-  listIngestionsForLead(leadId, organizationId) {
-    return this.db
-      .all(
-        `SELECT * FROM research_evidence_ingestions
+  async listIngestionsForLead(leadId, organizationId) {
+    const ingestions = await this.db.all(
+      `SELECT * FROM research_evidence_ingestions
           WHERE lead_id = ? AND organization_id = ?
           ORDER BY created_at DESC`,
-        [leadId, organizationId]
-      )
-      .map((ingestion) => this.ingestionDetail(ingestion));
+      [leadId, organizationId]
+    );
+    return Promise.all(ingestions.map((ingestion) => this.ingestionDetail(ingestion)));
   }
 
-  getIngestion(id) {
-    return this.db.get("SELECT * FROM research_evidence_ingestions WHERE id = ?", [id]);
+  async getIngestion(id) {
+    return await this.db.get("SELECT * FROM research_evidence_ingestions WHERE id = ?", [id]);
   }
 
-  evidenceItemsForIngestion(ingestionId, organizationId) {
-    return this.db.all(
+  async evidenceItemsForIngestion(ingestionId, organizationId) {
+    return await this.db.all(
       "SELECT * FROM research_evidence_items WHERE ingestion_id = ? AND organization_id = ? ORDER BY created_at ASC",
       [ingestionId, organizationId]
     );
   }
 
-  evidenceItemsForLead(leadId, organizationId) {
-    return this.db.all(
+  async evidenceItemsForLead(leadId, organizationId) {
+    return await this.db.all(
       "SELECT * FROM research_evidence_items WHERE lead_id = ? AND organization_id = ? ORDER BY created_at ASC",
       [leadId, organizationId]
     );
   }
 
-  ingestionDetail(ingestion) {
+  async ingestionDetail(ingestion) {
     if (!ingestion) {
       return null;
     }
+    const evidenceItems = await this.evidenceItemsForIngestion(ingestion.id, ingestion.organization_id);
     return {
       ...serializeIngestion(ingestion),
-      evidence_items: this.evidenceItemsForIngestion(ingestion.id, ingestion.organization_id).map(serializeEvidenceItem)
+      evidence_items: evidenceItems.map(serializeEvidenceItem)
     };
   }
 }

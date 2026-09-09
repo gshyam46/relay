@@ -6,15 +6,15 @@ export class ExecutionsRepository {
     this.db = db;
   }
 
-  nextAttempt(actionId) {
-    const row = this.db.get("SELECT COALESCE(MAX(attempt), 0) AS last_attempt FROM action_executions WHERE action_id = ?", [
+  async nextAttempt(actionId) {
+    const row = await this.db.get("SELECT COALESCE(MAX(attempt), 0) AS last_attempt FROM action_executions WHERE action_id = ?", [
       actionId
     ]);
     return Number(row.last_attempt) + 1;
   }
 
-  createExecution({ action_id, status, attempt, provider, provider_reference = null, idempotency_key, error = null }) {
-    const existing = this.getByIdempotencyKey(idempotency_key);
+  async createExecution({ action_id, status, attempt, provider, provider_reference = null, idempotency_key, error = null }) {
+    const existing = await this.getByIdempotencyKey(idempotency_key);
     if (existing) {
       return existing;
     }
@@ -31,7 +31,7 @@ export class ExecutionsRepository {
       started_at: nowIso(),
       completed_at: status === "FAILED" || status === "COMPLETED" ? nowIso() : null
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO action_executions
           (id, action_id, status, attempt, provider, provider_reference, idempotency_key, error, started_at, completed_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -51,25 +51,25 @@ export class ExecutionsRepository {
     return execution;
   }
 
-  getExecution(id) {
-    return this.db.get("SELECT * FROM action_executions WHERE id = ?", [id]);
+  async getExecution(id) {
+    return await this.db.get("SELECT * FROM action_executions WHERE id = ?", [id]);
   }
 
-  getByIdempotencyKey(idempotencyKey) {
-    return this.db.get("SELECT * FROM action_executions WHERE idempotency_key = ?", [idempotencyKey]);
+  async getByIdempotencyKey(idempotencyKey) {
+    return await this.db.get("SELECT * FROM action_executions WHERE idempotency_key = ?", [idempotencyKey]);
   }
 
-  listForAction(actionId) {
-    return this.db.all("SELECT * FROM action_executions WHERE action_id = ? ORDER BY attempt ASC", [actionId]);
+  async listForAction(actionId) {
+    return await this.db.all("SELECT * FROM action_executions WHERE action_id = ? ORDER BY attempt ASC", [actionId]);
   }
 
-  latestForAction(actionId) {
-    return this.db.get("SELECT * FROM action_executions WHERE action_id = ? ORDER BY attempt DESC LIMIT 1", [actionId]);
+  async latestForAction(actionId) {
+    return await this.db.get("SELECT * FROM action_executions WHERE action_id = ? ORDER BY attempt DESC LIMIT 1", [actionId]);
   }
 
-  markCompleted(actionId, providerReference) {
-    const latest = this.latestForAction(actionId);
-    this.db.run(
+  async markCompleted(actionId, providerReference) {
+    const latest = await this.latestForAction(actionId);
+    await this.db.run(
       `UPDATE action_executions
          SET status = 'COMPLETED', provider_reference = COALESCE(provider_reference, ?), completed_at = ?
          WHERE id = (
@@ -80,12 +80,12 @@ export class ExecutionsRepository {
          )`,
       [providerReference, nowIso(), actionId]
     );
-    return latest ? this.getExecution(latest.id) : null;
+    return latest ? await this.getExecution(latest.id) : null;
   }
 
-  markFailed(actionId, { providerReference = null, error = null } = {}) {
-    const latest = this.latestForAction(actionId);
-    this.db.run(
+  async markFailed(actionId, { providerReference = null, error = null } = {}) {
+    const latest = await this.latestForAction(actionId);
+    await this.db.run(
       `UPDATE action_executions
          SET status = 'FAILED', provider_reference = COALESCE(provider_reference, ?), error = ?, completed_at = ?
          WHERE id = (
@@ -96,6 +96,6 @@ export class ExecutionsRepository {
          )`,
       [providerReference, error, nowIso(), actionId]
     );
-    return latest ? this.getExecution(latest.id) : null;
+    return latest ? await this.getExecution(latest.id) : null;
   }
 }

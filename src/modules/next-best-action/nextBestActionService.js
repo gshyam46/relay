@@ -22,9 +22,9 @@ export class NextBestActionService {
     this.policyEngine = policyEngine;
   }
 
-  planForLead(lead, { simulate_failure_stage = null } = {}) {
-    const input = this.buildInput(lead);
-    const existing = this.nextBestActionRepository.findByFingerprint({
+  async planForLead(lead, { simulate_failure_stage = null } = {}) {
+    const input = await this.buildInput(lead);
+    const existing = await this.nextBestActionRepository.findByFingerprint({
       organization_id: lead.organization_id,
       lead_id: lead.id,
       input_fingerprint: input.input_fingerprint,
@@ -36,7 +36,7 @@ export class NextBestActionService {
 
     const draft =
       existing ||
-      this.nextBestActionRepository.createDraft({
+      await this.nextBestActionRepository.createDraft({
         organization_id: lead.organization_id,
         lead_id: lead.id,
         intelligence_recommendation_id: input.intelligence_recommendation.id,
@@ -52,7 +52,7 @@ export class NextBestActionService {
       }
       const actionType = input.intelligence_recommendation.recommendation?.step;
       const policyDecision = this.policyEngine.evaluate({ lead, actionType });
-      const output = this.actionPlanner.plan({
+      const output = await this.actionPlanner.plan({
         intelligenceRecommendation: input.intelligence_recommendation,
         policyDecision
       });
@@ -67,16 +67,16 @@ export class NextBestActionService {
         output.policy_decision.decision === "BLOCK"
           ? NEXT_BEST_ACTION_PLAN_STATUS.BLOCKED
           : NEXT_BEST_ACTION_PLAN_STATUS.PLANNED;
-      const plan = this.nextBestActionRepository.markReady(draft.id, {
+      const plan = await this.nextBestActionRepository.markReady(draft.id, {
         status,
         ...output
       });
-      this.nextBestActionRepository.supersedeReadyPlans({
+      await this.nextBestActionRepository.supersedeReadyPlans({
         organization_id: lead.organization_id,
         lead_id: lead.id,
         except_plan_id: plan.id
       });
-      this.auditRepository?.record({
+      await this.auditRepository?.record({
         organization_id: lead.organization_id,
         lead_id: lead.id,
         event_type: "NextBestActionPlanned",
@@ -90,13 +90,13 @@ export class NextBestActionService {
       });
       return this.nextBestActionRepository.planDetail(plan);
     } catch (error) {
-      this.nextBestActionRepository.markFailed(draft.id, error);
+      await this.nextBestActionRepository.markFailed(draft.id, error);
       throw error;
     }
   }
 
-  currentForLead(lead) {
-    const input = this.tryBuildInput(lead);
+  async currentForLead(lead) {
+    const input = await this.tryBuildInput(lead);
     if (!input.ready) {
       return {
         plan_status: "NOT_READY",
@@ -104,7 +104,7 @@ export class NextBestActionService {
         next_best_action_plan: null
       };
     }
-    const plan = this.nextBestActionRepository.findByFingerprint({
+    const plan = await this.nextBestActionRepository.findByFingerprint({
       organization_id: lead.organization_id,
       lead_id: lead.id,
       input_fingerprint: input.value.input_fingerprint,
@@ -117,22 +117,22 @@ export class NextBestActionService {
     };
   }
 
-  historyForLead(lead) {
-    return this.nextBestActionRepository.historyForLead(lead.id, lead.organization_id).map((plan) => {
+  async historyForLead(lead) {
+    return (await this.nextBestActionRepository.historyForLead(lead.id, lead.organization_id)).map((plan) => {
       return this.nextBestActionRepository.planDetail(plan);
     });
   }
 
-  buildInput(lead) {
-    const result = this.tryBuildInput(lead);
+  async buildInput(lead) {
+    const result = await this.tryBuildInput(lead);
     if (!result.ready) {
       throw new Error(result.reason);
     }
     return result.value;
   }
 
-  tryBuildInput(lead) {
-    const recommendationState = this.intelligenceRecommendationService.currentForLead(lead);
+  async tryBuildInput(lead) {
+    const recommendationState = await this.intelligenceRecommendationService.currentForLead(lead);
     const intelligenceRecommendation = recommendationState.intelligence_recommendation;
     if (!intelligenceRecommendation || intelligenceRecommendation.status !== "READY") {
       return {
@@ -151,12 +151,16 @@ export class NextBestActionService {
 }
 
 function planFingerprint({ lead, intelligenceRecommendation }) {
+  // Deliberately excludes lead.status: it's a live, frequently-changing field (execution
+  // callbacks and inbound events flip it), and including it here made an already-current plan
+  // stop being found as "current" the moment any unrelated action on the lead completed —
+  // currentForLead() would then wrongly report NOT_RUN for a lead that already has a valid,
+  // possibly-approved-or-executing plan. Explicit re-planning still uses live lead state.
   return createHash("sha256")
     .update(
       JSON.stringify({
         lead_id: lead.id,
         organization_id: lead.organization_id,
-        lead_status: lead.status,
         intelligence_recommendation_id: intelligenceRecommendation.id,
         action_step: intelligenceRecommendation.recommendation?.step,
         priority: intelligenceRecommendation.priority,

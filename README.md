@@ -2,6 +2,21 @@
 
 Modular monolith for the AI Lead Intelligence & Outbound Automation product.
 
+## Deployment
+
+Staging runs on **Supabase** (PostgreSQL) and **Render** (Node), from the
+`mvp` branch. Setting `DATABASE_URL` is the entire switch from SQLite to
+PostgreSQL — no build flag, no code change.
+
+```bash
+npm run verify:deploy   # connectivity, migrations, schema, config
+npm run test:pg         # the whole suite against a real PostgreSQL
+```
+
+Both read `DATABASE_URL` from `.env` (gitignored) and print only the host.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full runbook, and
+[docs/status.html](docs/status.html) for build status.
+
 ## Current Milestone
 
 M6/M7 foundation slice - channel workflow and inbound response foundation.

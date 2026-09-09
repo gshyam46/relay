@@ -8,8 +8,8 @@ export class IntelligenceRecommendationRepository {
     this.db = db;
   }
 
-  findByFingerprint({ organization_id, lead_id, input_fingerprint, pipeline_version }) {
-    return this.db.get(
+  async findByFingerprint({ organization_id, lead_id, input_fingerprint, pipeline_version }) {
+    return await this.db.get(
       `SELECT * FROM intelligence_recommendation_runs
         WHERE organization_id = ? AND lead_id = ? AND input_fingerprint = ? AND pipeline_version = ?
         LIMIT 1`,
@@ -17,7 +17,7 @@ export class IntelligenceRecommendationRepository {
     );
   }
 
-  createDraft({ organization_id, lead_id, synthesis_id, snapshot_id, pipeline_version, input_fingerprint }) {
+  async createDraft({ organization_id, lead_id, synthesis_id, snapshot_id, pipeline_version, input_fingerprint }) {
     const timestamp = nowIso();
     const run = {
       id: createId("intel_rec"),
@@ -25,7 +25,7 @@ export class IntelligenceRecommendationRepository {
       lead_id,
       synthesis_id,
       snapshot_id,
-      version: this.nextVersionForLead(lead_id, organization_id),
+      version: await this.nextVersionForLead(lead_id, organization_id),
       status: INTELLIGENCE_RECOMMENDATION_STATUS.DRAFT,
       pipeline_version,
       input_fingerprint,
@@ -39,7 +39,7 @@ export class IntelligenceRecommendationRepository {
       updated_at: timestamp,
       completed_at: null
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO intelligence_recommendation_runs
         (id, organization_id, lead_id, synthesis_id, snapshot_id, version, status, pipeline_version,
          input_fingerprint, priority_json, segment_json, personalization_json, recommendation_json,
@@ -69,9 +69,9 @@ export class IntelligenceRecommendationRepository {
     return run;
   }
 
-  markReady(id, { priority, segment, personalization_context, recommendation, evidence_refs }) {
+  async markReady(id, { priority, segment, personalization_context, recommendation, evidence_refs }) {
     const timestamp = nowIso();
-    this.db.run(
+    await this.db.run(
       `UPDATE intelligence_recommendation_runs
         SET status = ?, priority_json = ?, segment_json = ?, personalization_json = ?,
             recommendation_json = ?, evidence_refs_json = ?, last_error = NULL,
@@ -89,21 +89,21 @@ export class IntelligenceRecommendationRepository {
         id
       ]
     );
-    return this.getRun(id);
+    return await this.getRun(id);
   }
 
-  markFailed(id, error) {
-    this.db.run(
+  async markFailed(id, error) {
+    await this.db.run(
       `UPDATE intelligence_recommendation_runs
         SET status = ?, last_error = ?, updated_at = ?
         WHERE id = ?`,
       [INTELLIGENCE_RECOMMENDATION_STATUS.FAILED, error.message || String(error), nowIso(), id]
     );
-    return this.getRun(id);
+    return await this.getRun(id);
   }
 
-  supersedeReadyRuns({ organization_id, lead_id, except_run_id }) {
-    this.db.run(
+  async supersedeReadyRuns({ organization_id, lead_id, except_run_id }) {
+    await this.db.run(
       `UPDATE intelligence_recommendation_runs
         SET status = ?, updated_at = ?
         WHERE organization_id = ? AND lead_id = ? AND status = ? AND id <> ?`,
@@ -118,12 +118,12 @@ export class IntelligenceRecommendationRepository {
     );
   }
 
-  getRun(id) {
-    return this.db.get("SELECT * FROM intelligence_recommendation_runs WHERE id = ?", [id]);
+  async getRun(id) {
+    return await this.db.get("SELECT * FROM intelligence_recommendation_runs WHERE id = ?", [id]);
   }
 
-  historyForLead(leadId, organizationId) {
-    return this.db.all(
+  async historyForLead(leadId, organizationId) {
+    return await this.db.all(
       `SELECT * FROM intelligence_recommendation_runs
         WHERE lead_id = ? AND organization_id = ?
         ORDER BY version DESC, created_at DESC`,
@@ -131,8 +131,8 @@ export class IntelligenceRecommendationRepository {
     );
   }
 
-  nextVersionForLead(leadId, organizationId) {
-    const row = this.db.get(
+  async nextVersionForLead(leadId, organizationId) {
+    const row = await this.db.get(
       `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
         FROM intelligence_recommendation_runs
         WHERE lead_id = ? AND organization_id = ?`,

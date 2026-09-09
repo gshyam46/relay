@@ -7,13 +7,13 @@ export class LeadsRepository {
     this.db = db;
   }
 
-  createOrganization({ name }) {
+  async createOrganization({ name }) {
     const organization = {
       id: createId("org"),
       name,
       created_at: nowIso()
     };
-    this.db.run("INSERT INTO organizations (id, name, created_at) VALUES (?, ?, ?)", [
+    await this.db.run("INSERT INTO organizations (id, name, created_at) VALUES (?, ?, ?)", [
       organization.id,
       organization.name,
       organization.created_at
@@ -21,19 +21,19 @@ export class LeadsRepository {
     return organization;
   }
 
-  getOrganization(id) {
-    return this.db.get("SELECT * FROM organizations WHERE id = ?", [id]);
+  async getOrganization(id) {
+    return await this.db.get("SELECT * FROM organizations WHERE id = ?", [id]);
   }
 
-  getOrganizationByName(name) {
-    return this.db.get("SELECT * FROM organizations WHERE lower(name) = lower(?)", [name.trim()]);
+  async getOrganizationByName(name) {
+    return await this.db.get("SELECT * FROM organizations WHERE lower(name) = lower(?)", [name.trim()]);
   }
 
-  listOrganizations() {
-    return this.db.all("SELECT * FROM organizations ORDER BY created_at DESC");
+  async listOrganizations() {
+    return await this.db.all("SELECT * FROM organizations ORDER BY created_at DESC");
   }
 
-  createLead({
+  async createLead({
     organization_id,
     name,
     email = null,
@@ -65,7 +65,7 @@ export class LeadsRepository {
       updated_at: timestamp
     };
 
-    this.db.run(
+    await this.db.run(
       `INSERT INTO leads
           (id, organization_id, name, email, phone, normalized_email, normalized_phone, company, source,
            import_batch_id, import_row_id, source_metadata_json, status, created_at, updated_at)
@@ -92,7 +92,7 @@ export class LeadsRepository {
     return lead;
   }
 
-  listLeads(organizationId, filters = {}) {
+  async listLeads(organizationId, filters = {}) {
     const clauses = ["organization_id = ?"];
     const params = [organizationId];
 
@@ -112,34 +112,34 @@ export class LeadsRepository {
       params.push(filters.status);
     }
 
-    return this.db.all(`SELECT * FROM leads WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC`, params);
+    return await this.db.all(`SELECT * FROM leads WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC`, params);
   }
 
-  getLead(id) {
-    return this.db.get("SELECT * FROM leads WHERE id = ?", [id]);
+  async getLead(id) {
+    return await this.db.get("SELECT * FROM leads WHERE id = ?", [id]);
   }
 
-  updateLeadStatus(id, status) {
+  async updateLeadStatus(id, status) {
     const updatedAt = nowIso();
-    this.db.run("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", [status, updatedAt, id]);
-    return this.getLead(id);
+    await this.db.run("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", [status, updatedAt, id]);
+    return await this.getLead(id);
   }
 
-  findByNormalizedEmail(organizationId, normalizedEmail) {
+  async findByNormalizedEmail(organizationId, normalizedEmail) {
     if (!normalizedEmail) {
       return null;
     }
-    return this.db.get("SELECT * FROM leads WHERE organization_id = ? AND normalized_email = ? LIMIT 1", [
+    return await this.db.get("SELECT * FROM leads WHERE organization_id = ? AND normalized_email = ? LIMIT 1", [
       organizationId,
       normalizedEmail
     ]);
   }
 
-  findByNormalizedPhone(organizationId, normalizedPhone) {
+  async findByNormalizedPhone(organizationId, normalizedPhone) {
     if (!normalizedPhone) {
       return null;
     }
-    return this.db.get("SELECT * FROM leads WHERE organization_id = ? AND normalized_phone = ? LIMIT 1", [
+    return await this.db.get("SELECT * FROM leads WHERE organization_id = ? AND normalized_phone = ? LIMIT 1", [
       organizationId,
       normalizedPhone
     ]);

@@ -7,7 +7,7 @@ export class ChannelMessagesRepository {
     this.db = db;
   }
 
-  create({
+  async create({
     organization_id,
     lead_id,
     action_id = null,
@@ -22,10 +22,13 @@ export class ChannelMessagesRepository {
     provider_reference = null,
     provider_event_id = null,
     idempotency_key,
+    classification_event_type = null,
+    classification_confidence = null,
+    suggested_next_step = null,
     payload = {},
     occurred_at = nowIso()
   }) {
-    const existing = this.getByIdempotencyKey(organization_id, idempotency_key);
+    const existing = await this.getByIdempotencyKey(organization_id, idempotency_key);
     if (existing) {
       return existing;
     }
@@ -47,17 +50,21 @@ export class ChannelMessagesRepository {
       provider_reference,
       provider_event_id,
       idempotency_key,
+      classification_event_type,
+      classification_confidence,
+      suggested_next_step,
       payload_json: stringifyJson(payload),
       occurred_at,
       created_at: timestamp,
       updated_at: timestamp
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO channel_messages
           (id, organization_id, lead_id, action_id, inbound_event_id, direction, channel, status,
            subject, body, summary, provider, provider_reference, provider_event_id, idempotency_key,
+           classification_event_type, classification_confidence, suggested_next_step,
            payload_json, occurred_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         message.id,
         message.organization_id,
@@ -74,6 +81,9 @@ export class ChannelMessagesRepository {
         message.provider_reference,
         message.provider_event_id,
         message.idempotency_key,
+        message.classification_event_type,
+        message.classification_confidence,
+        message.suggested_next_step,
         message.payload_json,
         message.occurred_at,
         message.created_at,
@@ -83,16 +93,16 @@ export class ChannelMessagesRepository {
     return this.messageDetail(message);
   }
 
-  getByIdempotencyKey(organizationId, idempotencyKey) {
-    const row = this.db.get("SELECT * FROM channel_messages WHERE organization_id = ? AND idempotency_key = ?", [
+  async getByIdempotencyKey(organizationId, idempotencyKey) {
+    const row = await this.db.get("SELECT * FROM channel_messages WHERE organization_id = ? AND idempotency_key = ?", [
       organizationId,
       idempotencyKey
     ]);
     return row ? this.messageDetail(row) : null;
   }
 
-  latestOutboundForAction(actionId, organizationId) {
-    const row = this.db.get(
+  async latestOutboundForAction(actionId, organizationId) {
+    const row = await this.db.get(
       `SELECT * FROM channel_messages
        WHERE organization_id = ? AND action_id = ? AND direction = 'OUTBOUND'
        ORDER BY occurred_at DESC, created_at DESC
@@ -102,40 +112,38 @@ export class ChannelMessagesRepository {
     return row ? this.messageDetail(row) : null;
   }
 
-  updateStatus(id, status, { provider_reference = null, summary = null } = {}) {
-    this.db.run(
+  async updateStatus(id, status, { provider_reference = null, summary = null } = {}) {
+    await this.db.run(
       `UPDATE channel_messages
        SET status = ?, provider_reference = COALESCE(provider_reference, ?), summary = COALESCE(?, summary), updated_at = ?
        WHERE id = ?`,
       [status, provider_reference, summary, nowIso(), id]
     );
-    const row = this.db.get("SELECT * FROM channel_messages WHERE id = ?", [id]);
+    const row = await this.db.get("SELECT * FROM channel_messages WHERE id = ?", [id]);
     return row ? this.messageDetail(row) : null;
   }
 
-  listForLead(organizationId, leadId) {
-    return this.db
-      .all(
-        `SELECT * FROM channel_messages
+  async listForLead(organizationId, leadId) {
+    const rows = await this.db.all(
+      `SELECT * FROM channel_messages
          WHERE organization_id = ? AND lead_id = ?
          ORDER BY occurred_at DESC, created_at DESC`,
-        [organizationId, leadId]
-      )
-      .map((row) => this.messageDetail(row));
+      [organizationId, leadId]
+    );
+    return rows.map((row) => this.messageDetail(row));
   }
 
-  listForOrganization(organizationId, { limit = 50 } = {}) {
-    return this.db
-      .all(
-        `SELECT cm.*, l.name AS lead_name, l.company AS lead_company
+  async listForOrganization(organizationId, { limit = 50 } = {}) {
+    const rows = await this.db.all(
+      `SELECT cm.*, l.name AS lead_name, l.company AS lead_company
          FROM channel_messages cm
          JOIN leads l ON l.id = cm.lead_id
          WHERE cm.organization_id = ?
          ORDER BY cm.occurred_at DESC, cm.created_at DESC
          LIMIT ?`,
-        [organizationId, limit]
-      )
-      .map((row) => this.messageDetail(row));
+      [organizationId, limit]
+    );
+    return rows.map((row) => this.messageDetail(row));
   }
 
   messageDetail(row) {

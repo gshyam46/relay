@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createApp, createServices } from "../src/api/app.js";
+import { createServices } from "../src/api/app.js";
 import { createDatabase } from "../src/database/database.js";
+import { startClient } from "./helpers/testClient.js";
 import { validateNextBestActionPlanOutput } from "../src/modules/next-best-action/nextBestActionContract.js";
 
-test("next-best-action contract requires policy, approval, evidence, and non-executable plan", () => {
+test("next-best-action contract requires policy, approval, evidence, and non-executable plan", async () => {
   const errors = validateNextBestActionPlanOutput({
     action_type: "SEND_EMAIL",
     title: "",
@@ -27,7 +28,7 @@ test("next-best-action contract requires policy, approval, evidence, and non-exe
 
 test("next-best-action planning requires current recommendation intelligence", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "NBA Not Ready Org" });
+  const organization = await client.register("NBA Not Ready Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Not Ready Lead",
@@ -36,10 +37,10 @@ test("next-best-action planning requires current recommendation intelligence", a
   });
 
   const current = await client.get(`/api/leads/${leadResponse.lead.id}/next-best-action?organization_id=${organization.organization.id}`);
-  const run = await fetch(`${client.baseUrl}/api/leads/${leadResponse.lead.id}/next-best-action/plan`, {
+  const run = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/next-best-action/plan`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ organization_id: organization.organization.id })
+    body: JSON.stringify({})
   });
 
   assert.equal(current.plan_status, "NOT_READY");
@@ -64,71 +65,71 @@ test("ready recommendation creates a policy-checked plan without executable acti
   assert.equal(result.next_best_action_plan.execution_contract.executable, false);
   assert.equal(result.next_best_action_plan.decision_evidence_refs.length > 0, true);
   assert.equal(current.next_best_action_plan.id, result.next_best_action_plan.id);
-  assert.equal(client.db.all("SELECT * FROM actions WHERE lead_id = ?", [lead.id]).length, 0);
-  assert.equal(client.db.all("SELECT * FROM action_executions").length, 0);
+  assert.equal((await client.db.all("SELECT * FROM actions WHERE lead_id = ?", [lead.id])).length, 0);
+  assert.equal((await client.db.all("SELECT * FROM action_executions")).length, 0);
 });
 
-test("incomplete recommendation creates a gather-more-data plan allowed by policy", () => {
-  const db = createDatabase(":memory:");
+test("incomplete recommendation creates a gather-more-data plan allowed by policy", async () => {
+  const db = await createDatabase(":memory:");
   const services = createServices(db);
   try {
-    const organization = services.leadsRepository.createOrganization({ name: "NBA Needs Data Org" });
-    const lead = services.leadsRepository.createLead({
+    const organization = await services.leadsRepository.createOrganization({ name: "NBA Needs Data Org" });
+    const lead = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Future Furniture",
       company: "Future Furniture",
       source: "MANUAL"
     });
-    services.intelligenceService.runForLead(lead);
-    services.synthesisService.runForLead(lead);
-    services.intelligenceRecommendationService.runForLead(lead);
+    await services.intelligenceService.runForLead(lead);
+    await services.synthesisService.runForLead(lead);
+    await services.intelligenceRecommendationService.runForLead(lead);
 
-    const plan = services.nextBestActionService.planForLead(lead);
+    const plan = await services.nextBestActionService.planForLead(lead);
 
     assert.equal(plan.status, "PLANNED");
     assert.equal(plan.action_type, "GATHER_MORE_DATA");
     assert.equal(plan.policy_decision.decision, "ALLOW");
     assert.equal(plan.approval.requirement, "NOT_REQUIRED");
-    assert.equal(db.all("SELECT * FROM actions WHERE lead_id = ?", [lead.id]).length, 0);
+    assert.equal((await db.all("SELECT * FROM actions WHERE lead_id = ?", [lead.id])).length, 0);
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
-test("opted-out lead produces blocked plan and no executable action", () => {
-  const db = createDatabase(":memory:");
+test("opted-out lead produces blocked plan and no executable action", async () => {
+  const db = await createDatabase(":memory:");
   const services = createServices(db);
   try {
-    const organization = services.leadsRepository.createOrganization({ name: "NBA Opted Out Org" });
-    const lead = services.leadsRepository.createLead({
+    const organization = await services.leadsRepository.createOrganization({ name: "NBA Opted Out Org" });
+    const lead = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Opted Out Lead",
       email: "opted-out@example.com",
       company: "Opted Out Co",
       source: "MANUAL"
     });
-    services.leadsRepository.updateLeadStatus(lead.id, "OPTED_OUT");
-    const updatedLead = services.leadsRepository.getLead(lead.id);
-    services.intelligenceService.runForLead(updatedLead);
-    services.synthesisService.runForLead(updatedLead);
-    services.intelligenceRecommendationService.runForLead(updatedLead);
+    await services.leadsRepository.updateLeadStatus(lead.id, "OPTED_OUT");
+    const updatedLead = await services.leadsRepository.getLead(lead.id);
+    await services.intelligenceService.runForLead(updatedLead);
+    await services.synthesisService.runForLead(updatedLead);
+    await services.intelligenceRecommendationService.runForLead(updatedLead);
 
-    const plan = services.nextBestActionService.planForLead(updatedLead);
+    const plan = await services.nextBestActionService.planForLead(updatedLead);
 
     assert.equal(plan.status, "BLOCKED");
     assert.equal(plan.policy_decision.decision, "BLOCK");
     assert.equal(plan.approval.requirement, "BLOCKED");
     assert.match(plan.approval.reason, /suppressed or opted out/);
-    assert.equal(db.all("SELECT * FROM actions WHERE lead_id = ?", [lead.id]).length, 0);
+    assert.equal((await db.all("SELECT * FROM actions WHERE lead_id = ?", [lead.id])).length, 0);
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
 test("duplicate warning creates duplicate review plan instead of outbound preparation", async (t) => {
   const client = await startClient(t);
-  const organizationResponse = await client.post("/api/organizations", { name: "NBA Duplicate Org" });
-  const organization = organizationResponse.organization;
+  const registered = await client.register("NBA Duplicate Org");
+  const organization = registered.organization;
   await client.post("/api/leads", {
     organization_id: organization.id,
     name: "Existing Lead",
@@ -167,37 +168,37 @@ test("repeated next-best-action planning is idempotent for the same recommendati
   });
 
   assert.equal(first.next_best_action_plan.id, second.next_best_action_plan.id);
-  assert.equal(client.db.all("SELECT * FROM next_best_action_plans WHERE lead_id = ?", [lead.id]).length, 1);
+  assert.equal((await client.db.all("SELECT * FROM next_best_action_plans WHERE lead_id = ?", [lead.id])).length, 1);
 });
 
-test("failed next-best-action planning can retry safely", () => {
-  const db = createDatabase(":memory:");
+test("failed next-best-action planning can retry safely", async () => {
+  const db = await createDatabase(":memory:");
   const services = createServices(db);
   try {
-    const organization = services.leadsRepository.createOrganization({ name: "NBA Failure Org" });
-    const lead = services.leadsRepository.createLead({
+    const organization = await services.leadsRepository.createOrganization({ name: "NBA Failure Org" });
+    const lead = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Failure Lead",
       email: "failure-nba@example.com",
       company: "Failure Co",
       source: "MANUAL"
     });
-    services.intelligenceService.runForLead(lead);
-    services.synthesisService.runForLead(lead);
-    services.intelligenceRecommendationService.runForLead(lead);
+    await services.intelligenceService.runForLead(lead);
+    await services.synthesisService.runForLead(lead);
+    await services.intelligenceRecommendationService.runForLead(lead);
 
-    assert.throws(
-      () => services.nextBestActionService.planForLead(lead, { simulate_failure_stage: "AFTER_POLICY" }),
+    await assert.rejects(
+      async () => await services.nextBestActionService.planForLead(lead, { simulate_failure_stage: "AFTER_POLICY" }),
       /Simulated next-best-action planning failure/
     );
-    assert.equal(db.get("SELECT status FROM next_best_action_plans WHERE lead_id = ?", [lead.id]).status, "FAILED");
+    assert.equal((await db.get("SELECT status FROM next_best_action_plans WHERE lead_id = ?", [lead.id])).status, "FAILED");
 
-    const retried = services.nextBestActionService.planForLead(lead);
+    const retried = await services.nextBestActionService.planForLead(lead);
 
     assert.equal(retried.status, "PLANNED");
-    assert.equal(db.all("SELECT * FROM next_best_action_plans WHERE lead_id = ?", [lead.id]).length, 1);
+    assert.equal((await db.all("SELECT * FROM next_best_action_plans WHERE lead_id = ?", [lead.id])).length, 1);
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
@@ -233,8 +234,7 @@ test("new recommendation creates a new plan version and preserves history", asyn
 
 test("next-best-action APIs are organization scoped", async (t) => {
   const client = await startClient(t);
-  const firstOrg = await client.post("/api/organizations", { name: "NBA Tenant A" });
-  const secondOrg = await client.post("/api/organizations", { name: "NBA Tenant B" });
+  const firstOrg = await client.register("NBA Tenant A");
   const leadResponse = await client.post("/api/leads", {
     organization_id: firstOrg.organization.id,
     name: "Tenant Lead",
@@ -243,18 +243,21 @@ test("next-best-action APIs are organization scoped", async (t) => {
   });
   await runRecommendationPipeline(client, firstOrg.organization.id, leadResponse.lead.id);
 
-  const wrongRead = await fetch(
-    `${client.baseUrl}/api/leads/${leadResponse.lead.id}/next-best-action?organization_id=${secondOrg.organization.id}`
-  );
-  const wrongPlan = await fetch(`${client.baseUrl}/api/leads/${leadResponse.lead.id}/next-best-action/plan`, {
+  await client.register("NBA Tenant B"); // switches the active session to org B
+
+  const wrongRead = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/next-best-action`);
+  const wrongPlan = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/next-best-action/plan`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ organization_id: secondOrg.organization.id })
+    body: JSON.stringify({})
   });
 
   assert.equal(wrongRead.status, 404);
   assert.equal(wrongPlan.status, 404);
-  assert.equal(client.db.all("SELECT * FROM next_best_action_plans WHERE organization_id = ?", [secondOrg.organization.id]).length, 0);
+  assert.equal(
+    (await client.db.all("SELECT p.* FROM next_best_action_plans p WHERE p.lead_id = ?", [leadResponse.lead.id])).length,
+    0
+  );
 });
 
 test("next-best-action plan state survives application restart", async (t) => {
@@ -265,13 +268,14 @@ test("next-best-action plan state survives application restart", async (t) => {
 
   try {
     firstClient = await startClient(t, databaseFile, { autoCleanup: false });
-    const { organization, lead } = await createReadyRecommendedLead(firstClient, "NBA Restart Org");
+    const { organization, lead, user } = await createReadyRecommendedLead(firstClient, "NBA Restart Org");
     const planned = await firstClient.post(`/api/leads/${lead.id}/next-best-action/plan`, {
       organization_id: organization.id
     });
     await firstClient.stop();
 
     secondClient = await startClient(t, databaseFile, { autoCleanup: false });
+    await secondClient.login(user.email);
     const persisted = await secondClient.get(`/api/leads/${lead.id}/next-best-action?organization_id=${organization.id}`);
 
     assert.equal(persisted.next_best_action_plan.id, planned.next_best_action_plan.id);
@@ -285,8 +289,8 @@ test("next-best-action plan state survives application restart", async (t) => {
 });
 
 async function createReadyRecommendedLead(client, organizationName) {
-  const organizationResponse = await client.post("/api/organizations", { name: organizationName });
-  const organization = organizationResponse.organization;
+  const registered = await client.register(organizationName);
+  const organization = registered.organization;
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.id,
     name: "Priya Sharma",
@@ -294,7 +298,7 @@ async function createReadyRecommendedLead(client, organizationName) {
     company: "Northstar Interiors"
   });
   await runRecommendationPipeline(client, organization.id, leadResponse.lead.id);
-  return { organization, lead: leadResponse.lead };
+  return { organization, user: registered.user, lead: leadResponse.lead };
 }
 
 async function runRecommendationPipeline(client, organizationId, leadId) {
@@ -320,54 +324,5 @@ function companyEvidence(overrides = {}) {
     confidence: "MEDIUM",
     metadata: { reviewed_by: "qa" },
     ...overrides
-  };
-}
-
-async function startClient(t, databaseFile = ":memory:", { autoCleanup = true } = {}) {
-  const db = createDatabase(databaseFile);
-  const server = createApp({ db });
-  let stopped = false;
-
-  await new Promise((resolve) => server.listen(0, resolve));
-  if (autoCleanup) {
-    t.after(() => stop());
-  }
-
-  const { port } = server.address();
-  const baseUrl = `http://127.0.0.1:${port}`;
-
-  async function stop() {
-    if (stopped) {
-      return;
-    }
-    stopped = true;
-    server.closeIdleConnections?.();
-    server.closeAllConnections?.();
-    await new Promise((resolve) => server.close(resolve));
-    db.close();
-  }
-
-  return {
-    baseUrl,
-    db,
-    stop,
-    async get(route) {
-      const response = await fetch(`${baseUrl}${route}`);
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    },
-    async post(route, body) {
-      const response = await fetch(`${baseUrl}${route}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    }
   };
 }

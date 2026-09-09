@@ -7,7 +7,7 @@ export class ImportsRepository {
     this.db = db;
   }
 
-  createBatch({ organization_id, filename, adapter_type, source_metadata, state, idempotency_key, summary }) {
+  async createBatch({ organization_id, filename, adapter_type, source_metadata, state, idempotency_key, summary }) {
     const timestamp = nowIso();
     const batch = {
       id: createId("import"),
@@ -23,7 +23,7 @@ export class ImportsRepository {
       updated_at: timestamp,
       committed_at: null
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO import_batches
         (id, organization_id, filename, adapter_type, source_metadata_json, state, idempotency_key,
          summary_json, last_error, created_at, updated_at, committed_at)
@@ -46,33 +46,33 @@ export class ImportsRepository {
     return batch;
   }
 
-  getBatch(id) {
-    return this.db.get("SELECT * FROM import_batches WHERE id = ?", [id]);
+  async getBatch(id) {
+    return await this.db.get("SELECT * FROM import_batches WHERE id = ?", [id]);
   }
 
-  getBatchByIdempotencyKey(idempotencyKey) {
-    return this.db.get("SELECT * FROM import_batches WHERE idempotency_key = ?", [idempotencyKey]);
+  async getBatchByIdempotencyKey(idempotencyKey) {
+    return await this.db.get("SELECT * FROM import_batches WHERE idempotency_key = ?", [idempotencyKey]);
   }
 
-  listBatches(organizationId) {
-    return this.db.all("SELECT * FROM import_batches WHERE organization_id = ? ORDER BY created_at DESC", [
+  async listBatches(organizationId) {
+    return await this.db.all("SELECT * FROM import_batches WHERE organization_id = ? ORDER BY created_at DESC", [
       organizationId
     ]);
   }
 
-  updateBatchState(id, state, { summary = null, last_error = null, committed_at = null } = {}) {
-    const existing = this.getBatch(id);
+  async updateBatchState(id, state, { summary = null, last_error = null, committed_at = null } = {}) {
+    const existing = await this.getBatch(id);
     const nextSummary = summary === null ? existing.summary_json : stringifyJson(summary);
-    this.db.run(
+    await this.db.run(
       `UPDATE import_batches
           SET state = ?, summary_json = ?, last_error = ?, committed_at = COALESCE(?, committed_at), updated_at = ?
         WHERE id = ?`,
       [state, nextSummary, last_error, committed_at, nowIso(), id]
     );
-    return this.getBatch(id);
+    return await this.getBatch(id);
   }
 
-  createRow({
+  async createRow({
     id = createId("import_row"),
     import_id,
     organization_id,
@@ -100,7 +100,7 @@ export class ImportsRepository {
       created_at: timestamp,
       updated_at: timestamp
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO import_rows
         (id, import_id, organization_id, row_number, raw_row_json, mapped_values_json, normalized_values_json,
          validation_state, selected, committed, created_lead_id, duplicate_candidates_json, created_at, updated_at)
@@ -125,57 +125,57 @@ export class ImportsRepository {
     return row;
   }
 
-  listRows(importId, organizationId) {
-    return this.db.all(
+  async listRows(importId, organizationId) {
+    return await this.db.all(
       "SELECT * FROM import_rows WHERE import_id = ? AND organization_id = ? ORDER BY row_number ASC",
       [importId, organizationId]
     );
   }
 
-  getRowById(rowId, organizationId) {
-    return this.db.get("SELECT * FROM import_rows WHERE id = ? AND organization_id = ?", [rowId, organizationId]);
+  async getRowById(rowId, organizationId) {
+    return await this.db.get("SELECT * FROM import_rows WHERE id = ? AND organization_id = ?", [rowId, organizationId]);
   }
 
-  getRowsByIds(importId, organizationId, rowIds) {
+  async getRowsByIds(importId, organizationId, rowIds) {
     if (rowIds.length === 0) {
       return [];
     }
     const placeholders = rowIds.map(() => "?").join(", ");
-    return this.db.all(
+    return await this.db.all(
       `SELECT * FROM import_rows WHERE import_id = ? AND organization_id = ? AND id IN (${placeholders})`,
       [importId, organizationId, ...rowIds]
     );
   }
 
-  updateRowDuplicates(rowId, duplicateCandidates) {
-    this.db.run("UPDATE import_rows SET duplicate_candidates_json = ?, updated_at = ? WHERE id = ?", [
+  async updateRowDuplicates(rowId, duplicateCandidates) {
+    await this.db.run("UPDATE import_rows SET duplicate_candidates_json = ?, updated_at = ? WHERE id = ?", [
       stringifyJson(duplicateCandidates),
       nowIso(),
       rowId
     ]);
   }
 
-  markRowsSelected(importId, organizationId, rowIds) {
+  async markRowsSelected(importId, organizationId, rowIds) {
     if (rowIds.length === 0) {
       return;
     }
     const placeholders = rowIds.map(() => "?").join(", ");
-    this.db.run(
+    await this.db.run(
       `UPDATE import_rows SET selected = 1, updated_at = ?
         WHERE import_id = ? AND organization_id = ? AND id IN (${placeholders})`,
       [nowIso(), importId, organizationId, ...rowIds]
     );
   }
 
-  markRowCommitted(rowId, leadId) {
-    this.db.run("UPDATE import_rows SET committed = 1, created_lead_id = ?, updated_at = ? WHERE id = ?", [
+  async markRowCommitted(rowId, leadId) {
+    await this.db.run("UPDATE import_rows SET committed = 1, created_lead_id = ?, updated_at = ? WHERE id = ?", [
       leadId,
       nowIso(),
       rowId
     ]);
   }
 
-  createIssue({ import_id, import_row_id = null, organization_id, issue_type, field = null, message, severity, metadata = {} }) {
+  async createIssue({ import_id, import_row_id = null, organization_id, issue_type, field = null, message, severity, metadata = {} }) {
     const issue = {
       id: createId("issue"),
       import_id,
@@ -188,7 +188,7 @@ export class ImportsRepository {
       metadata_json: stringifyJson(metadata),
       created_at: nowIso()
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO import_issues
         (id, import_id, import_row_id, organization_id, issue_type, field, message, severity, metadata_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -208,8 +208,8 @@ export class ImportsRepository {
     return issue;
   }
 
-  listIssues(importId, organizationId) {
-    return this.db.all(
+  async listIssues(importId, organizationId) {
+    return await this.db.all(
       "SELECT * FROM import_issues WHERE import_id = ? AND organization_id = ? ORDER BY created_at ASC",
       [importId, organizationId]
     );

@@ -8,40 +8,40 @@ export class ApprovalsService {
     this.auditRepository = auditRepository;
   }
 
-  requestForAction(action, { requested_reason }) {
+  async requestForAction(action, { requested_reason }) {
     if (action.approval_requirement !== "REQUIRED") {
       return null;
     }
-    return this.approvalsRepository.createPendingForAction(action, { requested_reason });
+    return await this.approvalsRepository.createPendingForAction(action, { requested_reason });
   }
 
-  listForOrganization({ organization_id, status = null }) {
+  async listForOrganization({ organization_id, status = null }) {
     return {
-      approvals: this.approvalsRepository.listForOrganization(organization_id, { status })
+      approvals: await this.approvalsRepository.listForOrganization(organization_id, { status })
     };
   }
 
-  currentForAction({ organization_id, action_id }) {
-    const action = this.requireAction(organization_id, action_id);
+  async currentForAction({ organization_id, action_id }) {
+    const action = await this.requireAction(organization_id, action_id);
     return {
-      action: this.actionDetail(action),
-      approval: this.ensureApprovalForAction(action)
+      action: await this.actionDetail(action),
+      approval: await this.ensureApprovalForAction(action)
     };
   }
 
-  approveAction({ organization_id, action_id, reviewer_name = null, reviewer_note = null, edited_payload = null }) {
+  async approveAction({ organization_id, action_id, reviewer_name = null, reviewer_note = null, edited_payload = null }) {
     validateDecision({ reviewer_name, reviewer_note, edited_payload });
-    const action = this.requireAction(organization_id, action_id);
-    const approval = this.ensureApprovalForAction(action);
+    const action = await this.requireAction(organization_id, action_id);
+    const approval = await this.ensureApprovalForAction(action);
     if (approval.status === APPROVAL_STATUS.REJECTED) {
       throw httpError(409, "Rejected actions cannot be approved.");
     }
     if (approval.status === APPROVAL_STATUS.APPROVED) {
-      return { action: this.actionDetail(action), approval };
+      return { action: await this.actionDetail(action), approval };
     }
 
     if (edited_payload) {
-      this.actionsRepository.mergePayload(action.id, {
+      await this.actionsRepository.mergePayload(action.id, {
         human_review: {
           edited: true,
           edited_payload
@@ -49,13 +49,13 @@ export class ApprovalsService {
       });
     }
 
-    const approved = this.approvalsRepository.approve(action.id, organization_id, {
+    const approved = await this.approvalsRepository.approve(action.id, organization_id, {
       reviewer_name: normalizeOptionalText(reviewer_name),
       reviewer_note: normalizeOptionalText(reviewer_note),
       edited_payload
     });
-    const updatedAction = this.actionsRepository.updateStatus(action.id, ACTION_STATUS.APPROVED);
-    this.auditRepository.record({
+    const updatedAction = await this.actionsRepository.updateStatus(action.id, ACTION_STATUS.APPROVED);
+    await this.auditRepository.record({
       organization_id,
       lead_id: action.lead_id,
       action_id: action.id,
@@ -66,28 +66,28 @@ export class ApprovalsService {
         edited: Boolean(edited_payload)
       }
     });
-    return { action: this.actionDetail(updatedAction), approval: approved };
+    return { action: await this.actionDetail(updatedAction), approval: approved };
   }
 
-  rejectAction({ organization_id, action_id, reviewer_name = null, reviewer_note = null }) {
+  async rejectAction({ organization_id, action_id, reviewer_name = null, reviewer_note = null }) {
     validateDecision({ reviewer_name, reviewer_note });
-    const action = this.requireAction(organization_id, action_id);
-    const approval = this.ensureApprovalForAction(action);
+    const action = await this.requireAction(organization_id, action_id);
+    const approval = await this.ensureApprovalForAction(action);
     if (approval.status === APPROVAL_STATUS.APPROVED) {
       throw httpError(409, "Approved actions cannot be rejected.");
     }
     if (approval.status === APPROVAL_STATUS.REJECTED) {
-      return { action: this.actionDetail(action), approval };
+      return { action: await this.actionDetail(action), approval };
     }
 
-    const rejected = this.approvalsRepository.reject(action.id, organization_id, {
+    const rejected = await this.approvalsRepository.reject(action.id, organization_id, {
       reviewer_name: normalizeOptionalText(reviewer_name),
       reviewer_note: normalizeOptionalText(reviewer_note)
     });
-    const updatedAction = this.actionsRepository.updateStatus(action.id, ACTION_STATUS.BLOCKED, {
+    const updatedAction = await this.actionsRepository.updateStatus(action.id, ACTION_STATUS.BLOCKED, {
       last_error: "Rejected during human review."
     });
-    this.auditRepository.record({
+    await this.auditRepository.record({
       organization_id,
       lead_id: action.lead_id,
       action_id: action.id,
@@ -97,30 +97,30 @@ export class ApprovalsService {
         approval_id: rejected.id
       }
     });
-    return { action: this.actionDetail(updatedAction), approval: rejected };
+    return { action: await this.actionDetail(updatedAction), approval: rejected };
   }
 
-  ensureApprovalForAction(action) {
+  async ensureApprovalForAction(action) {
     if (action.approval_requirement !== "REQUIRED") {
       throw httpError(409, "This action does not require approval.");
     }
     return (
-      this.approvalsRepository.getByActionId(action.id, action.organization_id) ||
-      this.approvalsRepository.createPendingForAction(action, {
+      await this.approvalsRepository.getByActionId(action.id, action.organization_id) ||
+      await this.approvalsRepository.createPendingForAction(action, {
         requested_reason: "Human approval is required before outbound execution."
       })
     );
   }
 
-  requireAction(organizationId, actionId) {
-    const action = this.actionsRepository.getActionForOrganization(actionId, organizationId);
+  async requireAction(organizationId, actionId) {
+    const action = await this.actionsRepository.getActionForOrganization(actionId, organizationId);
     if (!action) {
       throw httpError(404, "Action not found.");
     }
     return action;
   }
 
-  actionDetail(action) {
+  async actionDetail(action) {
     return {
       ...action,
       payload: this.actionsRepository.actionPayload(action)

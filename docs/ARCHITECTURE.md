@@ -629,6 +629,12 @@ SQLite is used to keep the M0 local skeleton dependency-light. Core domain modul
 
 The only direct `node:sqlite` usage is isolated in `src/database/database.js`. A PostgreSQL adapter should implement the same contract under `src/database` when production database work begins.
 
+> **Superseded on 2026-09-09.** The PostgreSQL adapter now exists, and building it
+> required changing this contract -- see *Phase 5 Implementation Note* at the end of
+> this document. The contract is now asynchronous (`await db.get(...)`), because
+> `node:sqlite` is synchronous while every PostgreSQL driver is not. The sentence
+> above was not achievable as written.
+
 Architecture review results for the current M0 implementation:
 
 - SQLite coupling is isolated to the database adapter.
@@ -942,3 +948,231 @@ Workflow runs are idempotent by organization, sequence, and lead. Sequence steps
 The current due-step runner is an explicit API call, not a production scheduler service. It supports wait steps, approval wait states, step action creation, and basic response-driven stop conditions. Positive, negative, and opt-out inbound events stop open workflow runs for the lead.
 
 This slice does not implement a full visual sequence builder, production scheduler loop, conditional branch editor, production provider credentials, production n8n workflows, autonomous bots, bulk outbound sending, real voice agents, AI reply classification, or automatic intelligence regeneration from inbound events.
+
+---
+
+# React Frontend Migration Note
+
+`client/` is the live, shipped frontend — the server's static file serving points at `client/dist` (built via `npm run client:build`). The legacy vanilla HTML/CSS/JS frontend in `public/` still exists in the repo but is no longer served by anything; it is not maintained further. Both historically consumed the same backend API (`/api/*`); only `client/` does now. The Vite dev server at port 5173 (`npm run dev` inside `client/`) proxies API requests to the backend at port 3000 for hot-reload iteration — `npm run client:build && npm start` is the real, production-shaped path.
+
+Stack:
+
+- React 19 + TypeScript
+- Vite 8 (build + dev server)
+- TailwindCSS v4 (utility-first CSS)
+- shadcn/ui (copy-paste component library, not a dependency)
+- Zustand (workspace state management)
+- TanStack Query (server state + caching)
+- react-router-dom (routing)
+
+Architecture:
+
+```text
+client/src/
+    pages/              → Page-level components (one per route)
+    components/ui/      → Reusable shadcn/ui components
+    components/layout/  → App shell, sidebar, header
+    hooks/              → Custom hooks wrapping API calls (use-leads, use-intelligence, etc.)
+    stores/             → Zustand stores (workspace/org selection)
+    lib/                → API client, utility functions
+    types/              → Shared TypeScript type definitions
+```
+
+Navigation — three workspaces plus one tabbed individual record:
+
+- `/` → Dashboard (KPI cards, pipeline charts, a real attention queue with per-lead reasons, "Analyze eligible leads" bulk entry point)
+- `/leads` → Leads workspace: list, search, CSV import, add lead. Purely data management — rows open the individual record's Overview tab.
+- `/intelligence` → Intelligence workspace: bulk analysis. Stat cards (total/not-analyzed/analyzing/analyzed/failed/recommendations-ready/action-ready) plus an attention-priority breakdown, a table, and a server-side bulk "Analyze eligible leads" action (`POST /api/intelligence/bulk-run`). Rows deep-link to `/leads/:id?tab=intelligence`.
+- `/outbound` → Outbound workspace: bulk execution. Summary widgets (total/ready-for-review/approved/scheduled/sent/replies/follow-ups-due/failed) and tabbed queues of the same names, with row multi-select + bulk approve (`POST /api/actions/bulk-approve`). Rows deep-link to `/leads/:id?tab=outbound`.
+- `/leads/:id` → the individual 360° record. One persistent header (contact info, status, "Message" channel picker, "Analyze lead"/"Refresh intelligence") above three tabs addressable via `?tab=`:
+  - **Overview** (default, no query param): customer-provided lead data only (name/email/phone/company/source/status), explicitly labeled as not AI-generated, plus human-readable provenance (`Imported from CSV (file.csv) · Row 18` — never a raw `import_batch_id:import_row_id` string) and a one-line pointer into the Intelligence tab.
+  - **Intelligence** (`?tab=intelligence`): readiness, qualification assessment, external research findings (only shown if any exist), the recommendation (priority/segment/label/reason/personalization), the resulting next-best-action status with a "Review outbound" jump, and a compact evidence-citation list (source type + field, never raw evidence IDs).
+  - **Outbound & Activity** (`?tab=outbound`): per-lead outbound actions with inline Approve/Reject/Send-now, a chat-bubble conversation thread (built from the existing lead-timeline API's `kind: "message"` entries — direction determines bubble side, channel badge, status dot), and follow-ups as task cards (`kind: "follow_up"` entries) with Mark done/Cancel.
+- `/conversations` → cross-lead inbox (all channels, all leads) plus a free "Simulate inbound reply" control (no API keys — wired to the existing mock inbound-event endpoint) for testing any channel end to end.
+- `/activity` → Follow-ups queue + audit log feed.
+- `/settings` → General, AI Provider, Email, WhatsApp, SMS, Telegram, Call — each channel's sandbox option is explicitly labeled "free, simulated, no API key needed."
+
+Key design decisions:
+
+- Intelligence and Outbound are bulk *workspaces* (list + KPIs + bulk actions); the individual record lives at one URL (`/leads/:id`) with tabs, not separate per-concern pages. An earlier iteration tried a fully separate `/intelligence/:leadId` page and then a single un-tabbed merged page; both made "why did AI recommend this" and "what's the outbound status" hard to jump to directly from the workspace that raised them. Tabs-with-deep-links is the current answer — see `docs/TASKS.md` history for the two prior shapes this went through in one day.
+- Customer-provided lead fields (name/email/phone/company/source) are never presented as "AI intelligence" — they live in Overview under an explicit "not AI-generated" label. The Intelligence tab only shows genuinely-generated output: readiness scoring, qualification reasoning, recommendation, and (if present) external research findings.
+- The conversation thread and follow-up tasks are built entirely from the pre-existing `GET /api/leads/:id/timeline` endpoint (it already tags each entry with `kind: "message" | "follow_up"`, direction, channel, and status) — no new backend endpoint was needed for this.
+- CSV import dialog handles the full preview → select valid rows → commit flow inline.
+
+---
+
+# LLM Provider Abstraction Note
+
+The backend supports multiple LLM providers through environment-based configuration:
+
+```text
+.env:
+    LLM_PROVIDER=groq|openai|openrouter|ollama
+    GROQ_API_KEY=...
+    OPENAI_API_KEY=...
+    OPENROUTER_API_KEY=...
+```
+
+Start the server with `node --env-file=.env src/server.js` to load provider configuration.
+
+The AI status endpoint (`GET /api/ai/status`) reports:
+
+- `configured`: boolean
+- `provider`: provider name
+- `model`: model identifier (e.g., `llama-3.1-8b-instant` for Groq)
+
+When no LLM provider is configured, the system falls back to deterministic local agents (`localSynthesisAgent.js`, `localRecommendationAgent.js`). This preserves the existing M2 intelligence pipeline without requiring an API key.
+
+The provider abstraction uses OpenAI-compatible APIs. Groq, OpenRouter, and OpenAI all expose the same chat completions endpoint shape. Ollama provides a local alternative for offline development.
+
+Future LLM integration points:
+
+- Replace `localSynthesisAgent.js` with LLM-powered synthesis
+- Replace `localRecommendationAgent.js` with LLM-powered recommendations
+- Add message generation service for personalized outbound
+- Add ReplyClassifier for inbound message intent detection
+- Add chatbot response engine using org knowledge base context
+
+# Phase 5 Implementation Note — Production Foundation
+
+Delivered 2026-09-09. This is the work that makes a real deployment possible: a
+PostgreSQL adapter, versioned migrations, environment-driven configuration, and
+structured logging/errors.
+
+## The asynchronous DatabaseClient contract
+
+The original contract was synchronous because `node:sqlite`'s `DatabaseSync` is
+synchronous. That made the documented promise — "a PostgreSQL adapter without
+changing any module code" — impossible to keep: every PostgreSQL driver is
+asynchronous, and 200 call sites across 19 repositories consumed results directly
+as values.
+
+The contract is now:
+
+```text
+exec(sql)                   -> Promise<void>            multi-statement DDL
+run(sql, params)            -> Promise<{ changes }>     writes
+get(sql, params)            -> Promise<row | undefined> single row
+all(sql, params)            -> Promise<row[]>           many rows
+columnExists(table, column) -> Promise<boolean>         migrations only
+transaction(fn)             -> Promise<T>               migrations only
+close()                     -> Promise<void>
+```
+
+Both implementations satisfy it identically:
+
+- `SqliteDatabaseClient` (`src/database/sqliteClient.js`) still calls
+  `DatabaseSync` synchronously underneath; the methods are merely declared
+  `async`. Awaiting a synchronous result costs one microtask, so local
+  development and the test suite keep SQLite's real semantics — a write is
+  durable the instant the promise settles.
+- `PostgresDatabaseClient` (`src/database/postgresClient.js`) wraps a `pg` pool
+  and returns real promises.
+
+Repositories, services, the worker, the handlers and the API layer were converted
+to `async`/`await` accordingly. Repository methods that never touch the database
+(`messageDetail`, `stepDetail`, `actionPayload`, and the other pure serialisers)
+deliberately stayed synchronous, so `.map()` call sites over them did not have to
+change.
+
+## One SQL dialect
+
+Repositories write SQLite-flavoured SQL with `?` placeholders. Two translations
+happen inside the PostgreSQL client and nowhere else:
+
+1. **Placeholders.** `?` is rewritten to `$1..$n` by `src/database/sql.js`, which
+   skips string literals, quoted identifiers and comments so a `?` inside a value
+   is never mistaken for a bind parameter.
+2. **Numeric types.** `pg` returns BIGINT (`COUNT(*)`) and NUMERIC (`SUM(...)`)
+   as JavaScript strings to avoid precision loss. Both are parsed to `Number` to
+   match SQLite exactly — otherwise every dashboard total would silently become
+   string concatenation on PostgreSQL and a number on SQLite.
+
+The three genuinely SQLite-only expressions that existed
+(`datetime('now','-7 days')`, `datetime('now','-30 days')`, `date(created_at)`)
+were replaced with JS-computed ISO cutoffs passed as parameters and
+`substr(created_at, 1, 10)`, both of which behave identically in either engine.
+`created_at` is an ISO 8601 TEXT column, so string comparison is chronological.
+
+## Migrations
+
+DDL moved out of an inline `db.exec()` block into versioned migrations under
+`src/database/migrations/`, tracked in a `schema_migrations` table.
+
+- Migrations are listed explicitly in `migrations/index.js`; the order is the
+  contract.
+- Each migration runs inside its own transaction together with the row that
+  records it, so an interrupted deploy leaves no half-applied schema. Both
+  engines support transactional DDL.
+- Migration `0001_baseline_schema` is the schema as it stood before the runner
+  existed, written to be fully idempotent (`IF NOT EXISTS`, plus `ensureColumn`).
+  Applying it to a database created by the old code is a no-op that simply
+  records the version — existing development databases adopt the runner without
+  being rebuilt.
+- Never edit or reorder a released migration. Deployed databases have recorded it
+  and will not run it again.
+
+`npm run db:migrate` applies pending migrations and exits non-zero on failure
+(intended as a deploy pre-step, so a bad migration fails *before* old instances
+are replaced). `npm run db:status` reports applied/pending without changing
+anything.
+
+## Configuration and secrets
+
+`src/config.js` is the only module that reads `process.env` for anything that
+differs between environments. `.env.example` documents every variable.
+
+- Setting `DATABASE_URL` is the *entire* switch from SQLite to PostgreSQL — no
+  code path or build flag changes.
+- `validateConfig()` refuses to boot `NODE_ENV=staging|production` on SQLite, or
+  with a non-PostgreSQL connection string, so a misconfigured deploy fails at boot
+  instead of on the first request that needs the missing value.
+- `describeConfig()` produces the redacted summary logged at boot; it reports the
+  database host but never the connection string, which carries the password.
+
+## Observability and error handling
+
+- `src/shared/logger.js` emits one JSON object per line when deployed and readable
+  text locally. Logs are an event name plus a flat field bag — never an
+  interpolated sentence — so they can be filtered by `event` and
+  `organization_id` rather than grepped. `child()` binds a request id onto every
+  line of a request.
+- `src/shared/errors.js` gives every error an HTTP status *and* a machine-readable
+  `code`, and marks whether it was `expected` (a validation failure, a missing
+  record) or a defect.
+- `sendError()` returns an expected error's message to the caller, because that
+  message is the product telling the user what to fix. An unexpected error returns
+  a generic message plus the request id; the real message goes to the log only.
+  Previously any error's `.message` was returned verbatim, which would have leaked
+  SQL fragments and internal detail to browsers in production.
+- `GET /api/health` is liveness and deliberately does not touch the database, so a
+  database blip never causes the platform to restart a healthy process.
+  `GET /api/health/ready` is readiness: it checks that the database answers and
+  that no migration is pending, returning 503 otherwise.
+
+## Operational behaviour
+
+- The server handles `SIGTERM`/`SIGINT`: it stops the worker, drains in-flight
+  requests, closes the database, and force-exits after 10s. Container platforms
+  send SIGTERM before replacing an instance; without this a deploy can cut a
+  request mid-write.
+- The background worker tick is guarded against overlap. Now that a tick awaits
+  real network round trips, a slow tick must not have the next one start beside it
+  and execute the same action twice.
+- `WORKER_ENABLED=false` allows an instance to serve HTTP only, which is what
+  splitting the worker into its own service will need.
+
+## Verification status
+
+- 176 automated tests pass against the abstraction on SQLite; 4 PostgreSQL
+  integration tests in `test/postgres-adapter.test.js` are skipped unless
+  `TEST_DATABASE_URL` is set, and are the gate for the staging deploy.
+- One full product cycle was driven through the browser against a real server:
+  register, create lead, intelligence pipeline, outbound action, approve, execute,
+  conversation thread, auto-scheduled follow-up, inbound reply classified. No 5xx
+  occurred. Restart persistence and migration adoption were confirmed against the
+  same database.
+- **The PostgreSQL adapter has not yet run against a real PostgreSQL server.** No
+  Docker or local PostgreSQL was available on the development machine. Its
+  correctness rests on unit-tested SQL translation plus review until the staging
+  deploy runs `test/postgres-adapter.test.js` against Supabase.

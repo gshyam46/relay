@@ -8,8 +8,8 @@ export class SynthesisRepository {
     this.db = db;
   }
 
-  findByFingerprint({ organization_id, lead_id, input_fingerprint, pipeline_version }) {
-    return this.db.get(
+  async findByFingerprint({ organization_id, lead_id, input_fingerprint, pipeline_version }) {
+    return await this.db.get(
       `SELECT * FROM intelligence_synthesis_runs
         WHERE organization_id = ? AND lead_id = ? AND input_fingerprint = ? AND pipeline_version = ?
         LIMIT 1`,
@@ -17,14 +17,14 @@ export class SynthesisRepository {
     );
   }
 
-  createDraft({ organization_id, lead_id, snapshot_id, pipeline_version, input_fingerprint }) {
+  async createDraft({ organization_id, lead_id, snapshot_id, pipeline_version, input_fingerprint }) {
     const timestamp = nowIso();
     const run = {
       id: createId("synthesis"),
       organization_id,
       lead_id,
       snapshot_id,
-      version: this.nextVersionForLead(lead_id, organization_id),
+      version: await this.nextVersionForLead(lead_id, organization_id),
       status: SYNTHESIS_STATUS.DRAFT,
       pipeline_version,
       input_fingerprint,
@@ -38,7 +38,7 @@ export class SynthesisRepository {
       updated_at: timestamp,
       completed_at: null
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO intelligence_synthesis_runs
         (id, organization_id, lead_id, snapshot_id, version, status, pipeline_version, input_fingerprint,
          summary_json, findings_json, qualification_json, recommendation_json, evidence_refs_json,
@@ -67,9 +67,9 @@ export class SynthesisRepository {
     return run;
   }
 
-  markReady(id, { summary, findings, qualification, recommendation, evidence_refs }) {
+  async markReady(id, { summary, findings, qualification, recommendation, evidence_refs }) {
     const timestamp = nowIso();
-    this.db.run(
+    await this.db.run(
       `UPDATE intelligence_synthesis_runs
         SET status = ?, summary_json = ?, findings_json = ?, qualification_json = ?,
             recommendation_json = ?, evidence_refs_json = ?, last_error = NULL,
@@ -87,21 +87,21 @@ export class SynthesisRepository {
         id
       ]
     );
-    return this.getRun(id);
+    return await this.getRun(id);
   }
 
-  markFailed(id, error) {
-    this.db.run(
+  async markFailed(id, error) {
+    await this.db.run(
       `UPDATE intelligence_synthesis_runs
         SET status = ?, last_error = ?, updated_at = ?
         WHERE id = ?`,
       [SYNTHESIS_STATUS.FAILED, error.message || String(error), nowIso(), id]
     );
-    return this.getRun(id);
+    return await this.getRun(id);
   }
 
-  supersedeReadyRuns({ organization_id, lead_id, except_run_id }) {
-    this.db.run(
+  async supersedeReadyRuns({ organization_id, lead_id, except_run_id }) {
+    await this.db.run(
       `UPDATE intelligence_synthesis_runs
         SET status = ?, updated_at = ?
         WHERE organization_id = ? AND lead_id = ? AND status = ? AND id <> ?`,
@@ -109,12 +109,12 @@ export class SynthesisRepository {
     );
   }
 
-  getRun(id) {
-    return this.db.get("SELECT * FROM intelligence_synthesis_runs WHERE id = ?", [id]);
+  async getRun(id) {
+    return await this.db.get("SELECT * FROM intelligence_synthesis_runs WHERE id = ?", [id]);
   }
 
-  latestForLead(leadId, organizationId) {
-    return this.db.get(
+  async latestForLead(leadId, organizationId) {
+    return await this.db.get(
       `SELECT * FROM intelligence_synthesis_runs
         WHERE lead_id = ? AND organization_id = ? AND status = ?
         ORDER BY version DESC, created_at DESC
@@ -123,8 +123,8 @@ export class SynthesisRepository {
     );
   }
 
-  historyForLead(leadId, organizationId) {
-    return this.db.all(
+  async historyForLead(leadId, organizationId) {
+    return await this.db.all(
       `SELECT * FROM intelligence_synthesis_runs
         WHERE lead_id = ? AND organization_id = ?
         ORDER BY version DESC, created_at DESC`,
@@ -132,8 +132,8 @@ export class SynthesisRepository {
     );
   }
 
-  nextVersionForLead(leadId, organizationId) {
-    const row = this.db.get(
+  async nextVersionForLead(leadId, organizationId) {
+    const row = await this.db.get(
       `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
         FROM intelligence_synthesis_runs
         WHERE lead_id = ? AND organization_id = ?`,

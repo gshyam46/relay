@@ -8,7 +8,7 @@ export class WorkflowsRepository {
     this.db = db;
   }
 
-  createCampaign({ organization_id, name, objective = null, status = CAMPAIGN_STATUS.ACTIVE }) {
+  async createCampaign({ organization_id, name, objective = null, status = CAMPAIGN_STATUS.ACTIVE }) {
     const timestamp = nowIso();
     const campaign = {
       id: createId("camp"),
@@ -19,7 +19,7 @@ export class WorkflowsRepository {
       created_at: timestamp,
       updated_at: timestamp
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO campaigns (id, organization_id, name, objective, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [campaign.id, campaign.organization_id, campaign.name, campaign.objective, campaign.status, campaign.created_at, campaign.updated_at]
@@ -27,15 +27,15 @@ export class WorkflowsRepository {
     return campaign;
   }
 
-  listCampaigns(organizationId) {
-    return this.db.all("SELECT * FROM campaigns WHERE organization_id = ? ORDER BY created_at DESC", [organizationId]);
+  async listCampaigns(organizationId) {
+    return await this.db.all("SELECT * FROM campaigns WHERE organization_id = ? ORDER BY created_at DESC", [organizationId]);
   }
 
-  getCampaignForOrganization(id, organizationId) {
-    return this.db.get("SELECT * FROM campaigns WHERE id = ? AND organization_id = ?", [id, organizationId]);
+  async getCampaignForOrganization(id, organizationId) {
+    return await this.db.get("SELECT * FROM campaigns WHERE id = ? AND organization_id = ?", [id, organizationId]);
   }
 
-  createSequence({ organization_id, campaign_id, name, status = SEQUENCE_STATUS.ACTIVE, stop_on_reply = true, steps }) {
+  async createSequence({ organization_id, campaign_id, name, status = SEQUENCE_STATUS.ACTIVE, stop_on_reply = true, steps }) {
     const timestamp = nowIso();
     const sequence = {
       id: createId("seq"),
@@ -47,7 +47,7 @@ export class WorkflowsRepository {
       created_at: timestamp,
       updated_at: timestamp
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO sequences
           (id, organization_id, campaign_id, name, status, stop_on_reply, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -62,11 +62,13 @@ export class WorkflowsRepository {
         sequence.updated_at
       ]
     );
-    steps.forEach((step, index) => this.createSequenceStep(sequence, step, index + 1));
-    return this.sequenceDetail(sequence);
+    for (const [index, step] of steps.entries()) {
+      await this.createSequenceStep(sequence, step, index + 1);
+    }
+    return await this.sequenceDetail(sequence);
   }
 
-  createSequenceStep(sequence, step, stepOrder) {
+  async createSequenceStep(sequence, step, stepOrder) {
     const timestamp = nowIso();
     const row = {
       id: createId("step"),
@@ -84,7 +86,7 @@ export class WorkflowsRepository {
       created_at: timestamp,
       updated_at: timestamp
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO sequence_steps
           (id, organization_id, sequence_id, step_order, type, channel, title, body, delay_hours,
            requires_approval, stop_on_reply, payload_json, created_at, updated_at)
@@ -109,36 +111,36 @@ export class WorkflowsRepository {
     return this.stepDetail(row);
   }
 
-  listSequences(organizationId) {
-    return this.db
-      .all("SELECT * FROM sequences WHERE organization_id = ? ORDER BY created_at DESC", [organizationId])
-      .map((sequence) => this.sequenceDetail(sequence));
+  async listSequences(organizationId) {
+    const sequences = await this.db.all("SELECT * FROM sequences WHERE organization_id = ? ORDER BY created_at DESC", [
+      organizationId
+    ]);
+    return Promise.all(sequences.map((sequence) => this.sequenceDetail(sequence)));
   }
 
-  getSequenceForOrganization(id, organizationId) {
-    const sequence = this.db.get("SELECT * FROM sequences WHERE id = ? AND organization_id = ?", [id, organizationId]);
-    return sequence ? this.sequenceDetail(sequence) : null;
+  async getSequenceForOrganization(id, organizationId) {
+    const sequence = await this.db.get("SELECT * FROM sequences WHERE id = ? AND organization_id = ?", [id, organizationId]);
+    return sequence ? await this.sequenceDetail(sequence) : null;
   }
 
-  listSteps(sequenceId, organizationId) {
-    return this.db
-      .all(
-        "SELECT * FROM sequence_steps WHERE sequence_id = ? AND organization_id = ? ORDER BY step_order ASC",
-        [sequenceId, organizationId]
-      )
-      .map((step) => this.stepDetail(step));
+  async listSteps(sequenceId, organizationId) {
+    const steps = await this.db.all(
+      "SELECT * FROM sequence_steps WHERE sequence_id = ? AND organization_id = ? ORDER BY step_order ASC",
+      [sequenceId, organizationId]
+    );
+    return steps.map((step) => this.stepDetail(step));
   }
 
-  getStepByOrder(sequenceId, organizationId, stepOrder) {
-    const step = this.db.get(
+  async getStepByOrder(sequenceId, organizationId, stepOrder) {
+    const step = await this.db.get(
       "SELECT * FROM sequence_steps WHERE sequence_id = ? AND organization_id = ? AND step_order = ?",
       [sequenceId, organizationId, stepOrder]
     );
     return step ? this.stepDetail(step) : null;
   }
 
-  enrollLead({ organization_id, campaign_id, sequence_id, lead_id, idempotency_key, next_run_at = nowIso() }) {
-    const existing = this.getRunByIdempotencyKey(organization_id, idempotency_key);
+  async enrollLead({ organization_id, campaign_id, sequence_id, lead_id, idempotency_key, next_run_at = nowIso() }) {
+    const existing = await this.getRunByIdempotencyKey(organization_id, idempotency_key);
     if (existing) {
       return existing;
     }
@@ -159,7 +161,7 @@ export class WorkflowsRepository {
       updated_at: timestamp,
       completed_at: null
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO workflow_runs
           (id, organization_id, campaign_id, sequence_id, lead_id, status, current_step_order, next_run_at,
            last_action_id, stop_reason, idempotency_key, created_at, updated_at, completed_at)
@@ -184,24 +186,24 @@ export class WorkflowsRepository {
     return run;
   }
 
-  getRunByIdempotencyKey(organizationId, idempotencyKey) {
-    return this.db.get("SELECT * FROM workflow_runs WHERE organization_id = ? AND idempotency_key = ?", [
+  async getRunByIdempotencyKey(organizationId, idempotencyKey) {
+    return await this.db.get("SELECT * FROM workflow_runs WHERE organization_id = ? AND idempotency_key = ?", [
       organizationId,
       idempotencyKey
     ]);
   }
 
-  getRunForOrganization(id, organizationId) {
-    return this.db.get("SELECT * FROM workflow_runs WHERE id = ? AND organization_id = ?", [id, organizationId]);
+  async getRunForOrganization(id, organizationId) {
+    return await this.db.get("SELECT * FROM workflow_runs WHERE id = ? AND organization_id = ?", [id, organizationId]);
   }
 
-  listRuns(organizationId, { status = null } = {}) {
+  async listRuns(organizationId, { status = null } = {}) {
     const params = [organizationId];
     const statusClause = status ? "AND wr.status = ?" : "";
     if (status) {
       params.push(status);
     }
-    return this.db.all(
+    return await this.db.all(
       `SELECT wr.*, l.name AS lead_name, l.company AS lead_company, c.name AS campaign_name, s.name AS sequence_name
        FROM workflow_runs wr
        JOIN leads l ON l.id = wr.lead_id
@@ -213,8 +215,8 @@ export class WorkflowsRepository {
     );
   }
 
-  dueRuns(organizationId, dueAt, limit = 25) {
-    return this.db.all(
+  async dueRuns(organizationId, dueAt, limit = 25) {
+    return await this.db.all(
       `SELECT * FROM workflow_runs
        WHERE organization_id = ?
          AND (
@@ -227,8 +229,8 @@ export class WorkflowsRepository {
     );
   }
 
-  advanceRun(run, { status, current_step_order, next_run_at = null, last_action_id = null, stop_reason = null }) {
-    this.db.run(
+  async advanceRun(run, { status, current_step_order, next_run_at = null, last_action_id = null, stop_reason = null }) {
+    await this.db.run(
       `UPDATE workflow_runs
        SET status = ?, current_step_order = ?, next_run_at = ?, last_action_id = COALESCE(?, last_action_id),
            stop_reason = COALESCE(?, stop_reason), updated_at = ?, completed_at = CASE WHEN ? IN ('COMPLETED', 'STOPPED', 'BLOCKED') THEN ? ELSE completed_at END
@@ -245,11 +247,11 @@ export class WorkflowsRepository {
         run.id
       ]
     );
-    return this.getRunForOrganization(run.id, run.organization_id);
+    return await this.getRunForOrganization(run.id, run.organization_id);
   }
 
-  stopOpenForLead(organizationId, leadId, reason) {
-    this.db.run(
+  async stopOpenForLead(organizationId, leadId, reason) {
+    await this.db.run(
       `UPDATE workflow_runs
        SET status = 'STOPPED', stop_reason = ?, updated_at = ?, completed_at = ?
        WHERE organization_id = ? AND lead_id = ? AND status IN ('ACTIVE', 'WAITING', 'WAITING_APPROVAL')`,
@@ -257,11 +259,12 @@ export class WorkflowsRepository {
     );
   }
 
-  sequenceDetail(sequence) {
+  async sequenceDetail(sequence) {
+    const steps = await this.listSteps(sequence.id, sequence.organization_id);
     return {
       ...sequence,
       stop_on_reply: Boolean(sequence.stop_on_reply),
-      steps: this.listSteps(sequence.id, sequence.organization_id)
+      steps
     };
   }
 

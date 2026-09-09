@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createApp, createServices } from "../src/api/app.js";
+import { createServices } from "../src/api/app.js";
 import { createDatabase } from "../src/database/database.js";
+import { startClient } from "./helpers/testClient.js";
 import { LeadsRepository } from "../src/modules/data-foundation/leadsRepository.js";
 
 test("intelligence run creates versioned evidence, claims, signals, qualification, and recommendation", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Intelligence Org" });
+  const organization = await client.register("Intelligence Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Priya Sharma",
@@ -36,12 +37,12 @@ test("intelligence run creates versioned evidence, claims, signals, qualificatio
   assert.equal(result.intelligence.evidence.some((evidence) => evidence.source_type === "MANUAL"), true);
   assert.equal(result.intelligence.signals.some((signal) => signal.type === "CONTACT_INFORMATION_AVAILABLE"), true);
   assert.equal(result.intelligence.qualification.status, "FOUNDATION_READY");
-  assert.equal(client.db.all("SELECT * FROM actions WHERE lead_id = ?", [leadResponse.lead.id]).length, 0);
+  assert.equal((await client.db.all("SELECT * FROM actions WHERE lead_id = ?", [leadResponse.lead.id])).length, 0);
 });
 
 test("lead with enough data can be ready to run before intelligence is generated", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Not Run Org" });
+  const organization = await client.register("Not Run Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Ready Person",
@@ -60,7 +61,7 @@ test("lead with enough data can be ready to run before intelligence is generated
 
 test("email presence alone does not create an outbound contact recommendation", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Email Boundary Org" });
+  const organization = await client.register("Email Boundary Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Email Only",
@@ -75,28 +76,28 @@ test("email presence alone does not create an outbound contact recommendation", 
   assert.equal(result.intelligence.recommendation.action_type, "READY_FOR_RESEARCH");
   assert.equal(result.intelligence.recommendation.outbound_action_type, "CREATE_HUMAN_TASK");
   assert.equal(result.intelligence.recommendation.action_type.startsWith("CONTACT_VIA_"), false);
-  assert.equal(client.db.all("SELECT * FROM actions WHERE lead_id = ?", [leadResponse.lead.id]).length, 0);
+  assert.equal((await client.db.all("SELECT * FROM actions WHERE lead_id = ?", [leadResponse.lead.id])).length, 0);
 });
 
-test("deterministic signals only use usable current lead fields", () => {
-  const db = createDatabase(":memory:");
+test("deterministic signals only use usable current lead fields", async () => {
+  const db = await createDatabase(":memory:");
   const services = createServices(db);
   try {
-    const organization = services.leadsRepository.createOrganization({ name: "Signal Rules Org" });
-    const emailOnly = services.leadsRepository.createLead({
+    const organization = await services.leadsRepository.createOrganization({ name: "Signal Rules Org" });
+    const emailOnly = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Email Only",
       email: "email@example.com",
       source: "MANUAL"
     });
-    const phoneOnly = services.leadsRepository.createLead({
+    const phoneOnly = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Phone Only",
       phone: "+14155551234",
       normalized_phone: "+14155551234",
       source: "MANUAL"
     });
-    const emailAndPhone = services.leadsRepository.createLead({
+    const emailAndPhone = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Both Contacts",
       email: "both@example.com",
@@ -105,14 +106,14 @@ test("deterministic signals only use usable current lead fields", () => {
       company: "Both Co",
       source: "MANUAL"
     });
-    const invalidContact = services.leadsRepository.createLead({
+    const invalidContact = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Invalid Contact",
       email: "not-an-email",
       phone: "abc123",
       source: "CSV"
     });
-    const duplicate = services.leadsRepository.createLead({
+    const duplicate = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Duplicate Lead",
       email: "duplicate@example.com",
@@ -122,50 +123,50 @@ test("deterministic signals only use usable current lead fields", () => {
       }
     });
 
-    assert.deepEqual(signalTypes(services.intelligenceService.runForLead(emailOnly)), [
+    assert.deepEqual(signalTypes(await services.intelligenceService.runForLead(emailOnly)), [
       "COMPANY_MISSING",
       "CONTACT_INFORMATION_AVAILABLE",
       "EMAIL_AVAILABLE",
       "PROVENANCE_AVAILABLE"
     ]);
-    assert.deepEqual(signalTypes(services.intelligenceService.runForLead(phoneOnly)), [
+    assert.deepEqual(signalTypes(await services.intelligenceService.runForLead(phoneOnly)), [
       "COMPANY_MISSING",
       "CONTACT_INFORMATION_AVAILABLE",
       "PHONE_AVAILABLE",
       "PROVENANCE_AVAILABLE"
     ]);
-    assert.deepEqual(signalTypes(services.intelligenceService.runForLead(emailAndPhone)), [
+    assert.deepEqual(signalTypes(await services.intelligenceService.runForLead(emailAndPhone)), [
       "COMPANY_PROVIDED",
       "CONTACT_INFORMATION_AVAILABLE",
       "EMAIL_AVAILABLE",
       "PHONE_AVAILABLE",
       "PROVENANCE_AVAILABLE"
     ]);
-    assert.deepEqual(signalTypes(services.intelligenceService.runForLead(invalidContact)), [
+    assert.deepEqual(signalTypes(await services.intelligenceService.runForLead(invalidContact)), [
       "COMPANY_MISSING",
       "DATA_INCOMPLETE"
     ]);
-    assert.equal(services.intelligenceService.runForLead(invalidContact).readiness_status, "NEEDS_MORE_DATA");
-    assert.equal(services.intelligenceService.runForLead(duplicate).signals.some((signal) => signal.type === "DUPLICATE_WARNING"), true);
+    assert.equal((await services.intelligenceService.runForLead(invalidContact)).readiness_status, "NEEDS_MORE_DATA");
+    assert.equal((await services.intelligenceService.runForLead(duplicate)).signals.some((signal) => signal.type === "DUPLICATE_WARNING"), true);
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
-test("incomplete lead produces needs-more-data readiness without fabricating facts", () => {
-  const db = createDatabase(":memory:");
+test("incomplete lead produces needs-more-data readiness without fabricating facts", async () => {
+  const db = await createDatabase(":memory:");
   const services = createServices(db);
   const leadsRepository = new LeadsRepository(db);
   try {
-    const organization = leadsRepository.createOrganization({ name: "Incomplete Org" });
-    const lead = leadsRepository.createLead({
+    const organization = await leadsRepository.createOrganization({ name: "Incomplete Org" });
+    const lead = await leadsRepository.createLead({
       organization_id: organization.id,
       name: "Future Furniture",
       company: "Future Furniture",
       source: "MANUAL"
     });
 
-    const intelligence = services.intelligenceService.runForLead(lead);
+    const intelligence = await services.intelligenceService.runForLead(lead);
 
     assert.equal(intelligence.readiness_status, "NEEDS_MORE_DATA");
     assert.equal(intelligence.recommendation.action_type, "GATHER_MORE_DATA");
@@ -174,13 +175,13 @@ test("incomplete lead produces needs-more-data readiness without fabricating fac
     assert.equal(intelligence.claims.some((claim) => claim.field === "COMPANY_INDUSTRY"), false);
     assert.equal(intelligence.signals.some((signal) => signal.type === "DATA_INCOMPLETE"), true);
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
 test("repeated intelligence run is idempotent for the same lead data version", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Idempotent Intelligence Org" });
+  const organization = await client.register("Idempotent Intelligence Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Asha Mehta",
@@ -196,45 +197,45 @@ test("repeated intelligence run is idempotent for the same lead data version", a
   });
 
   assert.equal(first.intelligence.id, second.intelligence.id);
-  assert.equal(client.db.all("SELECT * FROM intelligence_snapshots WHERE lead_id = ?", [leadResponse.lead.id]).length, 1);
-  assert.equal(client.db.all("SELECT * FROM intelligence_claims WHERE lead_id = ?", [leadResponse.lead.id]).length > 0, true);
+  assert.equal((await client.db.all("SELECT * FROM intelligence_snapshots WHERE lead_id = ?", [leadResponse.lead.id])).length, 1);
+  assert.equal((await client.db.all("SELECT * FROM intelligence_claims WHERE lead_id = ?", [leadResponse.lead.id])).length > 0, true);
 });
 
-test("failed intelligence run can retry without uncontrolled duplicate snapshot children", () => {
-  const db = createDatabase(":memory:");
+test("failed intelligence run can retry without uncontrolled duplicate snapshot children", async () => {
+  const db = await createDatabase(":memory:");
   const services = createServices(db);
   try {
-    const organization = services.leadsRepository.createOrganization({ name: "Failure Retry Org" });
-    const lead = services.leadsRepository.createLead({
+    const organization = await services.leadsRepository.createOrganization({ name: "Failure Retry Org" });
+    const lead = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Meera Das",
       email: "meera@example.com",
       company: "Meera Studio"
     });
 
-    assert.throws(
-      () => services.intelligenceService.runForLead(lead, { simulate_failure_stage: "AFTER_EVIDENCE" }),
+    await assert.rejects(
+      async () => await services.intelligenceService.runForLead(lead, { simulate_failure_stage: "AFTER_EVIDENCE" }),
       /Simulated intelligence failure/
     );
-    assert.equal(db.all("SELECT * FROM intelligence_snapshots WHERE lead_id = ?", [lead.id]).length, 1);
-    assert.equal(db.get("SELECT status FROM intelligence_snapshots WHERE lead_id = ?", [lead.id]).status, "FAILED");
+    assert.equal((await db.all("SELECT * FROM intelligence_snapshots WHERE lead_id = ?", [lead.id])).length, 1);
+    assert.equal((await db.get("SELECT status FROM intelligence_snapshots WHERE lead_id = ?", [lead.id])).status, "FAILED");
 
-    const retried = services.intelligenceService.runForLead(lead);
+    const retried = await services.intelligenceService.runForLead(lead);
 
     assert.equal(retried.status, "READY");
-    assert.equal(db.all("SELECT * FROM intelligence_snapshots WHERE lead_id = ?", [lead.id]).length, 1);
+    assert.equal((await db.all("SELECT * FROM intelligence_snapshots WHERE lead_id = ?", [lead.id])).length, 1);
     assert.equal(
-      db.all("SELECT * FROM intelligence_evidence WHERE snapshot_id = ?", [retried.id]).length,
+      (await db.all("SELECT * FROM intelligence_evidence WHERE snapshot_id = ?", [retried.id])).length,
       retried.evidence.length
     );
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
 test("new lead data version creates a new snapshot and preserves history", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "History Org" });
+  const organization = await client.register("History Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Kabir Singh",
@@ -244,7 +245,7 @@ test("new lead data version creates a new snapshot and preserves history", async
     organization_id: organization.organization.id
   });
 
-  client.db.run("UPDATE leads SET company = ?, updated_at = ? WHERE id = ?", [
+  await client.db.run("UPDATE leads SET company = ?, updated_at = ? WHERE id = ?", [
     "Northstar Interiors",
     new Date().toISOString(),
     leadResponse.lead.id
@@ -263,7 +264,7 @@ test("new lead data version creates a new snapshot and preserves history", async
 
 test("changed lead data does not expose stale snapshot as current intelligence", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Stale Snapshot Org" });
+  const organization = await client.register("Stale Snapshot Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Stale Lead",
@@ -273,7 +274,7 @@ test("changed lead data does not expose stale snapshot as current intelligence",
     organization_id: organization.organization.id
   });
 
-  client.db.run("UPDATE leads SET company = ?, updated_at = ? WHERE id = ?", [
+  await client.db.run("UPDATE leads SET company = ?, updated_at = ? WHERE id = ?", [
     "Changed Company",
     new Date().toISOString(),
     leadResponse.lead.id
@@ -290,7 +291,7 @@ test("changed lead data does not expose stale snapshot as current intelligence",
 
 test("CSV import provenance becomes scoped customer-provided intelligence evidence", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "CSV Evidence Org" });
+  const organization = await client.register("CSV Evidence Org");
   const preview = await client.post("/api/imports/csv/preview", {
     organization_id: organization.organization.id,
     filename: "evidence.csv",
@@ -313,10 +314,9 @@ test("CSV import provenance becomes scoped customer-provided intelligence eviden
   assert.equal(intelligence.intelligence.claims.some((claim) => claim.field === "PROVENANCE"), true);
 });
 
-test("intelligence APIs are organization scoped", async (t) => {
+test("intelligence APIs are organization scoped, and no session at all is rejected outright", async (t) => {
   const client = await startClient(t);
-  const firstOrg = await client.post("/api/organizations", { name: "Intel Tenant A" });
-  const secondOrg = await client.post("/api/organizations", { name: "Intel Tenant B" });
+  const firstOrg = await client.register("Intel Tenant A");
   const leadResponse = await client.post("/api/leads", {
     organization_id: firstOrg.organization.id,
     name: "Tenant Lead",
@@ -327,20 +327,22 @@ test("intelligence APIs are organization scoped", async (t) => {
     organization_id: firstOrg.organization.id
   });
 
-  const wrongRead = await fetch(
-    `${client.baseUrl}/api/leads/${leadResponse.lead.id}/intelligence?organization_id=${secondOrg.organization.id}`
-  );
-  const wrongRun = await fetch(`${client.baseUrl}/api/leads/${leadResponse.lead.id}/intelligence/run`, {
+  await client.register("Intel Tenant B"); // switches the active session to org B
+
+  const wrongRead = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/intelligence`);
+  const wrongRun = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/intelligence/run`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ organization_id: secondOrg.organization.id })
+    body: JSON.stringify({})
   });
-  const missingOrg = await fetch(`${client.baseUrl}/api/leads/${leadResponse.lead.id}/intelligence`);
+  // A request carrying no session cookie at all must be rejected before it ever reaches route
+  // logic — organization_id can't save it, since there's no session to derive one from.
+  const noSession = await fetch(`${client.baseUrl}/api/leads/${leadResponse.lead.id}/intelligence`);
 
   assert.equal(wrongRead.status, 404);
   assert.equal(wrongRun.status, 404);
-  assert.equal(missingOrg.status, 400);
-  assert.equal(client.db.all("SELECT * FROM intelligence_snapshots WHERE organization_id = ?", [secondOrg.organization.id]).length, 0);
+  assert.equal(noSession.status, 401);
+  assert.equal((await client.db.all("SELECT * FROM intelligence_snapshots WHERE lead_id = ?", [leadResponse.lead.id])).length, 1);
 });
 
 test("intelligence state persists after restart", async (t) => {
@@ -351,7 +353,7 @@ test("intelligence state persists after restart", async (t) => {
 
   try {
     firstClient = await startClient(t, databaseFile, { autoCleanup: false });
-    const organization = await firstClient.post("/api/organizations", { name: "Intelligence Restart Org" });
+    const organization = await firstClient.register("Intelligence Restart Org");
     const leadResponse = await firstClient.post("/api/leads", {
       organization_id: organization.organization.id,
       name: "Devika Iyer",
@@ -364,6 +366,7 @@ test("intelligence state persists after restart", async (t) => {
     await firstClient.stop();
 
     secondClient = await startClient(t, databaseFile, { autoCleanup: false });
+    await secondClient.login(organization.user.email);
     const persisted = await secondClient.get(
       `/api/leads/${leadResponse.lead.id}/intelligence?organization_id=${organization.organization.id}`
     );
@@ -380,7 +383,7 @@ test("intelligence state persists after restart", async (t) => {
 
 test("duplicate warnings from import provenance are available in lead detail context", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Duplicate Detail Org" });
+  const organization = await client.register("Duplicate Detail Org");
   await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Existing Lead",
@@ -405,55 +408,6 @@ test("duplicate warnings from import provenance are available in lead detail con
   assert.equal(detail.lead.source_metadata.duplicate_candidates.length > 0, true);
   assert.equal(detail.lead.source_metadata.duplicate_candidates[0].duplicate_type, "STRONG_EMAIL");
 });
-
-async function startClient(t, databaseFile = ":memory:", { autoCleanup = true } = {}) {
-  const db = createDatabase(databaseFile);
-  const server = createApp({ db });
-  let stopped = false;
-
-  await new Promise((resolve) => server.listen(0, resolve));
-  if (autoCleanup) {
-    t.after(() => stop());
-  }
-
-  const { port } = server.address();
-  const baseUrl = `http://127.0.0.1:${port}`;
-
-  async function stop() {
-    if (stopped) {
-      return;
-    }
-    stopped = true;
-    server.closeIdleConnections?.();
-    server.closeAllConnections?.();
-    await new Promise((resolve) => server.close(resolve));
-    db.close();
-  }
-
-  return {
-    baseUrl,
-    db,
-    stop,
-    async get(route) {
-      const response = await fetch(`${baseUrl}${route}`);
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    },
-    async post(route, body) {
-      const response = await fetch(`${baseUrl}${route}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    }
-  };
-}
 
 function signalTypes(intelligence) {
   return intelligence.signals.map((signal) => signal.type).sort();

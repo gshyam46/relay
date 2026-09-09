@@ -1,0 +1,33 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "relay-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "client"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "relay-backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "start"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "relay-e2e",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:e2e"
+      ],
+      "port": 3100
+    }
+  ]
+}

@@ -6,7 +6,7 @@ export class FollowUpsRepository {
     this.db = db;
   }
 
-  create({
+  async create({
     organization_id,
     lead_id,
     action_id = null,
@@ -15,9 +15,10 @@ export class FollowUpsRepository {
     status,
     due_at,
     reason,
-    idempotency_key
+    idempotency_key,
+    escalated = false
   }) {
-    const existing = this.getByIdempotencyKey(organization_id, idempotency_key);
+    const existing = await this.getByIdempotencyKey(organization_id, idempotency_key);
     if (existing) {
       return existing;
     }
@@ -34,15 +35,16 @@ export class FollowUpsRepository {
       due_at,
       reason,
       idempotency_key,
+      escalated: escalated ? 1 : 0,
       created_at: timestamp,
       updated_at: timestamp,
       completed_at: null
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO follow_up_tasks
           (id, organization_id, lead_id, action_id, inbound_event_id, channel, status, due_at, reason,
-           idempotency_key, created_at, updated_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           idempotency_key, escalated, created_at, updated_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         followUp.id,
         followUp.organization_id,
@@ -54,6 +56,7 @@ export class FollowUpsRepository {
         followUp.due_at,
         followUp.reason,
         followUp.idempotency_key,
+        followUp.escalated,
         followUp.created_at,
         followUp.updated_at,
         followUp.completed_at
@@ -62,19 +65,19 @@ export class FollowUpsRepository {
     return followUp;
   }
 
-  getByIdempotencyKey(organizationId, idempotencyKey) {
-    return this.db.get("SELECT * FROM follow_up_tasks WHERE organization_id = ? AND idempotency_key = ?", [
+  async getByIdempotencyKey(organizationId, idempotencyKey) {
+    return await this.db.get("SELECT * FROM follow_up_tasks WHERE organization_id = ? AND idempotency_key = ?", [
       organizationId,
       idempotencyKey
     ]);
   }
 
-  getForOrganization(id, organizationId) {
-    return this.db.get("SELECT * FROM follow_up_tasks WHERE id = ? AND organization_id = ?", [id, organizationId]);
+  async getForOrganization(id, organizationId) {
+    return await this.db.get("SELECT * FROM follow_up_tasks WHERE id = ? AND organization_id = ?", [id, organizationId]);
   }
 
-  listForLead(organizationId, leadId) {
-    return this.db.all(
+  async listForLead(organizationId, leadId) {
+    return await this.db.all(
       `SELECT * FROM follow_up_tasks
        WHERE organization_id = ? AND lead_id = ?
        ORDER BY due_at ASC, created_at DESC`,
@@ -82,13 +85,13 @@ export class FollowUpsRepository {
     );
   }
 
-  listForOrganization(organizationId, { status = null } = {}) {
+  async listForOrganization(organizationId, { status = null } = {}) {
     const params = [organizationId];
     const statusClause = status ? "AND f.status = ?" : "";
     if (status) {
       params.push(status);
     }
-    return this.db.all(
+    return await this.db.all(
       `SELECT f.*, l.name AS lead_name, l.company AS lead_company
        FROM follow_up_tasks f
        JOIN leads l ON l.id = f.lead_id
@@ -98,22 +101,30 @@ export class FollowUpsRepository {
     );
   }
 
-  complete(id, organizationId) {
-    this.db.run(
+  async complete(id, organizationId) {
+    await this.db.run(
       "UPDATE follow_up_tasks SET status = 'COMPLETED', completed_at = ?, updated_at = ? WHERE id = ? AND organization_id = ?",
       [nowIso(), nowIso(), id, organizationId]
     );
-    return this.getForOrganization(id, organizationId);
+    return await this.getForOrganization(id, organizationId);
   }
 
-  cancelOpenForLead(organizationId, leadId, { action_id = null } = {}) {
+  async cancel(id, organizationId) {
+    await this.db.run(
+      "UPDATE follow_up_tasks SET status = 'CANCELLED', updated_at = ? WHERE id = ? AND organization_id = ?",
+      [nowIso(), id, organizationId]
+    );
+    return await this.getForOrganization(id, organizationId);
+  }
+
+  async cancelOpenForLead(organizationId, leadId, { action_id = null } = {}) {
     const params = [nowIso(), organizationId, leadId];
     let actionClause = "";
     if (action_id) {
       actionClause = "AND action_id = ?";
       params.push(action_id);
     }
-    this.db.run(
+    await this.db.run(
       `UPDATE follow_up_tasks
        SET status = 'CANCELLED', updated_at = ?
        WHERE organization_id = ? AND lead_id = ? ${actionClause}

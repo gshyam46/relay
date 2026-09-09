@@ -8,8 +8,8 @@ export class NextBestActionRepository {
     this.db = db;
   }
 
-  findByFingerprint({ organization_id, lead_id, input_fingerprint, pipeline_version }) {
-    return this.db.get(
+  async findByFingerprint({ organization_id, lead_id, input_fingerprint, pipeline_version }) {
+    return await this.db.get(
       `SELECT * FROM next_best_action_plans
         WHERE organization_id = ? AND lead_id = ? AND input_fingerprint = ? AND pipeline_version = ?
         LIMIT 1`,
@@ -17,7 +17,7 @@ export class NextBestActionRepository {
     );
   }
 
-  createDraft({
+  async createDraft({
     organization_id,
     lead_id,
     intelligence_recommendation_id,
@@ -34,7 +34,7 @@ export class NextBestActionRepository {
       intelligence_recommendation_id,
       synthesis_id,
       snapshot_id,
-      version: this.nextVersionForLead(lead_id, organization_id),
+      version: await this.nextVersionForLead(lead_id, organization_id),
       status: NEXT_BEST_ACTION_PLAN_STATUS.DRAFT,
       pipeline_version,
       input_fingerprint,
@@ -50,7 +50,7 @@ export class NextBestActionRepository {
       updated_at: timestamp,
       completed_at: null
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO next_best_action_plans
         (id, organization_id, lead_id, intelligence_recommendation_id, synthesis_id, snapshot_id,
          version, status, pipeline_version, input_fingerprint, action_type, title, rationale,
@@ -84,9 +84,9 @@ export class NextBestActionRepository {
     return plan;
   }
 
-  markReady(id, { status, action_type, title, rationale, policy_decision, approval, decision_evidence_refs, execution_contract }) {
+  async markReady(id, { status, action_type, title, rationale, policy_decision, approval, decision_evidence_refs, execution_contract }) {
     const timestamp = nowIso();
-    this.db.run(
+    await this.db.run(
       `UPDATE next_best_action_plans
         SET status = ?, action_type = ?, title = ?, rationale = ?, policy_decision_json = ?,
             approval_json = ?, decision_evidence_refs_json = ?, execution_contract_json = ?,
@@ -106,21 +106,21 @@ export class NextBestActionRepository {
         id
       ]
     );
-    return this.getPlan(id);
+    return await this.getPlan(id);
   }
 
-  markFailed(id, error) {
-    this.db.run(
+  async markFailed(id, error) {
+    await this.db.run(
       `UPDATE next_best_action_plans
         SET status = ?, last_error = ?, updated_at = ?
         WHERE id = ?`,
       [NEXT_BEST_ACTION_PLAN_STATUS.FAILED, error.message || String(error), nowIso(), id]
     );
-    return this.getPlan(id);
+    return await this.getPlan(id);
   }
 
-  supersedeReadyPlans({ organization_id, lead_id, except_plan_id }) {
-    this.db.run(
+  async supersedeReadyPlans({ organization_id, lead_id, except_plan_id }) {
+    await this.db.run(
       `UPDATE next_best_action_plans
         SET status = ?, updated_at = ?
         WHERE organization_id = ? AND lead_id = ? AND status IN ('PLANNED', 'BLOCKED') AND id <> ?`,
@@ -128,12 +128,12 @@ export class NextBestActionRepository {
     );
   }
 
-  getPlan(id) {
-    return this.db.get("SELECT * FROM next_best_action_plans WHERE id = ?", [id]);
+  async getPlan(id) {
+    return await this.db.get("SELECT * FROM next_best_action_plans WHERE id = ?", [id]);
   }
 
-  historyForLead(leadId, organizationId) {
-    return this.db.all(
+  async historyForLead(leadId, organizationId) {
+    return await this.db.all(
       `SELECT * FROM next_best_action_plans
         WHERE lead_id = ? AND organization_id = ?
         ORDER BY version DESC, created_at DESC`,
@@ -141,8 +141,8 @@ export class NextBestActionRepository {
     );
   }
 
-  nextVersionForLead(leadId, organizationId) {
-    const row = this.db.get(
+  async nextVersionForLead(leadId, organizationId) {
+    const row = await this.db.get(
       `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
         FROM next_best_action_plans
         WHERE lead_id = ? AND organization_id = ?`,

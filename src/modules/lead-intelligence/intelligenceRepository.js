@@ -7,7 +7,7 @@ export class IntelligenceRepository {
     this.db = db;
   }
 
-  createDraftSnapshot({
+  async createDraftSnapshot({
     organization_id,
     lead_id,
     version,
@@ -34,7 +34,7 @@ export class IntelligenceRepository {
       evidence_json: stringifyJson([]),
       created_at: nowIso()
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO intelligence_snapshots
           (id, organization_id, lead_id, version, status, pipeline_version, input_fingerprint,
            readiness_status, readiness_score, summary, score, next_best_action, evidence_json, created_at)
@@ -60,9 +60,9 @@ export class IntelligenceRepository {
   }
 
   // Backward-compatible M0 entrypoint. New code should use createDraftSnapshot/finalizeSnapshot.
-  createSnapshot({ organization_id, lead_id, summary, score, next_best_action, evidence }) {
+  async createSnapshot({ organization_id, lead_id, summary, score, next_best_action, evidence }) {
     const fingerprint = `${lead_id}:legacy:${summary}:${score}:${next_best_action}`;
-    const existing = this.findSnapshotByFingerprint({
+    const existing = await this.findSnapshotByFingerprint({
       organization_id,
       lead_id,
       input_fingerprint: fingerprint,
@@ -71,10 +71,10 @@ export class IntelligenceRepository {
     if (existing) {
       return existing;
     }
-    const snapshot = this.createDraftSnapshot({
+    const snapshot = await this.createDraftSnapshot({
       organization_id,
       lead_id,
-      version: this.nextVersionForLead(lead_id),
+      version: await this.nextVersionForLead(lead_id),
       pipeline_version: "m0-legacy",
       input_fingerprint: fingerprint,
       summary,
@@ -82,7 +82,7 @@ export class IntelligenceRepository {
       readiness_score: score,
       next_best_action
     });
-    this.finalizeSnapshot(snapshot.id, {
+    await this.finalizeSnapshot(snapshot.id, {
       status: "READY",
       readiness_status: score >= 60 ? "READY_FOR_INTELLIGENCE" : "NEEDS_MORE_DATA",
       readiness_score: score,
@@ -90,11 +90,11 @@ export class IntelligenceRepository {
       next_best_action,
       evidence: evidence || []
     });
-    return this.getSnapshot(snapshot.id);
+    return await this.getSnapshot(snapshot.id);
   }
 
-  findSnapshotByFingerprint({ organization_id, lead_id, input_fingerprint, pipeline_version }) {
-    return this.db.get(
+  async findSnapshotByFingerprint({ organization_id, lead_id, input_fingerprint, pipeline_version }) {
+    return await this.db.get(
       `SELECT * FROM intelligence_snapshots
         WHERE organization_id = ? AND lead_id = ? AND input_fingerprint = ? AND pipeline_version = ?
         LIMIT 1`,
@@ -102,12 +102,12 @@ export class IntelligenceRepository {
     );
   }
 
-  getSnapshot(id) {
-    return this.db.get("SELECT * FROM intelligence_snapshots WHERE id = ?", [id]);
+  async getSnapshot(id) {
+    return await this.db.get("SELECT * FROM intelligence_snapshots WHERE id = ?", [id]);
   }
 
-  latestForLead(leadId) {
-    return this.db.get(
+  async latestForLead(leadId) {
+    return await this.db.get(
       `SELECT * FROM intelligence_snapshots
         WHERE lead_id = ? AND status = 'READY'
         ORDER BY version DESC, created_at DESC
@@ -116,8 +116,8 @@ export class IntelligenceRepository {
     );
   }
 
-  latestForLeadInOrganization(leadId, organizationId) {
-    return this.db.get(
+  async latestForLeadInOrganization(leadId, organizationId) {
+    return await this.db.get(
       `SELECT * FROM intelligence_snapshots
         WHERE lead_id = ? AND organization_id = ? AND status = 'READY'
         ORDER BY version DESC, created_at DESC
@@ -126,8 +126,8 @@ export class IntelligenceRepository {
     );
   }
 
-  latestAnyForLeadInOrganization(leadId, organizationId) {
-    return this.db.get(
+  async latestAnyForLeadInOrganization(leadId, organizationId) {
+    return await this.db.get(
       `SELECT * FROM intelligence_snapshots
         WHERE lead_id = ? AND organization_id = ?
         ORDER BY version DESC, created_at DESC
@@ -136,8 +136,8 @@ export class IntelligenceRepository {
     );
   }
 
-  historyForLead(leadId, organizationId) {
-    return this.db.all(
+  async historyForLead(leadId, organizationId) {
+    return await this.db.all(
       `SELECT * FROM intelligence_snapshots
         WHERE lead_id = ? AND organization_id = ?
         ORDER BY version DESC, created_at DESC`,
@@ -145,22 +145,22 @@ export class IntelligenceRepository {
     );
   }
 
-  nextVersionForLead(leadId) {
-    const row = this.db.get("SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM intelligence_snapshots WHERE lead_id = ?", [
+  async nextVersionForLead(leadId) {
+    const row = await this.db.get("SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM intelligence_snapshots WHERE lead_id = ?", [
       leadId
     ]);
     return row.next_version;
   }
 
-  replaceSnapshotChildren(snapshotId) {
-    this.db.run("DELETE FROM intelligence_recommendations WHERE snapshot_id = ?", [snapshotId]);
-    this.db.run("DELETE FROM intelligence_qualifications WHERE snapshot_id = ?", [snapshotId]);
-    this.db.run("DELETE FROM intelligence_signals WHERE snapshot_id = ?", [snapshotId]);
-    this.db.run("DELETE FROM intelligence_claims WHERE snapshot_id = ?", [snapshotId]);
-    this.db.run("DELETE FROM intelligence_evidence WHERE snapshot_id = ?", [snapshotId]);
+  async replaceSnapshotChildren(snapshotId) {
+    await this.db.run("DELETE FROM intelligence_recommendations WHERE snapshot_id = ?", [snapshotId]);
+    await this.db.run("DELETE FROM intelligence_qualifications WHERE snapshot_id = ?", [snapshotId]);
+    await this.db.run("DELETE FROM intelligence_signals WHERE snapshot_id = ?", [snapshotId]);
+    await this.db.run("DELETE FROM intelligence_claims WHERE snapshot_id = ?", [snapshotId]);
+    await this.db.run("DELETE FROM intelligence_evidence WHERE snapshot_id = ?", [snapshotId]);
   }
 
-  createEvidence({
+  async createEvidence({
     organization_id,
     lead_id,
     snapshot_id,
@@ -194,7 +194,7 @@ export class IntelligenceRepository {
       metadata_json: stringifyJson(metadata),
       created_at: nowIso()
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO intelligence_evidence
         (id, organization_id, lead_id, snapshot_id, source_type, source_reference, source_url,
          title, raw_content_reference, claim_field, claim_value, evidence_timestamp, retrieved_at,
@@ -222,7 +222,7 @@ export class IntelligenceRepository {
     return evidence;
   }
 
-  createClaim({ organization_id, lead_id, snapshot_id, field, value, confidence, evidence_ids = [] }) {
+  async createClaim({ organization_id, lead_id, snapshot_id, field, value, confidence, evidence_ids = [] }) {
     const claim = {
       id: createId("claim"),
       organization_id,
@@ -234,7 +234,7 @@ export class IntelligenceRepository {
       evidence_ids_json: stringifyJson(evidence_ids),
       created_at: nowIso()
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO intelligence_claims
         (id, organization_id, lead_id, snapshot_id, field, value_json, confidence, evidence_ids_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -253,7 +253,7 @@ export class IntelligenceRepository {
     return claim;
   }
 
-  createSignal({ organization_id, lead_id, snapshot_id, type, value, confidence, explanation, evidence_ids = [] }) {
+  async createSignal({ organization_id, lead_id, snapshot_id, type, value, confidence, explanation, evidence_ids = [] }) {
     const signal = {
       id: createId("signal"),
       organization_id,
@@ -266,7 +266,7 @@ export class IntelligenceRepository {
       evidence_ids_json: stringifyJson(evidence_ids),
       created_at: nowIso()
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO intelligence_signals
         (id, organization_id, lead_id, snapshot_id, type, value, confidence, explanation, evidence_ids_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -286,7 +286,7 @@ export class IntelligenceRepository {
     return signal;
   }
 
-  createQualification({
+  async createQualification({
     organization_id,
     lead_id,
     snapshot_id,
@@ -308,7 +308,7 @@ export class IntelligenceRepository {
       evidence_ids_json: stringifyJson(evidence_ids),
       created_at: nowIso()
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO intelligence_qualifications
         (id, organization_id, lead_id, snapshot_id, status, readiness_score, reasons_json,
          signal_ids_json, evidence_ids_json, created_at)
@@ -329,7 +329,7 @@ export class IntelligenceRepository {
     return qualification;
   }
 
-  createRecommendation({
+  async createRecommendation({
     organization_id,
     lead_id,
     snapshot_id,
@@ -351,7 +351,7 @@ export class IntelligenceRepository {
       evidence_ids_json: stringifyJson(evidence_ids),
       created_at: nowIso()
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO intelligence_recommendations
         (id, organization_id, lead_id, snapshot_id, action_type, outbound_action_type, reason,
          confidence, evidence_ids_json, created_at)
@@ -372,27 +372,27 @@ export class IntelligenceRepository {
     return recommendation;
   }
 
-  finalizeSnapshot(snapshotId, { status, readiness_status, readiness_score, summary, next_best_action, evidence }) {
-    this.db.run(
+  async finalizeSnapshot(snapshotId, { status, readiness_status, readiness_score, summary, next_best_action, evidence }) {
+    await this.db.run(
       `UPDATE intelligence_snapshots
         SET status = ?, readiness_status = ?, readiness_score = ?, summary = ?, score = ?,
             next_best_action = ?, evidence_json = ?
         WHERE id = ?`,
       [status, readiness_status, readiness_score, summary, readiness_score, next_best_action, stringifyJson(evidence), snapshotId]
     );
-    return this.getSnapshot(snapshotId);
+    return await this.getSnapshot(snapshotId);
   }
 
-  markSnapshotFailed(snapshotId, error) {
-    this.db.run("UPDATE intelligence_snapshots SET status = 'FAILED', summary = ? WHERE id = ?", [
+  async markSnapshotFailed(snapshotId, error) {
+    await this.db.run("UPDATE intelligence_snapshots SET status = 'FAILED', summary = ? WHERE id = ?", [
       error.message || String(error),
       snapshotId
     ]);
-    return this.getSnapshot(snapshotId);
+    return await this.getSnapshot(snapshotId);
   }
 
-  supersedeReadySnapshots({ organization_id, lead_id, except_snapshot_id }) {
-    this.db.run(
+  async supersedeReadySnapshots({ organization_id, lead_id, except_snapshot_id }) {
+    await this.db.run(
       `UPDATE intelligence_snapshots
         SET status = 'SUPERSEDED'
         WHERE organization_id = ? AND lead_id = ? AND status = 'READY' AND id <> ?`,
@@ -400,52 +400,52 @@ export class IntelligenceRepository {
     );
   }
 
-  evidenceForSnapshot(snapshotId, organizationId) {
-    return this.db.all(
+  async evidenceForSnapshot(snapshotId, organizationId) {
+    return await this.db.all(
       "SELECT * FROM intelligence_evidence WHERE snapshot_id = ? AND organization_id = ? ORDER BY created_at ASC",
       [snapshotId, organizationId]
     );
   }
 
-  claimsForSnapshot(snapshotId, organizationId) {
-    return this.db.all(
+  async claimsForSnapshot(snapshotId, organizationId) {
+    return await this.db.all(
       "SELECT * FROM intelligence_claims WHERE snapshot_id = ? AND organization_id = ? ORDER BY created_at ASC",
       [snapshotId, organizationId]
     );
   }
 
-  signalsForSnapshot(snapshotId, organizationId) {
-    return this.db.all(
+  async signalsForSnapshot(snapshotId, organizationId) {
+    return await this.db.all(
       "SELECT * FROM intelligence_signals WHERE snapshot_id = ? AND organization_id = ? ORDER BY created_at ASC",
       [snapshotId, organizationId]
     );
   }
 
-  qualificationForSnapshot(snapshotId, organizationId) {
-    return this.db.get("SELECT * FROM intelligence_qualifications WHERE snapshot_id = ? AND organization_id = ? LIMIT 1", [
+  async qualificationForSnapshot(snapshotId, organizationId) {
+    return await this.db.get("SELECT * FROM intelligence_qualifications WHERE snapshot_id = ? AND organization_id = ? LIMIT 1", [
       snapshotId,
       organizationId
     ]);
   }
 
-  recommendationForSnapshot(snapshotId, organizationId) {
-    return this.db.get("SELECT * FROM intelligence_recommendations WHERE snapshot_id = ? AND organization_id = ? LIMIT 1", [
+  async recommendationForSnapshot(snapshotId, organizationId) {
+    return await this.db.get("SELECT * FROM intelligence_recommendations WHERE snapshot_id = ? AND organization_id = ? LIMIT 1", [
       snapshotId,
       organizationId
     ]);
   }
 
-  snapshotDetail(snapshot, organizationId = snapshot?.organization_id) {
+  async snapshotDetail(snapshot, organizationId = snapshot?.organization_id) {
     if (!snapshot || snapshot.organization_id !== organizationId) {
       return null;
     }
     return serializeSnapshot({
       snapshot,
-      evidence: this.evidenceForSnapshot(snapshot.id, organizationId),
-      claims: this.claimsForSnapshot(snapshot.id, organizationId),
-      signals: this.signalsForSnapshot(snapshot.id, organizationId),
-      qualification: this.qualificationForSnapshot(snapshot.id, organizationId),
-      recommendation: this.recommendationForSnapshot(snapshot.id, organizationId)
+      evidence: await this.evidenceForSnapshot(snapshot.id, organizationId),
+      claims: await this.claimsForSnapshot(snapshot.id, organizationId),
+      signals: await this.signalsForSnapshot(snapshot.id, organizationId),
+      qualification: await this.qualificationForSnapshot(snapshot.id, organizationId),
+      recommendation: await this.recommendationForSnapshot(snapshot.id, organizationId)
     });
   }
 }

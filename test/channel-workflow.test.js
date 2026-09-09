@@ -3,12 +3,30 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createApp } from "../src/api/app.js";
-import { createDatabase } from "../src/database/database.js";
+import { startClient } from "./helpers/testClient.js";
+import { LocalReplyClassifier } from "../src/modules/channels/replyClassifier.js";
+
+test("local reply classifier maps free text to inbound event types with a reason", async () => {
+  const classifier = new LocalReplyClassifier();
+
+  assert.equal((await classifier.classify("Please stop texting me, unsubscribe")).event_type, "OPT_OUT");
+  assert.equal((await classifier.classify("Not interested, thanks")).event_type, "NEGATIVE_REPLY");
+  assert.equal((await classifier.classify("What does this cost?")).event_type, "QUESTION");
+  assert.equal((await classifier.classify("Sounds good, let's schedule a call")).event_type, "POSITIVE_REPLY");
+
+  const unknown = await classifier.classify("asdkfj qwoeiru");
+  assert.equal(unknown.event_type, "UNKNOWN");
+  assert.equal(unknown.confidence, "LOW");
+  assert.ok(unknown.reason.length > 0);
+
+  const empty = await classifier.classify("");
+  assert.equal(empty.event_type, "UNKNOWN");
+  assert.equal(empty.confidence, "LOW");
+});
 
 test("outbound execution records channel activity and schedules idempotent follow-up after callback", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Channel Outbound Org" });
+  const organization = await client.register("Channel Outbound Org");
   const lead = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Outbound Lead",
@@ -43,13 +61,13 @@ test("outbound execution records channel activity and schedules idempotent follo
   assert.equal(afterCallback.timeline.find((item) => item.kind === "message").status, "DELIVERED");
   assert.equal(followUps.follow_ups.length, 1);
   assert.equal(followUps.follow_ups[0].status, "PLANNED");
-  assert.equal(client.db.all("SELECT * FROM channel_messages WHERE action_id = ?", [action.action.id]).length, 1);
-  assert.equal(client.db.all("SELECT * FROM follow_up_tasks WHERE action_id = ?", [action.action.id]).length, 1);
+  assert.equal((await client.db.all("SELECT * FROM channel_messages WHERE action_id = ?", [action.action.id])).length, 1);
+  assert.equal((await client.db.all("SELECT * FROM follow_up_tasks WHERE action_id = ?", [action.action.id])).length, 1);
 });
 
 test("mock inbound events are normalized, idempotent, and create review follow-ups for questions", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Inbound Question Org" });
+  const organization = await client.register("Inbound Question Org");
   const lead = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Question Lead",
@@ -81,12 +99,12 @@ test("mock inbound events are normalized, idempotent, and create review follow-u
   assert.equal(timeline.timeline.filter((item) => item.kind === "message" && item.direction === "INBOUND").length, 1);
   assert.equal(followUps.follow_ups.length, 1);
   assert.equal(followUps.follow_ups[0].reason, "Answer the lead's question.");
-  assert.equal(client.db.all("SELECT * FROM inbound_events WHERE lead_id = ?", [lead.lead.id]).length, 1);
+  assert.equal((await client.db.all("SELECT * FROM inbound_events WHERE lead_id = ?", [lead.lead.id])).length, 1);
 });
 
 test("opt-out inbound event stops open follow-ups and updates lead state", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Opt Out Org" });
+  const organization = await client.register("Opt Out Org");
   const lead = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Opt Out Lead",
@@ -121,10 +139,63 @@ test("opt-out inbound event stops open follow-ups and updates lead state", async
   assert.equal(refreshedLead.lead.status, "OPTED_OUT");
 });
 
+test("inbound reply without event_type is auto-classified from message text", async (t) => {
+  const client = await startClient(t);
+  const organization = await client.register("Auto Classify Org");
+  const lead = await client.post("/api/leads", {
+    organization_id: organization.organization.id,
+    name: "Auto Classify Lead",
+    email: "auto-classify@example.com"
+  });
+
+  const result = await client.post("/api/inbound-events/mock", {
+    organization_id: organization.organization.id,
+    lead_id: lead.lead.id,
+    channel: "EMAIL",
+    provider_event_id: "auto-classify-1",
+    payload: { text: "Sounds good, let's schedule a call this week" }
+  });
+
+  assert.equal(result.inbound_event.event_type, "POSITIVE_REPLY");
+  assert.equal(result.classification.event_type, "POSITIVE_REPLY");
+  assert.equal(result.classification.confidence, "MEDIUM");
+
+  const timeline = await client.get(`/api/leads/${lead.lead.id}/timeline?organization_id=${organization.organization.id}`);
+  const message = timeline.timeline.find((item) => item.kind === "message" && item.direction === "INBOUND");
+  assert.ok(message.message.includes("Classified as"));
+});
+
+test("low-confidence auto-classification escalates the follow-up and surfaces as high-priority attention", async (t) => {
+  const client = await startClient(t);
+  const organization = await client.register("Escalation Org");
+  const lead = await client.post("/api/leads", {
+    organization_id: organization.organization.id,
+    name: "Escalation Lead",
+    email: "escalation@example.com"
+  });
+
+  await client.post("/api/inbound-events/mock", {
+    organization_id: organization.organization.id,
+    lead_id: lead.lead.id,
+    channel: "EMAIL",
+    provider_event_id: "escalation-1",
+    payload: { text: "zzzzz qqqqq unrelated gibberish" }
+  });
+
+  const followUps = await client.get(`/api/follow-ups?organization_id=${organization.organization.id}&status=DUE`);
+  assert.equal(followUps.follow_ups.length, 1);
+  assert.match(followUps.follow_ups[0].reason, /^Escalated:/);
+
+  const attention = await client.get(`/api/dashboard/attention?organization_id=${organization.organization.id}`);
+  const item = attention.items.find((i) => i.lead_id === lead.lead.id);
+  assert.ok(item, "escalated lead should appear in the attention queue");
+  assert.equal(item.priority, "HIGH");
+  assert.equal(item.reason, "Reply needs human review");
+});
+
 test("channel workflow APIs are organization scoped", async (t) => {
   const client = await startClient(t);
-  const firstOrg = await client.post("/api/organizations", { name: "Channel Tenant A" });
-  const secondOrg = await client.post("/api/organizations", { name: "Channel Tenant B" });
+  const firstOrg = await client.register("Channel Tenant A");
   const lead = await client.post("/api/leads", {
     organization_id: firstOrg.organization.id,
     name: "Tenant Scoped Lead",
@@ -139,24 +210,23 @@ test("channel workflow APIs are organization scoped", async (t) => {
     payload: { text: "Who owns this?" }
   });
 
-  const wrongInbound = await fetch(`${client.baseUrl}/api/inbound-events/mock`, {
+  await client.register("Channel Tenant B"); // switches the active session to org B
+
+  const wrongInbound = await client.rawFetch("/api/inbound-events/mock", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      organization_id: secondOrg.organization.id,
       lead_id: lead.lead.id,
       channel: "EMAIL",
       provider_event_id: "tenant-event-2",
       event_type: "QUESTION"
     })
   });
-  const wrongTimeline = await fetch(
-    `${client.baseUrl}/api/leads/${lead.lead.id}/timeline?organization_id=${secondOrg.organization.id}`
-  );
-  const wrongComplete = await fetch(`${client.baseUrl}/api/follow-ups/${inbound.follow_up.id}/complete`, {
+  const wrongTimeline = await client.rawFetch(`/api/leads/${lead.lead.id}/timeline`);
+  const wrongComplete = await client.rawFetch(`/api/follow-ups/${inbound.follow_up.id}/complete`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ organization_id: secondOrg.organization.id })
+    body: JSON.stringify({})
   });
 
   assert.equal(wrongInbound.status, 404);
@@ -172,7 +242,7 @@ test("channel messages, inbound events, and follow-ups survive restart", async (
 
   try {
     firstClient = await startClient(t, databaseFile, { autoCleanup: false });
-    const organization = await firstClient.post("/api/organizations", { name: "Channel Restart Org" });
+    const organization = await firstClient.register("Channel Restart Org");
     const lead = await firstClient.post("/api/leads", {
       organization_id: organization.organization.id,
       name: "Restart Channel Lead",
@@ -189,6 +259,7 @@ test("channel messages, inbound events, and follow-ups survive restart", async (
     await firstClient.stop();
 
     secondClient = await startClient(t, databaseFile, { autoCleanup: false });
+    await secondClient.login(organization.user.email);
     const timeline = await secondClient.get(`/api/leads/${lead.lead.id}/timeline?organization_id=${organization.organization.id}`);
     const followUps = await secondClient.get(`/api/follow-ups?organization_id=${organization.organization.id}`);
 
@@ -201,53 +272,3 @@ test("channel messages, inbound events, and follow-ups survive restart", async (
     await rm(tempDir, { recursive: true, force: true });
   }
 });
-
-async function startClient(t, databaseFile = ":memory:", { autoCleanup = true } = {}) {
-  const db = createDatabase(databaseFile);
-  const server = createApp({ db });
-  let stopped = false;
-
-  await new Promise((resolve) => server.listen(0, resolve));
-  if (autoCleanup) {
-    t.after(() => stop());
-  }
-
-  const { port } = server.address();
-  const baseUrl = `http://127.0.0.1:${port}`;
-
-  async function stop() {
-    if (stopped) {
-      return;
-    }
-    stopped = true;
-    server.closeIdleConnections?.();
-    server.closeAllConnections?.();
-    await new Promise((resolve) => server.close(resolve));
-    db.close();
-  }
-
-  return {
-    baseUrl,
-    db,
-    stop,
-    async get(route) {
-      const response = await fetch(`${baseUrl}${route}`);
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    },
-    async post(route, body) {
-      const response = await fetch(`${baseUrl}${route}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    }
-  };
-}
-

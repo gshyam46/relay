@@ -92,7 +92,23 @@ export function analyzeReadiness(lead) {
   };
 }
 
-export function buildDeterministicSignals(lead, readiness) {
+const REPLY_SIGNAL_TYPE = {
+  POSITIVE_REPLY: SIGNAL_TYPES.LEAD_REPLIED_POSITIVE,
+  NEGATIVE_REPLY: SIGNAL_TYPES.LEAD_REPLIED_NEGATIVE,
+  QUESTION: SIGNAL_TYPES.LEAD_ASKED_QUESTION,
+  OPT_OUT: SIGNAL_TYPES.LEAD_OPTED_OUT,
+  UNKNOWN: SIGNAL_TYPES.LEAD_REPLY_UNCLEAR
+};
+
+const REPLY_SIGNAL_EXPLANATION = {
+  POSITIVE_REPLY: "The lead replied with positive or affirmative language.",
+  NEGATIVE_REPLY: "The lead replied with negative or declining language.",
+  QUESTION: "The lead replied with a question that needs an answer.",
+  OPT_OUT: "The lead asked to stop being contacted.",
+  UNKNOWN: "The lead replied, but the intent could not be classified confidently."
+};
+
+export function buildDeterministicSignals(lead, readiness, latestReply = null) {
   const signals = [];
   if (readiness.hasContact) {
     signals.push(signal(SIGNAL_TYPES.CONTACT_INFORMATION_AVAILABLE, "true", "Usable contact information is available.", CONFIDENCE.HIGH));
@@ -123,6 +139,16 @@ export function buildDeterministicSignals(lead, readiness) {
   }
   if (readiness.status === READINESS_STATUS.NEEDS_MORE_DATA) {
     signals.push(signal(SIGNAL_TYPES.DATA_INCOMPLETE, "true", readiness.blockingReasons.join(" "), CONFIDENCE.HIGH));
+  }
+  if (latestReply?.event_type && REPLY_SIGNAL_TYPE[latestReply.event_type]) {
+    signals.push(
+      signal(
+        REPLY_SIGNAL_TYPE[latestReply.event_type],
+        latestReply.received_at || "true",
+        latestReply.reason || REPLY_SIGNAL_EXPLANATION[latestReply.event_type],
+        CONFIDENCE[latestReply.confidence] || CONFIDENCE.LOW
+      )
+    );
   }
   return signals;
 }

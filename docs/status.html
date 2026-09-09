@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Relay — Build Status</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f7f6;
+        --panel: #ffffff;
+        --ink: #14201c;
+        --muted: #5c6b65;
+        --faint: #8a978f;
+        --line: #e2e7e4;
+        --brand: #0f766e;
+        --brand-soft: #ddf0ec;
+        --done: #0f766e;
+        --active: #b45309;
+        --active-soft: #fdf0dc;
+        --todo: #94a3b8;
+        --todo-soft: #eef1f4;
+        --warn: #b91c1c;
+        --warn-soft: #fdeaea;
+        --radius: 12px;
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0e1412;
+          --panel: #161d1b;
+          --ink: #e8efec;
+          --muted: #9dada6;
+          --faint: #6f807a;
+          --line: #253230;
+          --brand: #2dd4bf;
+          --brand-soft: #10322e;
+          --done: #2dd4bf;
+          --active: #fbbf24;
+          --active-soft: #33280f;
+          --todo: #64748b;
+          --todo-soft: #1c2422;
+          --warn: #f87171;
+          --warn-soft: #33191a;
+        }
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1020px; margin: 0 auto; padding: 40px 22px 80px; }
+
+      header { margin-bottom: 30px; }
+      .eyebrow {
+        font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+        color: var(--brand); margin-bottom: 8px;
+      }
+      h1 { font-size: 30px; line-height: 1.15; margin: 0 0 6px; letter-spacing: -.02em; }
+      .sub { color: var(--muted); margin: 0; font-size: 14px; }
+      .stamp { font-family: var(--mono); font-size: 12px; color: var(--faint); margin-top: 10px; }
+
+      .bar-outer {
+        height: 8px; background: var(--todo-soft); border-radius: 99px; overflow: hidden;
+        margin: 22px 0 8px; border: 1px solid var(--line);
+      }
+      .bar-inner { height: 100%; background: var(--brand); border-radius: 99px; }
+      .bar-label { font-size: 12px; color: var(--muted); }
+
+      .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); margin: 26px 0 34px; }
+      .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+      .stat .n { font-size: 24px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+      .stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); margin-top: 3px; font-weight: 600; }
+
+      h2 {
+        font-size: 12px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+        color: var(--faint); margin: 38px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+      }
+
+      .phase { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 12px; }
+      .phase-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+      .phase-n {
+        font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--faint);
+        border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px;
+      }
+      .phase-title { font-size: 16px; font-weight: 650; letter-spacing: -.01em; margin: 0; flex: 1; min-width: 200px; }
+      .pill {
+        font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+        padding: 3px 9px; border-radius: 99px; white-space: nowrap;
+      }
+      .pill.done { background: var(--brand-soft); color: var(--done); }
+      .pill.active { background: var(--active-soft); color: var(--active); }
+      .pill.todo { background: var(--todo-soft); color: var(--todo); }
+      .phase-note { color: var(--muted); font-size: 13.5px; margin: 10px 0 0; }
+
+      ul.items { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 7px; }
+      ul.items li { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; }
+      .mark { flex: none; width: 16px; height: 16px; border-radius: 4px; margin-top: 2px; display: grid; place-items: center; font-size: 10px; font-weight: 800; }
+      .mark.done { background: var(--brand-soft); color: var(--done); }
+      .mark.active { background: var(--active-soft); color: var(--active); }
+      .mark.todo { background: var(--todo-soft); color: var(--todo); }
+      .mark.blocked { background: var(--warn-soft); color: var(--warn); }
+      li .why { color: var(--muted); }
+
+      table { width: 100%; border-collapse: collapse; font-size: 13.5px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+      th { text-align: left; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); padding: 10px 14px; border-bottom: 1px solid var(--line); font-weight: 700; }
+      td { padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+      tr:last-child td { border-bottom: none; }
+      td.k { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+      .scroll { overflow-x: auto; }
+
+      .callout { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; border-radius: 0 8px 8px 0; font-size: 13.5px; margin: 12px 0; }
+      .callout strong { color: var(--warn); }
+      .callout.ok { border-left-color: var(--brand); background: var(--brand-soft); }
+      .callout.ok strong { color: var(--done); }
+
+      code { font-family: var(--mono); font-size: .89em; background: var(--todo-soft); padding: 1px 5px; border-radius: 4px; }
+      footer { margin-top: 46px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--faint); font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="eyebrow">Relay · AI Lead Intelligence &amp; Outbound Automation</div>
+        <h1>Build Status</h1>
+        <p class="sub">Progress against the six-phase plan to a published MVP.</p>
+        <div class="bar-outer"><div class="bar-inner" style="width: 30%"></div></div>
+        <div class="bar-label">Phase 1 complete · Phase 2 fully prepared and verified against real PostgreSQL — only account creation remains</div>
+        <div class="stamp">Last updated 2026-09-09 · branch <code>mvp</code></div>
+      </header>
+
+      <div class="grid">
+        <div class="stat"><div class="n">180</div><div class="k">Tests</div></div>
+        <div class="stat"><div class="n">180</div><div class="k">Pass on PostgreSQL</div></div>
+        <div class="stat"><div class="n">176</div><div class="k">Pass on SQLite <span style="font-weight:400">(+4 PG-only)</span></div></div>
+        <div class="stat"><div class="n">0</div><div class="k">Failing</div></div>
+        <div class="stat"><div class="n">1</div><div class="k">Runtime dependency</div></div>
+      </div>
+
+      <h2>Phases</h2>
+
+      <section class="phase">
+        <div class="phase-head">
+          <span class="phase-n">01</span>
+          <h3 class="phase-title">Production foundation</h3>
+          <span class="pill done">Complete</span>
+        </div>
+        <p class="phase-note">
+          The database layer, configuration, and observability a real deployment needs. The
+          <code>DatabaseClient</code> contract became asynchronous — it had to, because
+          <code>node:sqlite</code> is synchronous and every PostgreSQL driver is not.
+        </p>
+        <ul class="items">
+          <li><span class="mark done">✓</span><span>PostgreSQL/Supabase adapter behind the same contract as SQLite. <span class="why">Setting <code>DATABASE_URL</code> is the entire switch.</span></span></li>
+          <li><span class="mark done">✓</span><span>Async contract rolled through 19 repositories, all services, the worker and the API.</span></li>
+          <li><span class="mark done">✓</span><span>One SQL dialect: <code>?</code> → <code>$n</code> translation, BIGINT/NUMERIC coerced to numbers, engine-specific date SQL removed.</span></li>
+          <li><span class="mark done">✓</span><span>Versioned migrations with <code>schema_migrations</code>, each applied transactionally. <span class="why">Existing dev databases adopt the runner without a rebuild.</span></span></li>
+          <li><span class="mark done">✓</span><span>Environment/secrets configuration in one module, with boot-time validation that refuses SQLite in production.</span></li>
+          <li><span class="mark done">✓</span><span>Structured JSON logging with per-request ids; error taxonomy with status + code + expected/defect.</span></li>
+          <li><span class="mark done">✓</span><span>Liveness and readiness endpoints, graceful SIGTERM shutdown, worker overlap guard.</span></li>
+          <li><span class="mark done">✓</span><span>All 176 runnable tests green against the abstraction; full browser cycle verified end to end.</span></li>
+          <li><span class="mark done">✓</span><span><strong>Verified against real PostgreSQL 18.1.</strong> <span class="why">The gap flagged in the first report is closed: the machine turned out to have PostgreSQL installed, so a throwaway cluster was spun up on port 55432 and the <em>entire</em> suite — all 180 tests, not just the 4 adapter ones — was run against it.</span></span></li>
+        </ul>
+      </section>
+
+      <section class="phase">
+        <div class="phase-head">
+          <span class="phase-n">02</span>
+          <h3 class="phase-title">Staging deployment</h3>
+          <span class="pill active">Prepared — blocked on your accounts</span>
+        </div>
+        <p class="phase-note">
+          Supabase for PostgreSQL, Render for the Node app. Everything that can be done and proven
+          without your credentials is done; what remains is creating the two accounts and pointing
+          the config at them.
+        </p>
+        <ul class="items">
+          <li><span class="mark done">✓</span><span>Whole suite proven on real PostgreSQL 18.1 — 180/180. <span class="why">Found and fixed a harness bug where “survives restart” tests got a fresh schema on the second start; schemas are now derived from the database path, mirroring SQLite exactly.</span></span></li>
+          <li><span class="mark done">✓</span><span><code>npm run test:pg</code> runs the entire suite against any PostgreSQL, one schema per test client.</span></li>
+          <li><span class="mark done">✓</span><span>CI now runs <strong>both</strong> engines plus a client typecheck/build job. <span class="why">Without the PostgreSQL job, SQLite-only SQL reaches production.</span></span></li>
+          <li><span class="mark done">✓</span><span><code>render.yaml</code> blueprint: client build, <code>db:migrate</code> as pre-deploy, readiness endpoint as health check, HTTPS/proxy and cookie settings.</span></li>
+          <li><span class="mark done">✓</span><span><code>docs/DEPLOYMENT.md</code> runbook — pooler vs direct connection strings, secrets, a 10-step verification checklist, rollback and scaling notes.</span></li>
+          <li><span class="mark done">✓</span><span><code>npm run verify:deploy</code> — seven pre-deploy checks against a real database: connectivity, migration state before/after, all 25 required tables, the idempotency indexes, and whether a staging boot would be accepted. <span class="why">Prints the host, never the connection string.</span></span></li>
+          <li><span class="mark done">✓</span><span>Secrets never touch chat or a command line — every script reads <code>DATABASE_URL</code> from a gitignored <code>.env</code> via <code>--env-file-if-exists</code>.</span></li>
+          <li><span class="mark done">✓</span><span>Whole path rehearsed against a real PostgreSQL: verify → migrate → 180/180 tests → server boots → live writes land → readiness reports ready. <span class="why">Build and boot sequences from the blueprint simulated locally too.</span></span></li>
+          <li><span class="mark todo">·</span><span><strong>Needs you:</strong> create the Supabase project and put its direct connection string in <code>.env</code>.</span></li>
+          <li><span class="mark todo">·</span><span><strong>Needs you:</strong> push <code>mvp</code>, create the Render service from the blueprint, set <code>DATABASE_URL</code> to the pooler string.</span></li>
+          <li><span class="mark todo">·</span><span>Walk the 10-step verification checklist on the deployed URL.</span></li>
+        </ul>
+      </section>
+
+      <section class="phase">
+        <div class="phase-head">
+          <span class="phase-n">03</span>
+          <h3 class="phase-title">Finish M7 — reply intelligence</h3>
+          <span class="pill todo">Not started</span>
+        </div>
+        <p class="phase-note">Inbound replies already classify and thread; what is missing is feeding them back into the lead's intelligence and escalating to a human.</p>
+        <ul class="items">
+          <li><span class="mark todo">·</span><span>Reply classification updates the lead's intelligence and recommendation.</span></li>
+          <li><span class="mark todo">·</span><span>Human-review escalation path.</span></li>
+          <li><span class="mark todo">·</span><span>Dedicated classifier tests.</span></li>
+        </ul>
+      </section>
+
+      <section class="phase">
+        <div class="phase-head">
+          <span class="phase-n">04</span>
+          <h3 class="phase-title">Finish M8 — one real channel</h3>
+          <span class="pill todo">Not started</span>
+        </div>
+        <p class="phase-note">Email first. Sandbox stays the default so nothing sends by accident.</p>
+        <ul class="items">
+          <li><span class="mark todo">·</span><span>Make the email adapter's real provider path live behind the existing Settings toggle. <span class="why">The Resend/SendGrid code exists but is still dead — <code>ChannelRouter</code> never calls it.</span></span></li>
+          <li><span class="mark todo">·</span><span>Verify the inbound webhook and reply flow against the real provider.</span></li>
+        </ul>
+      </section>
+
+      <section class="phase">
+        <div class="phase-head">
+          <span class="phase-n">05</span>
+          <h3 class="phase-title">Product &amp; UX pass</h3>
+          <span class="pill todo">Not started · 4 defects already logged</span>
+        </div>
+        <p class="phase-note">Verifying Phase 1 end to end in the browser surfaced real gaps. They are listed under “Known gaps” below and are the starting backlog for this phase.</p>
+        <ul class="items">
+          <li><span class="mark todo">·</span><span>Overview dashboard.</span></li>
+          <li><span class="mark todo">·</span><span>Bulk Intelligence workspace <span class="why">(the bulk action is currently unusable — see gaps)</span>.</span></li>
+          <li><span class="mark todo">·</span><span>Bulk Outbound workspace.</span></li>
+          <li><span class="mark todo">·</span><span>Individual Lead 360° page.</span></li>
+          <li><span class="mark todo">·</span><span>Conversations shown as conversations, not logs.</span></li>
+          <li><span class="mark todo">·</span><span>Clear CTAs and next steps; functional QA of every workflow.</span></li>
+        </ul>
+      </section>
+
+      <section class="phase">
+        <div class="phase-head">
+          <span class="phase-n">06</span>
+          <h3 class="phase-title">Landing page, onboarding, publish MVP</h3>
+          <span class="pill todo">Not started</span>
+        </div>
+        <p class="phase-note">Interactive animated landing page, supporting pages, get-started flow, first client onboarded, then publish.</p>
+      </section>
+
+      <div class="callout">
+        <strong>Explicitly out of scope:</strong> M9 Lead Discovery. The core proposition —
+        customer data → AI intelligence → recommended action → approval → outbound → inbound
+        response → follow-up — is the product.
+      </div>
+
+      <h2>Known gaps found while verifying</h2>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>Where</th><th>What</th><th>Phase</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="k">intelligence.tsx:171</td>
+              <td><strong>“Analyze eligible leads” is permanently disabled.</strong> It disables on <code>!totals.not_run</code>, which counts leads with no snapshot — but every lead gets one at creation, so that count is always 0. The server's rule is different and correct: leads without a READY recommendation.</td>
+              <td class="k">5</td>
+            </tr>
+            <tr>
+              <td class="k">intelligence.tsx</td>
+              <td>The per-row <strong>“Run” only calls <code>/intelligence/run</code></strong>, not synthesis → recommendation → next-best-action. A lead cannot reach “recommendation ready” from that workspace at all.</td>
+              <td class="k">5</td>
+            </tr>
+            <tr>
+              <td class="k">lead-detail.tsx</td>
+              <td>Copy mismatch: empty states say <em>Click “Analyze lead” above</em>, but the button is labelled <em>Refresh intelligence</em>.</td>
+              <td class="k">5</td>
+            </tr>
+            <tr>
+              <td class="k">leads.tsx</td>
+              <td>Add Lead dialog has no <code>role="dialog"</code> and is not focus-trapped.</td>
+              <td class="k">5</td>
+            </tr>
+            <tr>
+              <td class="k">channelRouter.js</td>
+              <td>The email adapter's real Resend/SendGrid calls are still dead code — the router never reaches them.</td>
+              <td class="k">4</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Fixed in Phase 1</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Where</th><th>What</th></tr></thead>
+          <tbody>
+            <tr><td class="k">shared/http.js</td><td>Any error's message was returned to the client verbatim, including unhandled defects — that would have leaked SQL fragments in production. 5xx now returns a generic message plus a request id.</td></tr>
+            <tr><td class="k">api/app.js</td><td><code>X-Forwarded-Proto</code> was trusted unconditionally for the cookie <code>Secure</code> flag, so a direct client could claim HTTPS. Now gated on <code>TRUST_PROXY</code>.</td></tr>
+            <tr><td class="k">server.js</td><td>The worker interval had no overlap guard — with awaited network round trips a slow tick could execute the same action twice.</td></tr>
+            <tr><td class="k">outbound.tsx</td><td><code>client:build</code> was broken on the branch (unused variable under <code>tsc -b</code>), so the served frontend could not be rebuilt.</td></tr>
+            <tr><td class="k">scripts/smoke-api.js</td><td><code>npm run smoke</code> still called <code>POST /api/organizations</code>, removed when session auth landed — it had been failing with a 401 instead of checking anything. Now registers and carries a session.</td></tr>
+            <tr><td class="k">.github/workflows</td><td>CI ran one engine and never built the client, which is how a broken <code>client:build</code> and untested PostgreSQL SQL could both sit on the branch unnoticed. Now three jobs: SQLite, PostgreSQL, client build.</td></tr>
+            <tr><td class="k">postgres-adapter.test.js</td><td><strong>Data-loss footgun.</strong> The adapter tests ran <code>DROP SCHEMA public CASCADE</code>. The documented workflow is to run them against the configured <code>DATABASE_URL</code> — which would have destroyed the staging database. Every test now works inside its own generated schema and touches nothing else.</td></tr>
+            <tr><td class="k">test tooling</td><td>The test harness read <code>TEST_DATABASE_SSL</code> while the app reads <code>DATABASE_SSL</code> — two names for one concept, so a single <code>.env</code> silently half-worked. Now one falls back to the other.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Milestones</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Milestone</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="k">M0–M6</td><td>Complete — skeleton, data foundation, intelligence, next-best-action, outbound, approval, sequences.</td></tr>
+            <tr><td class="k">M7 · Response intelligence</td><td>Partial — inbound events, classification and follow-ups work; intelligence update and escalation remain. <em>Phase 3.</em></td></tr>
+            <tr><td class="k">M8 · Additional channels</td><td>Not started — sandbox adapters exist for email, SMS, WhatsApp, voice. <em>Phase 4.</em></td></tr>
+            <tr><td class="k">M9 · Lead discovery</td><td>Deliberately deferred.</td></tr>
+            <tr><td class="k">M10 · Production hardening</td><td>Partial — Phase 1 delivered the database, config, logging and health foundation. Rate limiting, webhook signature verification, cost controls, backups and retention remain.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>How to verify this yourself</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Command</th><th>What it proves</th></tr></thead>
+          <tbody>
+            <tr><td class="k">npm run ci</td><td>Lint, format and the full test suite.</td></tr>
+            <tr><td class="k">npm run smoke</td><td>A real server, end to end: register, CSV import, intelligence, plan, approve, execute, callback.</td></tr>
+            <tr><td class="k">npm run db:status</td><td>Which migrations a database has applied, changing nothing.</td></tr>
+            <tr><td class="k">npm run dev:e2e</td><td>A real server on port 3100 with its own database, for browser QA.</td></tr>
+            <tr><td class="k">npm run test:pg</td><td>Runs the <em>entire</em> suite against a real PostgreSQL rather than SQLite. Currently 180/180. Reads <code>DATABASE_URL</code> from <code>.env</code>; safe against a real database.</td></tr>
+            <tr><td class="k">npm run verify:deploy</td><td>Pre-deploy gate: connectivity, migrations, schema completeness, and config validation against the configured database.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <footer>
+        Generated and maintained by Claude Code alongside the work it describes.
+        Source of record: <code>docs/TASKS.md</code> and <code>docs/ARCHITECTURE.md</code>.
+      </footer>
+    </div>
+  </body>
+</html>

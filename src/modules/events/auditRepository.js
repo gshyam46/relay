@@ -7,7 +7,7 @@ export class AuditRepository {
     this.db = db;
   }
 
-  record({ organization_id, lead_id = null, action_id = null, event_type, message, metadata = {} }) {
+  async record({ organization_id, lead_id = null, action_id = null, event_type, message, metadata = {} }) {
     const auditLog = {
       id: createId("audit"),
       organization_id,
@@ -18,7 +18,7 @@ export class AuditRepository {
       metadata_json: stringifyJson(metadata),
       created_at: nowIso()
     };
-    this.db.run(
+    await this.db.run(
       `INSERT INTO audit_logs
           (id, organization_id, lead_id, action_id, event_type, message, metadata_json, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,

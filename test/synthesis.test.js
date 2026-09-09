@@ -4,15 +4,16 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createApp, createServices } from "../src/api/app.js";
+import { createServices } from "../src/api/app.js";
 import { createDatabase } from "../src/database/database.js";
+import { startClient } from "./helpers/testClient.js";
 import { validateSynthesisOutput } from "../src/modules/lead-intelligence/synthesisContract.js";
 
 const evaluationFixture = JSON.parse(
   readFileSync(new URL("./fixtures/m2.2-synthesis-evaluation.json", import.meta.url), "utf8")
 );
 
-test("synthesis contract requires evidence-grounded structured output", () => {
+test("synthesis contract requires evidence-grounded structured output", async () => {
   const errors = validateSynthesisOutput({
     summary: { text: "Ungrounded summary" },
     findings: [{ field: "COMPANY_NAME", value: "Northstar Interiors", evidence_refs: [] }],
@@ -25,7 +26,7 @@ test("synthesis contract requires evidence-grounded structured output", () => {
   assert.match(errors.join(" "), /recommendation.evidence_refs/);
 });
 
-test("M2.2 evaluation fixture covers qualification boundary cases", () => {
+test("M2.2 evaluation fixture covers qualification boundary cases", async () => {
   assert.equal(evaluationFixture.cases.length, 3);
   assert.deepEqual(
     evaluationFixture.cases.map((item) => item.id),
@@ -38,22 +39,22 @@ test("M2.2 evaluation fixture covers qualification boundary cases", () => {
   }
 });
 
-test("local synthesis agent satisfies the M2.2 evaluation fixture", () => {
-  const db = createDatabase(":memory:");
+test("local synthesis agent satisfies the M2.2 evaluation fixture", async () => {
+  const db = await createDatabase(":memory:");
   const services = createServices(db);
   try {
-    const organization = services.leadsRepository.createOrganization({ name: "Synthesis Evaluation Org" });
+    const organization = await services.leadsRepository.createOrganization({ name: "Synthesis Evaluation Org" });
     for (const item of evaluationFixture.cases) {
-      const lead = services.leadsRepository.createLead({
+      const lead = await services.leadsRepository.createLead({
         organization_id: organization.id,
         name: item.lead.name,
         email: item.lead.email || null,
         company: item.lead.company || null,
         source: "MANUAL"
       });
-      services.intelligenceService.runForLead(lead);
+      await services.intelligenceService.runForLead(lead);
       if (item.research_evidence) {
-        services.researchEvidenceService.ingestForLead({
+        await services.researchEvidenceService.ingestForLead({
           lead,
           provider_key: "APPROVED_MANUAL_RESEARCH",
           idempotency_key: `evaluation-${item.id}`,
@@ -61,20 +62,20 @@ test("local synthesis agent satisfies the M2.2 evaluation fixture", () => {
         });
       }
 
-      const synthesis = services.synthesisService.runForLead(lead);
+      const synthesis = await services.synthesisService.runForLead(lead);
 
       assert.equal(synthesis.qualification.outcome, item.expected_qualification_outcome);
       assert.equal(synthesis.recommendation.type, item.expected_recommendation_type);
       assert.equal(synthesis.evidence_refs.length > 0, true);
     }
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
 test("synthesis requires a current Lead Intelligence snapshot", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Synthesis Not Ready Org" });
+  const organization = await client.register("Synthesis Not Ready Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Not Ready Lead",
@@ -82,10 +83,10 @@ test("synthesis requires a current Lead Intelligence snapshot", async (t) => {
   });
 
   const current = await client.get(`/api/leads/${leadResponse.lead.id}/synthesis?organization_id=${organization.organization.id}`);
-  const run = await fetch(`${client.baseUrl}/api/leads/${leadResponse.lead.id}/synthesis/run`, {
+  const run = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/synthesis/run`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ organization_id: organization.organization.id })
+    body: JSON.stringify({})
   });
 
   assert.equal(current.synthesis_status, "NOT_READY");
@@ -96,7 +97,7 @@ test("synthesis requires a current Lead Intelligence snapshot", async (t) => {
 
 test("synthesis run persists evidence-grounded qualification without outbound side effects", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Synthesis Org" });
+  const organization = await client.register("Synthesis Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Priya Sharma",
@@ -125,12 +126,12 @@ test("synthesis run persists evidence-grounded qualification without outbound si
   assert.equal(result.synthesis.evidence_refs.some((ref) => ref.startsWith("snapshot_evidence:")), true);
   assert.equal(result.synthesis.evidence_refs.some((ref) => ref.startsWith("research_evidence:")), true);
   assert.equal(current.synthesis.id, result.synthesis.id);
-  assert.equal(client.db.all("SELECT * FROM actions WHERE lead_id = ?", [leadResponse.lead.id]).length, 0);
+  assert.equal((await client.db.all("SELECT * FROM actions WHERE lead_id = ?", [leadResponse.lead.id])).length, 0);
 });
 
 test("repeated synthesis run is idempotent for the same evidence input", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Synthesis Idempotency Org" });
+  const organization = await client.register("Synthesis Idempotency Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Asha Mehta",
@@ -149,42 +150,42 @@ test("repeated synthesis run is idempotent for the same evidence input", async (
   });
 
   assert.equal(first.synthesis.id, second.synthesis.id);
-  assert.equal(client.db.all("SELECT * FROM intelligence_synthesis_runs WHERE lead_id = ?", [leadResponse.lead.id]).length, 1);
+  assert.equal((await client.db.all("SELECT * FROM intelligence_synthesis_runs WHERE lead_id = ?", [leadResponse.lead.id])).length, 1);
 });
 
-test("failed synthesis run can retry safely", () => {
-  const db = createDatabase(":memory:");
+test("failed synthesis run can retry safely", async () => {
+  const db = await createDatabase(":memory:");
   const services = createServices(db);
   try {
-    const organization = services.leadsRepository.createOrganization({ name: "Synthesis Failure Org" });
-    const lead = services.leadsRepository.createLead({
+    const organization = await services.leadsRepository.createOrganization({ name: "Synthesis Failure Org" });
+    const lead = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "Failure Lead",
       email: "failure-synthesis@example.com",
       company: "Failure Co",
       source: "MANUAL"
     });
-    services.intelligenceService.runForLead(lead);
+    await services.intelligenceService.runForLead(lead);
 
-    assert.throws(
-      () => services.synthesisService.runForLead(lead, { simulate_failure_stage: "AFTER_SYNTHESIS" }),
+    await assert.rejects(
+      async () => await services.synthesisService.runForLead(lead, { simulate_failure_stage: "AFTER_SYNTHESIS" }),
       /Simulated synthesis failure/
     );
-    assert.equal(db.get("SELECT status FROM intelligence_synthesis_runs WHERE lead_id = ?", [lead.id]).status, "FAILED");
+    assert.equal((await db.get("SELECT status FROM intelligence_synthesis_runs WHERE lead_id = ?", [lead.id])).status, "FAILED");
 
-    const retried = services.synthesisService.runForLead(lead);
+    const retried = await services.synthesisService.runForLead(lead);
 
     assert.equal(retried.status, "READY");
-    assert.equal(db.all("SELECT * FROM intelligence_synthesis_runs WHERE lead_id = ?", [lead.id]).length, 1);
+    assert.equal((await db.all("SELECT * FROM intelligence_synthesis_runs WHERE lead_id = ?", [lead.id])).length, 1);
     assert.equal(retried.findings.length > 0, true);
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
 test("new staged research evidence creates a new synthesis version and preserves history", async (t) => {
   const client = await startClient(t);
-  const organization = await client.post("/api/organizations", { name: "Synthesis Version Org" });
+  const organization = await client.register("Synthesis Version Org");
   const leadResponse = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Devika Iyer",
@@ -217,8 +218,7 @@ test("new staged research evidence creates a new synthesis version and preserves
 
 test("synthesis APIs are organization scoped", async (t) => {
   const client = await startClient(t);
-  const firstOrg = await client.post("/api/organizations", { name: "Synthesis Tenant A" });
-  const secondOrg = await client.post("/api/organizations", { name: "Synthesis Tenant B" });
+  const firstOrg = await client.register("Synthesis Tenant A");
   const leadResponse = await client.post("/api/leads", {
     organization_id: firstOrg.organization.id,
     name: "Tenant Lead",
@@ -229,18 +229,18 @@ test("synthesis APIs are organization scoped", async (t) => {
     organization_id: firstOrg.organization.id
   });
 
-  const wrongRead = await fetch(
-    `${client.baseUrl}/api/leads/${leadResponse.lead.id}/synthesis?organization_id=${secondOrg.organization.id}`
-  );
-  const wrongRun = await fetch(`${client.baseUrl}/api/leads/${leadResponse.lead.id}/synthesis/run`, {
+  await client.register("Synthesis Tenant B"); // switches the active session to org B
+
+  const wrongRead = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/synthesis`);
+  const wrongRun = await client.rawFetch(`/api/leads/${leadResponse.lead.id}/synthesis/run`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ organization_id: secondOrg.organization.id })
+    body: JSON.stringify({})
   });
 
   assert.equal(wrongRead.status, 404);
   assert.equal(wrongRun.status, 404);
-  assert.equal(client.db.all("SELECT * FROM intelligence_synthesis_runs WHERE organization_id = ?", [secondOrg.organization.id]).length, 0);
+  assert.equal((await client.db.all("SELECT * FROM intelligence_synthesis_runs WHERE lead_id = ?", [leadResponse.lead.id])).length, 0);
 });
 
 test("synthesis state survives application restart", async (t) => {
@@ -251,7 +251,7 @@ test("synthesis state survives application restart", async (t) => {
 
   try {
     firstClient = await startClient(t, databaseFile, { autoCleanup: false });
-    const organization = await firstClient.post("/api/organizations", { name: "Synthesis Restart Org" });
+    const organization = await firstClient.register("Synthesis Restart Org");
     const leadResponse = await firstClient.post("/api/leads", {
       organization_id: organization.organization.id,
       name: "Restart Lead",
@@ -267,6 +267,7 @@ test("synthesis state survives application restart", async (t) => {
     await firstClient.stop();
 
     secondClient = await startClient(t, databaseFile, { autoCleanup: false });
+    await secondClient.login(organization.user.email);
     const persisted = await secondClient.get(
       `/api/leads/${leadResponse.lead.id}/synthesis?organization_id=${organization.organization.id}`
     );
@@ -292,54 +293,5 @@ function companyEvidence(overrides = {}) {
     confidence: "MEDIUM",
     metadata: { reviewed_by: "qa" },
     ...overrides
-  };
-}
-
-async function startClient(t, databaseFile = ":memory:", { autoCleanup = true } = {}) {
-  const db = createDatabase(databaseFile);
-  const server = createApp({ db });
-  let stopped = false;
-
-  await new Promise((resolve) => server.listen(0, resolve));
-  if (autoCleanup) {
-    t.after(() => stop());
-  }
-
-  const { port } = server.address();
-  const baseUrl = `http://127.0.0.1:${port}`;
-
-  async function stop() {
-    if (stopped) {
-      return;
-    }
-    stopped = true;
-    server.closeIdleConnections?.();
-    server.closeAllConnections?.();
-    await new Promise((resolve) => server.close(resolve));
-    db.close();
-  }
-
-  return {
-    baseUrl,
-    db,
-    stop,
-    async get(route) {
-      const response = await fetch(`${baseUrl}${route}`);
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    },
-    async post(route, body) {
-      const response = await fetch(`${baseUrl}${route}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) {
-        assert.fail(`${response.status} ${await response.text()}`);
-      }
-      return response.json();
-    }
   };
 }

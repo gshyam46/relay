@@ -8,8 +8,8 @@ export class ApprovalsRepository {
     this.db = db;
   }
 
-  createPendingForAction(action, { requested_reason }) {
-    const existing = this.getByActionId(action.id, action.organization_id);
+  async createPendingForAction(action, { requested_reason }) {
+    const existing = await this.getByActionId(action.id, action.organization_id);
     if (existing) {
       return existing;
     }
@@ -30,7 +30,7 @@ export class ApprovalsRepository {
       decided_at: null
     };
 
-    this.db.run(
+    await this.db.run(
       `INSERT INTO action_approvals
           (id, organization_id, lead_id, action_id, status, requested_reason, reviewer_name,
            reviewer_note, edited_payload_json, created_at, updated_at, decided_at)
@@ -53,15 +53,15 @@ export class ApprovalsRepository {
     return approval;
   }
 
-  getByActionId(actionId, organizationId) {
-    const row = this.db.get("SELECT * FROM action_approvals WHERE action_id = ? AND organization_id = ?", [
+  async getByActionId(actionId, organizationId) {
+    const row = await this.db.get("SELECT * FROM action_approvals WHERE action_id = ? AND organization_id = ?", [
       actionId,
       organizationId
     ]);
     return this.approvalDetail(row);
   }
 
-  listForOrganization(organizationId, { status = null } = {}) {
+  async listForOrganization(organizationId, { status = null } = {}) {
     const params = [organizationId];
     let sql = `
       SELECT action_approvals.*, leads.name AS lead_name, leads.company AS lead_company, actions.type AS action_type,
@@ -75,11 +75,12 @@ export class ApprovalsRepository {
       params.push(status);
     }
     sql += " ORDER BY action_approvals.created_at DESC";
-    return this.db.all(sql, params).map((approval) => this.approvalDetail(approval));
+    const approvals = await this.db.all(sql, params);
+    return approvals.map((approval) => this.approvalDetail(approval));
   }
 
-  approve(actionId, organizationId, { reviewer_name = null, reviewer_note = null, edited_payload = null } = {}) {
-    return this.decide(actionId, organizationId, {
+  async approve(actionId, organizationId, { reviewer_name = null, reviewer_note = null, edited_payload = null } = {}) {
+    return await this.decide(actionId, organizationId, {
       status: APPROVAL_STATUS.APPROVED,
       reviewer_name,
       reviewer_note,
@@ -87,8 +88,8 @@ export class ApprovalsRepository {
     });
   }
 
-  reject(actionId, organizationId, { reviewer_name = null, reviewer_note = null } = {}) {
-    return this.decide(actionId, organizationId, {
+  async reject(actionId, organizationId, { reviewer_name = null, reviewer_note = null } = {}) {
+    return await this.decide(actionId, organizationId, {
       status: APPROVAL_STATUS.REJECTED,
       reviewer_name,
       reviewer_note,
@@ -96,9 +97,9 @@ export class ApprovalsRepository {
     });
   }
 
-  decide(actionId, organizationId, { status, reviewer_name, reviewer_note, edited_payload }) {
+  async decide(actionId, organizationId, { status, reviewer_name, reviewer_note, edited_payload }) {
     const timestamp = nowIso();
-    this.db.run(
+    await this.db.run(
       `UPDATE action_approvals
           SET status = ?, reviewer_name = ?, reviewer_note = ?, edited_payload_json = ?,
               updated_at = ?, decided_at = ?
@@ -114,7 +115,7 @@ export class ApprovalsRepository {
         organizationId
       ]
     );
-    return this.getByActionId(actionId, organizationId);
+    return await this.getByActionId(actionId, organizationId);
   }
 
   approvalDetail(row) {

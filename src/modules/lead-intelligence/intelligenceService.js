@@ -16,19 +16,22 @@ import {
 } from "./readiness.js";
 
 export class IntelligenceService {
-  constructor({ intelligenceRepository, auditRepository = null }) {
+  constructor({ intelligenceRepository, auditRepository = null, inboundEventsRepository = null }) {
     this.intelligenceRepository = intelligenceRepository;
     this.auditRepository = auditRepository;
+    this.inboundEventsRepository = inboundEventsRepository;
   }
 
-  createInitialSnapshot(lead) {
-    return this.runForLead(lead);
+  async createInitialSnapshot(lead) {
+    return await this.runForLead(lead);
   }
 
-  runForLead(lead, { simulate_failure_stage = null } = {}) {
+  async runForLead(lead, { simulate_failure_stage = null } = {}) {
     const hydratedLead = hydrateLeadForIntelligence(lead);
-    const inputFingerprint = inputFingerprintForLead(hydratedLead);
-    const existing = this.intelligenceRepository.findSnapshotByFingerprint({
+    const replies = (await this.inboundEventsRepository?.listForLead(hydratedLead.organization_id, hydratedLead.id)) || [];
+    const latestReply = replies[0] || null;
+    const inputFingerprint = inputFingerprintForLead(hydratedLead, latestReply);
+    const existing = await this.intelligenceRepository.findSnapshotByFingerprint({
       organization_id: hydratedLead.organization_id,
       lead_id: hydratedLead.id,
       input_fingerprint: inputFingerprint,
@@ -36,15 +39,15 @@ export class IntelligenceService {
     });
 
     if (existing?.status === SNAPSHOT_STATUS.READY) {
-      return this.intelligenceRepository.snapshotDetail(existing);
+      return await this.intelligenceRepository.snapshotDetail(existing);
     }
 
     const snapshot =
       existing ||
-      this.intelligenceRepository.createDraftSnapshot({
+      await this.intelligenceRepository.createDraftSnapshot({
         organization_id: hydratedLead.organization_id,
         lead_id: hydratedLead.id,
-        version: this.intelligenceRepository.nextVersionForLead(hydratedLead.id),
+        version: await this.intelligenceRepository.nextVersionForLead(hydratedLead.id),
         pipeline_version: PIPELINE_VERSION,
         input_fingerprint: inputFingerprint
       });
@@ -54,10 +57,10 @@ export class IntelligenceService {
         throw new Error("Simulated intelligence failure after draft snapshot.");
       }
 
-      this.intelligenceRepository.replaceSnapshotChildren(snapshot.id);
+      await this.intelligenceRepository.replaceSnapshotChildren(snapshot.id);
 
       const readiness = analyzeReadiness(hydratedLead);
-      const evidenceRecords = createEvidenceForLead({
+      const evidenceRecords = await createEvidenceForLead({
         lead: hydratedLead,
         snapshotId: snapshot.id,
         repository: this.intelligenceRepository
@@ -67,16 +70,17 @@ export class IntelligenceService {
       }
 
       const evidenceByField = new Map(evidenceRecords.map((record) => [record.claim_field, record.id]));
-      const claims = createClaimsForLead({
+      const claims = await createClaimsForLead({
         lead: hydratedLead,
         snapshotId: snapshot.id,
         evidenceByField,
         repository: this.intelligenceRepository
       });
-      const signals = createSignalsForLead({
+      const signals = await createSignalsForLead({
         lead: hydratedLead,
         snapshotId: snapshot.id,
         readiness,
+        latestReply,
         evidenceIds: evidenceRecords.map((record) => record.id),
         repository: this.intelligenceRepository
       });
@@ -85,7 +89,7 @@ export class IntelligenceService {
         signals.map((item) => item.id),
         evidenceRecords.map((record) => record.id)
       );
-      this.intelligenceRepository.createQualification({
+      await this.intelligenceRepository.createQualification({
         organization_id: hydratedLead.organization_id,
         lead_id: hydratedLead.id,
         snapshot_id: snapshot.id,
@@ -96,15 +100,15 @@ export class IntelligenceService {
         readiness,
         evidenceRecords.map((record) => record.id)
       );
-      this.intelligenceRepository.createRecommendation({
+      await this.intelligenceRepository.createRecommendation({
         organization_id: hydratedLead.organization_id,
         lead_id: hydratedLead.id,
         snapshot_id: snapshot.id,
         ...recommendation
       });
 
-      const summary = buildSummary(hydratedLead, readiness);
-      const finalized = this.intelligenceRepository.finalizeSnapshot(snapshot.id, {
+      const summary = buildSummary(hydratedLead, readiness, latestReply);
+      const finalized = await this.intelligenceRepository.finalizeSnapshot(snapshot.id, {
         status: SNAPSHOT_STATUS.READY,
         readiness_status: readiness.status,
         readiness_score: readiness.score,
@@ -117,12 +121,12 @@ export class IntelligenceService {
           confidence: record.confidence
         }))
       });
-      this.intelligenceRepository.supersedeReadySnapshots({
+      await this.intelligenceRepository.supersedeReadySnapshots({
         organization_id: hydratedLead.organization_id,
         lead_id: hydratedLead.id,
         except_snapshot_id: snapshot.id
       });
-      this.auditRepository?.record({
+      await this.auditRepository?.record({
         organization_id: hydratedLead.organization_id,
         lead_id: hydratedLead.id,
         event_type: "LeadIntelligenceUpdated",
@@ -135,23 +139,25 @@ export class IntelligenceService {
           signal_count: signals.length
         }
       });
-      return this.intelligenceRepository.snapshotDetail(finalized);
+      return await this.intelligenceRepository.snapshotDetail(finalized);
     } catch (error) {
-      this.intelligenceRepository.markSnapshotFailed(snapshot.id, error);
+      await this.intelligenceRepository.markSnapshotFailed(snapshot.id, error);
       throw error;
     }
   }
 
-  assessLead(lead) {
+  async assessLead(lead) {
     const hydratedLead = hydrateLeadForIntelligence(lead);
     const readiness = analyzeReadiness(hydratedLead);
-    const latestSnapshot = this.intelligenceRepository.findSnapshotByFingerprint({
+    const replies = (await this.inboundEventsRepository?.listForLead(hydratedLead.organization_id, hydratedLead.id)) || [];
+    const latestReply = replies[0] || null;
+    const latestSnapshot = await this.intelligenceRepository.findSnapshotByFingerprint({
       organization_id: hydratedLead.organization_id,
       lead_id: hydratedLead.id,
-      input_fingerprint: inputFingerprintForLead(hydratedLead),
+      input_fingerprint: inputFingerprintForLead(hydratedLead, latestReply),
       pipeline_version: PIPELINE_VERSION
     });
-    const snapshot = latestSnapshot ? this.intelligenceRepository.snapshotDetail(latestSnapshot) : null;
+    const snapshot = latestSnapshot ? await this.intelligenceRepository.snapshotDetail(latestSnapshot) : null;
     return {
       lead_status: hydratedLead.status,
       intelligence_status: intelligenceStatusFor({ snapshot, readiness }),
@@ -161,15 +167,18 @@ export class IntelligenceService {
     };
   }
 
-  latestForLead(lead) {
-    const snapshot = this.intelligenceRepository.latestForLeadInOrganization(lead.id, lead.organization_id);
-    return snapshot ? this.intelligenceRepository.snapshotDetail(snapshot) : null;
+  async latestForLead(lead) {
+    const snapshot = await this.intelligenceRepository.latestForLeadInOrganization(lead.id, lead.organization_id);
+    return snapshot ? await this.intelligenceRepository.snapshotDetail(snapshot) : null;
   }
 
-  historyForLead(lead) {
-    return this.intelligenceRepository.historyForLead(lead.id, lead.organization_id).map((snapshot) => {
-      return this.intelligenceRepository.snapshotDetail(snapshot);
-    });
+  async historyForLead(lead) {
+    const snapshots = await this.intelligenceRepository.historyForLead(lead.id, lead.organization_id);
+    const details = [];
+    for (const snapshot of snapshots) {
+      details.push(await this.intelligenceRepository.snapshotDetail(snapshot));
+    }
+    return details;
   }
 }
 
@@ -205,7 +214,7 @@ function serializeReadiness(readiness) {
   };
 }
 
-function createEvidenceForLead({ lead, snapshotId, repository }) {
+async function createEvidenceForLead({ lead, snapshotId, repository }) {
   const common = {
     organization_id: lead.organization_id,
     lead_id: lead.id,
@@ -226,10 +235,10 @@ function createEvidenceForLead({ lead, snapshotId, repository }) {
   const contactEmail = contactEmailForLead(lead);
   const contactPhone = contactPhoneForLead(lead);
   const evidence = [];
-  pushEvidence(evidence, repository, common, CLAIM_FIELDS.LEAD_NAME, lead.name, "Customer-provided lead name");
-  pushEvidence(evidence, repository, common, CLAIM_FIELDS.COMPANY_NAME, lead.company, "Customer-provided company");
-  pushEvidence(evidence, repository, common, CLAIM_FIELDS.CONTACT_EMAIL, contactEmail, "Customer-provided email");
-  pushEvidence(
+  await pushEvidence(evidence, repository, common, CLAIM_FIELDS.LEAD_NAME, lead.name, "Customer-provided lead name");
+  await pushEvidence(evidence, repository, common, CLAIM_FIELDS.COMPANY_NAME, lead.company, "Customer-provided company");
+  await pushEvidence(evidence, repository, common, CLAIM_FIELDS.CONTACT_EMAIL, contactEmail, "Customer-provided email");
+  await pushEvidence(
     evidence,
     repository,
     common,
@@ -237,8 +246,8 @@ function createEvidenceForLead({ lead, snapshotId, repository }) {
     contactPhone,
     "Customer-provided phone"
   );
-  pushEvidence(evidence, repository, common, CLAIM_FIELDS.LEAD_SOURCE, lead.source, "Recorded lead source");
-  pushEvidence(
+  await pushEvidence(evidence, repository, common, CLAIM_FIELDS.LEAD_SOURCE, lead.source, "Recorded lead source");
+  await pushEvidence(
     evidence,
     repository,
     common,
@@ -249,12 +258,12 @@ function createEvidenceForLead({ lead, snapshotId, repository }) {
   return evidence;
 }
 
-function pushEvidence(evidence, repository, common, claimField, claimValue, title) {
+async function pushEvidence(evidence, repository, common, claimField, claimValue, title) {
   if (!claimValue) {
     return;
   }
   evidence.push(
-    repository.createEvidence({
+    await repository.createEvidence({
       ...common,
       title,
       claim_field: claimField,
@@ -264,23 +273,23 @@ function pushEvidence(evidence, repository, common, claimField, claimValue, titl
   );
 }
 
-function createClaimsForLead({ lead, snapshotId, evidenceByField, repository }) {
+async function createClaimsForLead({ lead, snapshotId, evidenceByField, repository }) {
   const claims = [];
-  pushClaim(claims, repository, lead, snapshotId, CLAIM_FIELDS.LEAD_NAME, lead.name, evidenceByField);
-  pushClaim(claims, repository, lead, snapshotId, CLAIM_FIELDS.COMPANY_NAME, lead.company, evidenceByField);
-  pushClaim(claims, repository, lead, snapshotId, CLAIM_FIELDS.CONTACT_EMAIL, contactEmailForLead(lead), evidenceByField);
-  pushClaim(claims, repository, lead, snapshotId, CLAIM_FIELDS.CONTACT_PHONE, contactPhoneForLead(lead), evidenceByField);
-  pushClaim(claims, repository, lead, snapshotId, CLAIM_FIELDS.LEAD_SOURCE, lead.source, evidenceByField);
-  pushClaim(claims, repository, lead, snapshotId, CLAIM_FIELDS.PROVENANCE, sourceReferenceForLead(lead), evidenceByField);
+  await pushClaim(claims, repository, lead, snapshotId, CLAIM_FIELDS.LEAD_NAME, lead.name, evidenceByField);
+  await pushClaim(claims, repository, lead, snapshotId, CLAIM_FIELDS.COMPANY_NAME, lead.company, evidenceByField);
+  await pushClaim(claims, repository, lead, snapshotId, CLAIM_FIELDS.CONTACT_EMAIL, contactEmailForLead(lead), evidenceByField);
+  await pushClaim(claims, repository, lead, snapshotId, CLAIM_FIELDS.CONTACT_PHONE, contactPhoneForLead(lead), evidenceByField);
+  await pushClaim(claims, repository, lead, snapshotId, CLAIM_FIELDS.LEAD_SOURCE, lead.source, evidenceByField);
+  await pushClaim(claims, repository, lead, snapshotId, CLAIM_FIELDS.PROVENANCE, sourceReferenceForLead(lead), evidenceByField);
   return claims;
 }
 
-function pushClaim(claims, repository, lead, snapshotId, field, value, evidenceByField) {
+async function pushClaim(claims, repository, lead, snapshotId, field, value, evidenceByField) {
   if (!value) {
     return;
   }
   claims.push(
-    repository.createClaim({
+    await repository.createClaim({
       organization_id: lead.organization_id,
       lead_id: lead.id,
       snapshot_id: snapshotId,
@@ -292,19 +301,23 @@ function pushClaim(claims, repository, lead, snapshotId, field, value, evidenceB
   );
 }
 
-function createSignalsForLead({ lead, snapshotId, readiness, evidenceIds, repository }) {
-  return buildDeterministicSignals(lead, readiness).map((signal) => {
-    return repository.createSignal({
-      organization_id: lead.organization_id,
-      lead_id: lead.id,
-      snapshot_id: snapshotId,
-      ...signal,
-      evidence_ids: evidenceIds
-    });
-  });
+async function createSignalsForLead({ lead, snapshotId, readiness, latestReply, evidenceIds, repository }) {
+  const signals = [];
+  for (const signal of buildDeterministicSignals(lead, readiness, latestReply)) {
+    signals.push(
+      await repository.createSignal({
+        organization_id: lead.organization_id,
+        lead_id: lead.id,
+        snapshot_id: snapshotId,
+        ...signal,
+        evidence_ids: evidenceIds
+      })
+    );
+  }
+  return signals;
 }
 
-function buildSummary(lead, readiness) {
+function buildSummary(lead, readiness, latestReply = null) {
   const known = [];
   if (lead.company) {
     known.push(`company ${lead.company}`);
@@ -316,11 +329,20 @@ function buildSummary(lead, readiness) {
     known.push("phone");
   }
   const prefix = known.length > 0 ? `The system has ${known.join(", ")} from customer-owned data.` : "The lead has limited data.";
+  const replyNote = latestReply?.event_type ? ` ${REPLY_SUMMARY_NOTE[latestReply.event_type] || ""}` : "";
   if (readiness.status === "READY_FOR_INTELLIGENCE") {
-    return `${prefix} This is a data-readiness assessment, not external AI research.`;
+    return `${prefix} This is a data-readiness assessment, not external AI research.${replyNote}`;
   }
-  return `${prefix} More identity or contact information is needed before meaningful intelligence can be produced.`;
+  return `${prefix} More identity or contact information is needed before meaningful intelligence can be produced.${replyNote}`;
 }
+
+const REPLY_SUMMARY_NOTE = {
+  POSITIVE_REPLY: "The lead's most recent reply was positive.",
+  NEGATIVE_REPLY: "The lead's most recent reply was negative.",
+  QUESTION: "The lead's most recent reply asked a question that still needs an answer.",
+  OPT_OUT: "The lead opted out of further contact.",
+  UNKNOWN: "The lead's most recent reply could not be classified confidently and needs review."
+};
 
 function contactEmailForLead(lead) {
   const value = lead.normalized_email || lead.email;
@@ -334,7 +356,7 @@ function contactPhoneForLead(lead) {
   return typeof value === "string" && /^\+[1-9]\d{7,14}$/.test(value.trim()) ? value.trim() : null;
 }
 
-function inputFingerprintForLead(lead) {
+function inputFingerprintForLead(lead, latestReply = null) {
   return createHash("sha256")
     .update(
       JSON.stringify({
@@ -349,7 +371,8 @@ function inputFingerprintForLead(lead) {
         source: lead.source,
         import_batch_id: lead.import_batch_id,
         import_row_id: lead.import_row_id,
-        source_metadata: fingerprintSourceMetadata(lead.source_metadata)
+        source_metadata: fingerprintSourceMetadata(lead.source_metadata),
+        latest_reply: latestReply ? { event_type: latestReply.event_type, received_at: latestReply.received_at } : null
       })
     )
     .digest("hex");

@@ -5,7 +5,9 @@ on:
   pull_request:
 
 jobs:
-  test:
+  # The default engine: what local development uses, and the fast signal.
+  sqlite:
+    name: Lint, format, tests (SQLite)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -28,3 +30,68 @@ jobs:
 
       - name: Test
         run: npm test
+
+  # The engine staging and production actually run. Without this job, a query
+  # that only works on SQLite reaches production; the two dialects are kept
+  # compatible by the PostgreSQL client's translation layer, and this is what
+  # proves it still holds.
+  postgres:
+    name: Tests (PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: relay_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test against PostgreSQL
+        # test:pg sets RELAY_TEST_PG, which points every startClient() at
+        # PostgreSQL (one schema per client). TEST_DATABASE_URL additionally
+        # enables the adapter-specific tests in test/postgres-adapter.test.js.
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/relay_test
+          TEST_DATABASE_SSL: disable
+        run: npm run test:pg
+
+  # A broken frontend build means the server has nothing to serve — this failed
+  # silently on the branch once already.
+  client:
+    name: Client typecheck and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        run: npm --prefix client ci
+
+      - name: Build
+        run: npm --prefix client run build
