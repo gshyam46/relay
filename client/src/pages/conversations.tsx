@@ -67,6 +67,13 @@ function ConversationsContent() {
     if (!messages) return [];
     const byLead = new Map<string, ChannelMessage[]>();
     for (const m of messages) {
+      // A conversation is what was actually said to and by the lead. Internal
+      // human tasks are recorded on the same channel_messages table so they show
+      // up on the lead's activity timeline, but surfacing them here is what made
+      // this screen read as a log: rows saying "You: Follow up with X based on
+      // the current lead intelligence" are notes to ourselves, not messages.
+      // They remain visible on the lead's Outbound & Activity tab.
+      if (!CHANNELS.includes(m.channel as (typeof CHANNELS)[number])) continue;
       const list = byLead.get(m.lead_id) || [];
       list.push(m);
       byLead.set(m.lead_id, list);

@@ -1,4 +1,5 @@
 import { actionTypeForPlan, ACTION_STATUS, EXECUTABLE_ACTION_STATUSES } from "./actionContract.js";
+import { composeOutboundMessage } from "./messageComposer.js";
 
 export class OutboundAutomationService {
   constructor({
@@ -9,7 +10,9 @@ export class OutboundAutomationService {
     approvalsService,
     nextBestActionRepository,
     actionExecutor,
-    auditRepository
+    auditRepository,
+    leadsRepository = null,
+    inboundEventsRepository = null
   }) {
     this.actionsRepository = actionsRepository;
     this.executionsRepository = executionsRepository;
@@ -19,6 +22,8 @@ export class OutboundAutomationService {
     this.nextBestActionRepository = nextBestActionRepository;
     this.actionExecutor = actionExecutor;
     this.auditRepository = auditRepository;
+    this.leadsRepository = leadsRepository;
+    this.inboundEventsRepository = inboundEventsRepository;
   }
 
   async createActionFromPlan({ organization_id, plan_id }) {
@@ -39,12 +44,15 @@ export class OutboundAutomationService {
       return await this.actionDetail(existing);
     }
 
+    const actionType = actionTypeForPlan(plan);
+    const composedCopy = await this.#composeCopyFor(plan, actionType, organization_id);
+
     const approvalRequirement = plan.approval?.requirement || "NOT_REQUIRED";
     const status = approvalRequirement === "REQUIRED" ? ACTION_STATUS.AWAITING_APPROVAL : ACTION_STATUS.PLANNED;
     const action = await this.actionsRepository.createAction({
       organization_id,
       lead_id: plan.lead_id,
-      type: actionTypeForPlan(plan),
+      type: actionType,
       status,
       next_best_action_plan_id: plan.id,
       approval_requirement: approvalRequirement,
@@ -54,6 +62,11 @@ export class OutboundAutomationService {
         plan_id: plan.id,
         title: plan.title,
         rationale: plan.rationale,
+        // `title` and `rationale` are internal. Without an explicit subject and
+        // message, the channel router falls back to `rationale` for the body —
+        // which meant the conversation thread read like an audit log and a real
+        // email provider would have sent our own reasoning to the lead.
+        ...composedCopy,
         policy_decision: plan.policy_decision,
         approval: plan.approval,
         evidence_refs: plan.decision_evidence_refs,
@@ -112,6 +125,33 @@ export class OutboundAutomationService {
       details.push(await this.actionDetail(action));
     }
     return details;
+  }
+
+  /**
+   * Customer-facing copy for a message-bearing action.
+   *
+   * Human tasks are internal, so they keep `title`/`rationale` and get nothing
+   * here. Composition is grounded in the lead's own record and in their latest
+   * classified reply, so the message answers what they actually said rather than
+   * repeating a generic opener.
+   */
+  async #composeCopyFor(plan, actionType, organizationId) {
+    if (!String(actionType).startsWith("SEND_")) {
+      return {};
+    }
+    const lead = await this.leadsRepository?.getLead(plan.lead_id);
+    if (!lead) {
+      return {};
+    }
+    const organization = await this.leadsRepository?.getOrganization(organizationId);
+    const replies = (await this.inboundEventsRepository?.listForLead(organizationId, plan.lead_id)) || [];
+    const { subject, message } = composeOutboundMessage({
+      lead,
+      actionType,
+      organizationName: organization?.name || null,
+      replyContext: replies[0] || null
+    });
+    return { subject, message };
   }
 
   async actionDetail(action) {

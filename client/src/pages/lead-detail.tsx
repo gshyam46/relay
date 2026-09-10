@@ -739,7 +739,15 @@ function OutboundActivityTab({
   const cancelFollowUp = useCancelFollowUp();
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
-  const messages = timeline.filter((e) => e.kind === "message");
+  // A conversation is what was said to and by the lead. Internal human tasks
+  // share the same channel_messages table so they appear on the activity
+  // timeline, but showing them as conversation bubbles ("Follow up with X based
+  // on the current lead intelligence") is a note to ourselves, not a message.
+  // They stay visible in Outbound Actions above.
+  const CONVERSATIONAL_CHANNELS = ["EMAIL", "WHATSAPP", "SMS", "VOICE"];
+  const messages = timeline.filter(
+    (e) => e.kind === "message" && CONVERSATIONAL_CHANNELS.includes(String(e.channel || "").toUpperCase()),
+  );
   const followUps = timeline.filter((e) => e.kind === "follow_up");
 
   const withBusy = (id: string, fn: () => Promise<unknown>) => async () => {
@@ -844,9 +852,24 @@ function OutboundActionRow({
           <TypeBadge type={action.type} />
           <ActionStatusBadge status={action.status} />
         </div>
-        <p className="text-xs text-muted mt-1">
-          {formatLabel((action.payload?.title as string) || (action.payload?.reason as string) || action.type)}
-        </p>
+        {/* Show the message that will actually be sent, not just the internal
+            plan title — this is an approval decision, and it cannot be made
+            without seeing the content. Human tasks have no customer-facing copy
+            and fall back to their title. */}
+        {typeof action.payload?.message === "string" && action.type.startsWith("SEND_") ? (
+          <div className="mt-1.5">
+            {typeof action.payload?.subject === "string" && (
+              <p className="text-xs font-medium text-ink truncate">{action.payload.subject as string}</p>
+            )}
+            <p className="text-xs text-muted mt-0.5 whitespace-pre-wrap line-clamp-3">
+              {action.payload.message as string}
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-muted mt-1">
+            {formatLabel((action.payload?.title as string) || (action.payload?.reason as string) || action.type)}
+          </p>
+        )}
       </div>
       {busy ? (
         <Loader2 className="w-4 h-4 animate-spin text-brand shrink-0" />

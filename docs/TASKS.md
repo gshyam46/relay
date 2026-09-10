@@ -1354,3 +1354,93 @@ whole intelligence pipeline each time.
 - Webhook signature verification is still not implemented — the SendGrid routes authenticate
   with an opaque per-organization token in the URL, not a signature. Recorded in
   `docs/DEPLOYMENT.md` as an outstanding `M10` item.
+
+## 2026-09-10 - Phase 5: product UX, and the message a lead actually receives
+
+- decision: finish the existing product surface without changing its scope, and fix the one
+  thing that made both the conversation view and the real email channel wrong — outbound
+  messages containing our internal reasoning rather than customer-facing copy.
+- affected modules: `src/modules/outbound-automation/messageComposer.js` (new),
+  `src/modules/outbound-automation/outboundAutomationService.js`,
+  `src/modules/channels/channelWorkflowService.js`, `src/api/app.js`,
+  `client/src/pages/outbound.tsx`, `client/src/pages/conversations.tsx`,
+  `client/src/pages/lead-detail.tsx`, `test/message-composer.test.js` (new),
+  `test/channel-workflow.test.js`.
+- migration requirements: none.
+
+### The outbound message was internal reasoning
+
+An outbound action's payload carried only `title` and `rationale` — "Prepare outbound review",
+"Use the evidence-backed intelligence to prepare the next outbound review. No outbound action
+is created yet." The channel router falls back to `rationale` for the message body, so:
+
+- the sandbox conversation thread read like an audit log, and
+- **once a real email provider was configured, that internal reasoning is what would have been
+  emailed to the lead.**
+
+This was found by looking at the seeded product rather than by any test, and it undercut both
+Phase 4 (a real channel is worthless if it sends the wrong text) and Phase 5 (conversations
+cannot look like conversations if the messages are notes to ourselves).
+
+`messageComposer.js` now composes the copy, deterministically, with no LLM required — the same
+pattern as `localSynthesisAgent`. It is grounded by the same rule as the intelligence agents:
+it personalises from the lead's own record (first name, company, the channel they came in
+through) and states nothing else. It never invents a price, a product, a timeline, a mutual
+contact, or a claim about intent. Where it cannot ground something it leaves it out, because a
+shorter message is correct and an invented one is not. It also reads the lead's latest
+classified reply, so a question gets an answer rather than the same opener again.
+
+Composition happens when the action is created from a plan, and only for `SEND_*` types —
+human tasks are internal and keep `title`/`rationale`. The result lands in the payload as
+`subject`/`message`, which the router already prefers, so a human-reviewed edit still wins.
+
+### Conversations now look like conversations
+
+Three separate reasons the screens read as logs:
+
+1. **The lead's own words were replaced by our description of them.** `listLeadTimeline`
+   returned `summary || body`, and for a classified reply the summary is "Classified as
+   Question received (medium confidence): Message contains a question or question word." The
+   bubble now shows `body` — what the lead actually said — and `summary` is returned separately
+   for the badge that already existed. A test asserted the old behaviour (`message.message`
+   containing "Classified as"), so the bug was pinned in place by its own coverage; that test
+   now asserts the correct contract.
+2. **Internal human tasks appeared as conversation bubbles.** They share `channel_messages` so
+   they show on the activity timeline, but "You: Follow up with X based on the current lead
+   intelligence" is a note to ourselves. Both the Conversations inbox and the lead's
+   Conversation panel now show only genuinely conversational channels; human tasks remain in
+   Outbound Actions and on the activity feed.
+3. The message bodies themselves were internal (see above).
+
+### An approval queue you can actually approve from
+
+Clicking a row in Outbound navigated away to the lead page, so a reviewer could not read what
+was about to be sent without leaving the queue — for a *bulk* approval workspace that is the
+wrong flow. Rows now expand in place to show the recipient, subject and full message, with the
+recommendation rationale shown separately and explicitly labelled as internal. "Open full lead
+record" is still there for when the reviewer wants the whole picture. The lead detail page's
+action rows show the composed subject and message too, for the same reason.
+
+### Layout
+
+The Outbound KPI row used `flex-wrap` for eight tiles, which produced three ragged rows with a
+gap at the end. It is a responsive grid now (2 / 4 / 8 columns), so the tiles stay aligned at
+every width. Verified at 1440px and at a narrow pane.
+
+### Tests
+
+`test/message-composer.test.js` (new, 8 tests). The important one asserts the grounding rule
+directly: across every channel and reply-intent variant, the output must not match any of a
+set of fabrication patterns (currency and percentages, "discount", "as we discussed", "last
+time we spoke", named furniture the lead never mentioned, "within N days", "guarantee"). Plus:
+a lead we know less about gets a *shorter* message rather than a guessed one; junk names
+("unknown", "N/A", an email address) are not used as a greeting; a question gets an answer;
+short-form channels get one line; and end to end, an action's payload carries sendable copy
+whose text contains none of the product's internal vocabulary.
+
+### Verification
+
+219 tests: 215 pass + 4 PostgreSQL-only skipped on SQLite, **219/219 on real PostgreSQL**.
+Verified in a browser against seeded data: the composed email visible in the approval queue
+before approving, the lead's actual words in the conversation thread, and the KPI grid at two
+widths.

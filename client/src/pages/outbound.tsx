@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Send,
@@ -20,6 +20,7 @@ import {
   Inbox,
   AlertTriangle,
   Download,
+  ChevronRight,
 } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { Header } from "@/components/layout/header";
@@ -91,6 +92,10 @@ function OutboundWithOrg() {
   const [search, setSearch] = useState("");
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Which row is expanded to show the message that will actually be sent.
+  // Approving without being able to read the message is the one thing an
+  // approval queue must not ask of a reviewer.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const navigate = useNavigate();
 
@@ -227,7 +232,10 @@ function OutboundWithOrg() {
         {/* Summary Row */}
         {totals && (
           <div className="px-6 py-4 border-b border-line bg-surface flex items-start gap-6 flex-wrap">
-            <div className="flex flex-wrap gap-4 flex-1 min-w-[280px]">
+            {/* A grid rather than flex-wrap: eight tiles wrapping freely produced
+                ragged rows with a gap at the end. A grid keeps them aligned in
+                columns at every width. */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3 flex-1 min-w-[280px]">
               <SummaryCard label="Total actions" value={totals.total} />
               <SummaryCard label="Ready for review" value={readyCount} color="text-warn" highlight={readyCount > 0} />
               <SummaryCard label="Approved" value={actions.filter((a) => a.status === "APPROVED").length} />
@@ -425,20 +433,36 @@ function OutboundWithOrg() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {filteredActions.map((action) => (
-                  <ActionRow
-                    key={action.action_id}
-                    action={action}
-                    busy={busyIds.has(action.action_id)}
-                    showCheckbox={tab === "READY" || tab === "APPROVED"}
-                    checked={selected.has(action.action_id)}
-                    onToggle={() => toggleSelected(action.action_id)}
-                    onApprove={withBusy(action.action_id, () => approve.mutateAsync(action.action_id))}
-                    onReject={withBusy(action.action_id, () => reject.mutateAsync(action.action_id))}
-                    onExecute={withBusy(action.action_id, () => execute.mutateAsync(action.action_id))}
-                    onClick={() => navigate(`/leads/${action.lead_id}?tab=outbound`)}
-                  />
-                ))}
+                {filteredActions.map((action) => {
+                  const expanded = expandedId === action.action_id;
+                  const columnCount = tab === "READY" || tab === "APPROVED" ? 7 : 6;
+                  return (
+                    <Fragment key={action.action_id}>
+                      <ActionRow
+                        action={action}
+                        busy={busyIds.has(action.action_id)}
+                        showCheckbox={tab === "READY" || tab === "APPROVED"}
+                        checked={selected.has(action.action_id)}
+                        expanded={expanded}
+                        onToggle={() => toggleSelected(action.action_id)}
+                        onApprove={withBusy(action.action_id, () => approve.mutateAsync(action.action_id))}
+                        onReject={withBusy(action.action_id, () => reject.mutateAsync(action.action_id))}
+                        onExecute={withBusy(action.action_id, () => execute.mutateAsync(action.action_id))}
+                        onClick={() => setExpandedId(expanded ? null : action.action_id)}
+                      />
+                      {expanded && (
+                        <tr className="bg-soft/60">
+                          <td colSpan={columnCount} className="px-6 py-4">
+                            <MessagePreview
+                              action={action}
+                              onOpenLead={() => navigate(`/leads/${action.lead_id}?tab=outbound`)}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -532,6 +556,7 @@ function ActionRow({
   busy,
   showCheckbox,
   checked,
+  expanded,
   onToggle,
   onApprove,
   onReject,
@@ -542,6 +567,7 @@ function ActionRow({
   busy: boolean;
   showCheckbox: boolean;
   checked: boolean;
+  expanded: boolean;
   onToggle: () => void;
   onApprove: (e: React.MouseEvent) => void;
   onReject: (e: React.MouseEvent) => void;
@@ -552,7 +578,11 @@ function ActionRow({
   const canExecute = action.status === "APPROVED" || action.status === "PLANNED";
 
   return (
-    <tr onClick={onClick} className="hover:bg-soft transition-colors cursor-pointer group">
+    <tr
+      onClick={onClick}
+      title={expanded ? "Hide the message" : "Show the message that will be sent"}
+      className={cn("hover:bg-soft transition-colors cursor-pointer group", expanded && "bg-soft/60")}
+    >
       {showCheckbox && (
         <td className="py-3 pl-6" onClick={(e) => e.stopPropagation()}>
           <input type="checkbox" checked={checked} onChange={onToggle} className="cursor-pointer" />
@@ -560,6 +590,10 @@ function ActionRow({
       )}
       <td className="py-3 px-4 pl-6">
         <div className="flex items-center gap-3">
+          <ChevronRight
+            className={cn("w-3.5 h-3.5 text-muted shrink-0 transition-transform", expanded && "rotate-90")}
+            aria-hidden
+          />
           <div className="w-8 h-8 rounded-full bg-brand-light text-brand flex items-center justify-center text-xs font-bold shrink-0">
             {(action.lead_name?.[0] ?? "?").toUpperCase()}
           </div>
@@ -612,6 +646,77 @@ function ActionRow({
         )}
       </td>
     </tr>
+  );
+}
+
+/**
+ * What will actually be sent, readable without leaving the queue.
+ *
+ * The subject and message come from the action's payload, which is composed
+ * server-side from the lead's own record. `rationale` is shown separately and
+ * labelled as internal, because it is the reasoning behind the action rather
+ * than anything the lead sees — conflating the two is what made the sandbox
+ * conversation thread read like an audit log.
+ */
+function MessagePreview({ action, onOpenLead }: { action: OutboundAction; onOpenLead: () => void }) {
+  const payload = (action.payload ?? {}) as Record<string, unknown>;
+  const asText = (value: unknown) => (typeof value === "string" && value.trim() ? value : null);
+
+  const subject = asText(payload.subject);
+  const message = asText(payload.message);
+  const rationale = asText(payload.rationale) ?? asText(payload.title);
+  const isMessageChannel = action.type.startsWith("SEND_");
+  const evidenceCount = Array.isArray(payload.evidence_refs) ? payload.evidence_refs.length : 0;
+
+  return (
+    <div className="space-y-3">
+      {isMessageChannel ? (
+        message ? (
+          <div className="rounded-lg border border-line bg-surface overflow-hidden">
+            <div className="px-4 py-2 border-b border-line bg-soft/60 flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">To</span>
+              <span className="text-xs text-ink">{action.lead_email || action.lead_name || "the lead"}</span>
+              {subject && (
+                <>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted ml-2">Subject</span>
+                  <span className="text-xs font-medium text-ink">{subject}</span>
+                </>
+              )}
+            </div>
+            <p className="px-4 py-3 text-sm text-ink whitespace-pre-wrap leading-relaxed">{message}</p>
+          </div>
+        ) : (
+          <p className="text-xs text-warn">
+            No message content is attached to this action yet, so there is nothing to review. Re-analyze the lead to
+            regenerate it.
+          </p>
+        )
+      ) : (
+        <div className="rounded-lg border border-line bg-surface px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1">Internal task</p>
+          <p className="text-sm text-ink">{asText(payload.message) ?? rationale ?? "No details."}</p>
+        </div>
+      )}
+
+      {rationale && (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1">
+            Why this was recommended {evidenceCount > 0 && `· ${evidenceCount} evidence item${evidenceCount === 1 ? "" : "s"}`}
+          </p>
+          <p className="text-xs text-muted leading-relaxed">{rationale}</p>
+        </div>
+      )}
+
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenLead();
+        }}
+        className="text-xs font-medium text-brand hover:underline cursor-pointer"
+      >
+        Open full lead record →
+      </button>
+    </div>
   );
 }
 
@@ -735,7 +840,7 @@ function SummaryCard({
   icon?: React.ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className={cn("border rounded-lg px-4 py-2.5 min-w-[100px]", highlight ? "border-warn bg-warn-light" : "border-line bg-page")}>
+    <div className={cn("border rounded-lg px-3 py-2.5", highlight ? "border-warn bg-warn-light" : "border-line bg-page")}>
       <div className="flex items-center gap-1.5">
         {Icon && <Icon className={cn("w-3.5 h-3.5", color ?? "text-muted")} />}
         <p className={cn("text-lg font-bold", color ?? "text-ink")}>{value}</p>

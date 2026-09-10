@@ -182,7 +182,11 @@ export function createServices(db, logger = createNullLogger()) {
     approvalsService,
     nextBestActionRepository,
     actionExecutor,
-    auditRepository
+    auditRepository,
+    // Needed to compose customer-facing message copy grounded in the lead's own
+    // record and their latest classified reply.
+    leadsRepository,
+    inboundEventsRepository
   });
   const worker = new Worker({
     eventsRepository,

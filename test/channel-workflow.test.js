@@ -162,7 +162,16 @@ test("inbound reply without event_type is auto-classified from message text", as
 
   const timeline = await client.get(`/api/leads/${lead.lead.id}/timeline?organization_id=${organization.organization.id}`);
   const message = timeline.timeline.find((item) => item.kind === "message" && item.direction === "INBOUND");
-  assert.ok(message.message.includes("Classified as"));
+
+  // A conversation bubble must show what the lead SAID. This previously asserted
+  // that `message` contained "Classified as ..." — our own description of the
+  // reply — which is why the thread read like an audit log rather than a
+  // conversation. The classification is still exposed, on its own fields.
+  assert.equal(message.message, "Sounds good, let's schedule a call this week");
+  assert.ok(message.summary.includes("Classified as"), "our description is still available separately");
+  assert.equal(message.classification_event_type, "POSITIVE_REPLY");
+  assert.equal(message.classification_confidence, "MEDIUM");
+  assert.ok(message.suggested_next_step, "and so is the suggested next step");
 });
 
 test("low-confidence auto-classification escalates the follow-up and surfaces as high-priority attention", async (t) => {

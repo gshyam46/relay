@@ -309,7 +309,13 @@ export class ChannelWorkflowService {
       channel: message.channel,
       status: message.status,
       title: message.subject || channelTitle(message),
-      message: message.summary || message.body || "Channel activity recorded.",
+      // What was actually said comes first. `summary` is our own description of
+      // the message ("Classified as Question received (medium confidence): ...")
+      // and reading it in a conversation bubble instead of the lead's own words
+      // is what made the thread look like an audit log. It is still returned
+      // separately, and the UI renders the classification as a badge.
+      message: message.body || message.summary || "Channel activity recorded.",
+      summary: message.summary || null,
       classification_event_type: message.classification_event_type || null,
       classification_confidence: message.classification_confidence || null,
       suggested_next_step: message.suggested_next_step || null,
