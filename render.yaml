@@ -10,7 +10,14 @@ services:
   - type: web
     name: relay-staging
     runtime: node
-    plan: starter
+    # Free plan. Two consequences, both acceptable for staging:
+    #  - The instance sleeps after ~15 minutes without traffic and takes roughly
+    #    a minute to wake on the next request. While asleep the in-process worker
+    #    is not running, so approved actions execute when it wakes, not before.
+    #  - preDeployCommand is a paid-plan feature, so migrations run at boot
+    #    instead (see below).
+    # Switch to `starter` before real customers depend on it.
+    plan: free
     region: singapore
     branch: mvp
 
@@ -23,14 +30,14 @@ services:
     # that would make the build break the day this is copied to production.
     buildCommand: npm ci && npm --prefix client ci --include=dev && npm --prefix client run build
 
-    # Migrations run BEFORE the new instance replaces the old one, so a bad
-    # migration fails the deploy instead of taking the service down. The script
-    # exits non-zero if anything is still pending.
+    # No preDeployCommand: it is unavailable on the free plan. Migrations still
+    # run before any traffic is served, because `npm start` opens the database
+    # through createDatabase(), which applies pending migrations at boot. If a
+    # migration fails, the process exits, /api/health/ready never goes green, and
+    # Render does not route traffic to the new instance.
     #
-    # preDeployCommand requires a paid instance type; it is unavailable on the
-    # free plan, which is one of the reasons this uses Starter.
-    preDeployCommand: npm run db:migrate
-
+    # On a paid plan, add `preDeployCommand: npm run db:migrate` back so a bad
+    # migration fails the deploy before the old instance is replaced.
     startCommand: npm start
 
     # Readiness, not liveness: this also reports 503 while migrations are

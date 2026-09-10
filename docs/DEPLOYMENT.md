@@ -32,8 +32,12 @@ Current branch for deployment: **`mvp`**.
 ## Before you start
 
 - A Supabase account (free tier is enough for staging).
-- A Render account. Use **Starter**, not Free: `preDeployCommand` is unavailable
-  on Free, and Free instances sleep, which stops the background worker.
+- A Render account. The blueprint uses the **Free** plan. Two trade-offs, both
+  fine for staging: the instance sleeps after ~15 minutes without traffic and
+  takes about a minute to wake (the background worker is paused while asleep),
+  and `preDeployCommand` is unavailable, so migrations run at boot instead.
+  Switch to Starter before real customers rely on it.
+  (Heroku is not an alternative — it no longer has a free tier.)
 - Push access to this repository.
 
 ---
@@ -49,25 +53,37 @@ Current branch for deployment: **`mvp`**.
 
 ---
 
-## Step 2 — Put the direct connection string in a local `.env`
+## Step 2 — Put a connection string in a local `.env`
 
-Project Settings → **Database** → **Connection string** → **URI**. Supabase gives
-you two, and using the wrong one in the wrong place is the most common failure:
+In the project, click **Connect** → **Direct** → **Connection string**. Ignore the
+Framework, Server, ORM, MCP and API Keys tabs — Relay talks to PostgreSQL
+directly and needs none of them. Never put the `service_role` API key anywhere in
+this project.
 
-| Which | Port | Use for |
-| --- | --- | --- |
-| **Direct connection** | `5432` | migrations, `verify:deploy`, `test:pg`, `psql` |
-| **Transaction pooler** | `6543` | the running Render service (`DATABASE_URL`) |
+Supabase shows three strings. Using the wrong one in the wrong place is the most
+common failure:
 
-A web service opens many short-lived connections; Supabase's direct connection
-limit is small and will be exhausted. The pooler exists for exactly that.
+| Which | Host | Port | Use for |
+| --- | --- | --- | --- |
+| Direct connection | `db.<ref>.supabase.co` | `5432` | Only if your network has IPv6 (see below) |
+| **Session pooler** | `aws-0-<region>.pooler.supabase.com` | `5432` | **Your local `.env`**: `verify:deploy`, `test:pg`, migrations |
+| **Transaction pooler** | `aws-0-<region>.pooler.supabase.com` | `6543` | **Render's `DATABASE_URL`** |
+
+**Why not Direct:** on free Supabase projects the direct connection is
+IPv6-only. Most home and office networks, and Render itself, reach the internet
+over IPv4, so it simply times out. The session pooler is IPv4-compatible and
+behaves like a direct connection, which is why it is the one to use locally.
 
 Create `.env` in the repository root — it is gitignored and will not be
 committed:
 
 ```
-DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@db.YOUR_REF.supabase.co:5432/postgres
+DATABASE_URL=postgresql://postgres.YOUR_REF:YOUR_PASSWORD@aws-0-YOUR_REGION.pooler.supabase.com:5432/postgres
 ```
+
+Replace `[YOUR-PASSWORD]` in the copied string with the real password. **If the
+password contains any of `@ : / ? # % &`, URL-encode those characters**
+(`@` → `%40`, `#` → `%23`, and so on), or the connection string will not parse.
 
 Leave `DATABASE_SSL` unset. Supabase requires TLS, which is the default.
 
@@ -91,7 +107,7 @@ Then run the whole suite against the real database:
 npm run test:pg
 ```
 
-Expect **180 passed**.
+Expect **219 passed**.
 
 This is safe to point at the staging database. Every test works inside its own
 generated schema, nothing touches `public`, and leftover schemas are dropped at
@@ -99,10 +115,17 @@ the end. (An earlier version of the adapter tests ran `DROP SCHEMA public
 CASCADE`, which would have destroyed whatever database it was aimed at. That is
 gone.)
 
-If `verify:deploy` cannot connect, it is almost always one of: the wrong
-password, the pooler host where the direct host is needed, a paused project
-(Supabase pauses free projects after inactivity), or database network
-restrictions.
+If `verify:deploy` cannot connect, it is almost always one of: the Direct
+(IPv6-only) string on an IPv4 network, the wrong password or an un-encoded
+special character in it, a paused project (Supabase pauses free projects after a
+week of inactivity), or database network restrictions.
+
+Not yet verified against a real Supabase pooler: the test harness selects a
+per-test schema through a `search_path` startup option in the connection string.
+If `test:pg` fails with an error mentioning `options` or `search_path` while
+`verify:deploy` passes, the pooler is rejecting that option — that is a test
+harness limitation, not an application problem, and the harness will need a
+different way to select the schema.
 
 ---
 
@@ -128,7 +151,8 @@ git push -u origin mvp
    | `LLM_PROVIDER` | `groq` | Optional |
    | `GROQ_API_KEY` | Your Groq key | Optional |
 
-   Note this is the **pooler** string, not the direct one you used locally.
+   Note this is the **transaction pooler** (port 6543), not the session pooler
+   you used locally. Keep the plan as **Free** when Render asks.
 
    Everything else — `NODE_ENV`, `LOG_LEVEL`, `LOG_FORMAT`, `TRUST_PROXY`,
    `FORCE_SECURE_COOKIES`, `WORKER_ENABLED`, `NODE_VERSION` — is already in the
@@ -141,8 +165,8 @@ git push -u origin mvp
 
 ### What the blueprint does, and why
 
-Deploy order: `npm ci` → client build → `npm run db:migrate` → `npm start` →
-health check.
+Deploy order: `npm ci` → client build → `npm start` (which applies pending
+migrations before listening) → health check.
 
 - **Build** — `npm ci && npm --prefix client ci --include=dev && npm --prefix
   client run build`. The server serves `client/dist`; without the client build
@@ -150,10 +174,12 @@ health check.
   vite and typescript are devDependencies, which npm omits whenever `NODE_ENV` is
   `production`. It is `staging` here so they would install anyway, but relying on
   that would break the day this is copied to production.
-- **Pre-deploy** — `npm run db:migrate` runs *before* the new instance replaces
-  the old one, so a bad migration fails the deploy rather than taking the service
-  down. It exits non-zero if anything is still pending, which is what Render
-  gates on.
+- **Migrations at boot** — the free plan has no `preDeployCommand`, so
+  migrations run when the server opens the database. A failed migration makes the
+  process exit, `/api/health/ready` never goes green, and Render does not route
+  traffic to that instance. On a paid plan, add
+  `preDeployCommand: npm run db:migrate` back so a bad migration fails the deploy
+  before the old instance is replaced.
 - **Health check** — `/api/health/ready`. This is *readiness*, not liveness: it
   returns 503 while the database is unreachable or a migration is pending, so a
   half-deployed instance never receives traffic. `/api/health/live` (and its
