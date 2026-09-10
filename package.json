@@ -18,7 +18,8 @@
     "db:status": "node --env-file-if-exists=.env scripts/db-status.js",
     "dev:e2e": "node scripts/dev-e2e.js",
     "test:pg": "node --env-file-if-exists=.env scripts/run-postgres-tests.js",
-    "verify:deploy": "node --env-file-if-exists=.env scripts/verify-deployment.js"
+    "verify:deploy": "node --env-file-if-exists=.env scripts/verify-deployment.js",
+    "verify:workflows": "node --env-file-if-exists=.env scripts/verify-workflows.js"
   },
   "engines": {
     "node": ">=24"

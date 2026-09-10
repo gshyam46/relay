@@ -128,17 +128,17 @@
         <div class="eyebrow">Relay · AI Lead Intelligence &amp; Outbound Automation</div>
         <h1>Build Status</h1>
         <p class="sub">Progress against the six-phase plan to a published MVP.</p>
-        <div class="bar-outer"><div class="bar-inner" style="width: 30%"></div></div>
-        <div class="bar-label">Phase 1 complete · Phase 2 fully prepared and verified against real PostgreSQL — only account creation remains</div>
-        <div class="stamp">Last updated 2026-09-09 · branch <code>mvp</code></div>
+        <div class="bar-outer"><div class="bar-inner" style="width: 82%"></div></div>
+        <div class="bar-label">Phases 1, 3, 4 and 5 complete · Phase 2 needs your Supabase and Render accounts · Phase 6 (landing page) not started</div>
+        <div class="stamp">Last updated 2026-09-10 · branch <code>mvp</code></div>
       </header>
 
       <div class="grid">
-        <div class="stat"><div class="n">180</div><div class="k">Tests</div></div>
-        <div class="stat"><div class="n">180</div><div class="k">Pass on PostgreSQL</div></div>
-        <div class="stat"><div class="n">176</div><div class="k">Pass on SQLite <span style="font-weight:400">(+4 PG-only)</span></div></div>
+        <div class="stat"><div class="n">219</div><div class="k">Automated tests</div></div>
+        <div class="stat"><div class="n">219</div><div class="k">Pass on PostgreSQL</div></div>
+        <div class="stat"><div class="n">215</div><div class="k">Pass on SQLite <span style="font-weight:400">(+4 PG-only)</span></div></div>
+        <div class="stat"><div class="n">55</div><div class="k">Workflow checks</div></div>
         <div class="stat"><div class="n">0</div><div class="k">Failing</div></div>
-        <div class="stat"><div class="n">1</div><div class="k">Runtime dependency</div></div>
       </div>
 
       <h2>Phases</h2>
@@ -196,44 +196,64 @@
       <section class="phase">
         <div class="phase-head">
           <span class="phase-n">03</span>
-          <h3 class="phase-title">Finish M7 — reply intelligence</h3>
-          <span class="pill todo">Not started</span>
+          <h3 class="phase-title">M7 — reply intelligence</h3>
+          <span class="pill done">Complete</span>
         </div>
-        <p class="phase-note">Inbound replies already classify and thread; what is missing is feeding them back into the lead's intelligence and escalating to a human.</p>
+        <p class="phase-note">
+          A reply now updates the recommendation rather than only invalidating it. Split by cost: the
+          snapshot refresh is inline and cheap; re-running synthesis → recommendation → next action is a
+          queued <code>LeadReplyReceived</code> event, so a slow re-analysis can never fail a provider's
+          webhook and cause a redelivery.
+        </p>
         <ul class="items">
-          <li><span class="mark todo">·</span><span>Reply classification updates the lead's intelligence and recommendation.</span></li>
-          <li><span class="mark todo">·</span><span>Human-review escalation path.</span></li>
-          <li><span class="mark todo">·</span><span>Dedicated classifier tests.</span></li>
+          <li><span class="mark done">✓</span><span>Reply → intelligence and recommendation refresh, verified live: READY → stale → regenerated with a new id.</span></li>
+          <li><span class="mark done">✓</span><span>Low-confidence replies escalate for human review; opted-out leads are never re-analysed into a fresh reason to contact them.</span></li>
+          <li><span class="mark done">✓</span><span>Re-analysis stops at planning — a reply can never make the system send something on its own.</span></li>
+          <li><span class="mark done">✓</span><span>Dedicated classifier suite, including opt-out precedence over affirmative wording ("yes please unsubscribe me" is an opt-out).</span></li>
+          <li><span class="mark done">✓</span><span>Both Intelligence workspace defects fixed, with the eligibility parity now an asserted invariant.</span></li>
         </ul>
       </section>
 
       <section class="phase">
         <div class="phase-head">
           <span class="phase-n">04</span>
-          <h3 class="phase-title">Finish M8 — one real channel</h3>
-          <span class="pill todo">Not started</span>
+          <h3 class="phase-title">M8 — email as a real channel</h3>
+          <span class="pill done">Complete (no live send yet)</span>
         </div>
-        <p class="phase-note">Email first. Sandbox stays the default so nothing sends by accident.</p>
+        <p class="phase-note">
+          Sandbox is still the default; nothing sends by accident. The router was already wired to the
+          adapter — an earlier note saying otherwise was stale. What was missing was everything around it
+          being fit to point at real recipients.
+        </p>
         <ul class="items">
-          <li><span class="mark todo">·</span><span>Make the email adapter's real provider path live behind the existing Settings toggle. <span class="why">The Resend/SendGrid code exists but is still dead — <code>ChannelRouter</code> never calls it.</span></span></li>
-          <li><span class="mark todo">·</span><span>Verify the inbound webhook and reply flow against the real provider.</span></li>
+          <li><span class="mark done">✓</span><span><strong>Credentials no longer reach the browser.</strong> <span class="why">Every settings load previously shipped the live provider API key to the client. Masked on read, preserved across a save that did not retype it.</span></span></li>
+          <li><span class="mark done">✓</span><span><strong>The subject line was the entire message body.</strong> Real subjects now, with an explicit payload subject winning.</span></li>
+          <li><span class="mark done">✓</span><span>Provider idempotency key, so retrying an attempt that actually succeeded does not deliver twice.</span></li>
+          <li><span class="mark done">✓</span><span>Plain text was being sent as raw HTML; both providers now get a text part plus an escaped HTML part, so lead data cannot inject markup.</span></li>
+          <li><span class="mark done">✓</span><span>12 tests with <code>fetch</code> stubbed: retryable 5xx, permanent 4xx, missing key and missing address failing before any network call, and SendGrid's event-attribution args.</span></li>
+          <li><span class="mark blocked">!</span><span><strong>No real send has been made.</strong> <span class="why">These prove what would be sent, not that Resend accepts it. Needs an API key and a verified sending domain — a staging step.</span></span></li>
         </ul>
       </section>
 
       <section class="phase">
         <div class="phase-head">
           <span class="phase-n">05</span>
-          <h3 class="phase-title">Product &amp; UX pass</h3>
-          <span class="pill todo">Not started · 4 defects already logged</span>
+          <h3 class="phase-title">Product &amp; UX</h3>
+          <span class="pill done">Complete</span>
         </div>
-        <p class="phase-note">Verifying Phase 1 end to end in the browser surfaced real gaps. They are listed under “Known gaps” below and are the starting backlog for this phase.</p>
+        <p class="phase-note">
+          The largest find of this phase was not cosmetic: outbound messages contained our own internal
+          reasoning, so the conversation view read like an audit log <em>and</em> a configured email
+          provider would have sent that reasoning to the lead.
+        </p>
         <ul class="items">
-          <li><span class="mark todo">·</span><span>Overview dashboard.</span></li>
-          <li><span class="mark todo">·</span><span>Bulk Intelligence workspace <span class="why">(the bulk action is currently unusable — see gaps)</span>.</span></li>
-          <li><span class="mark todo">·</span><span>Bulk Outbound workspace.</span></li>
-          <li><span class="mark todo">·</span><span>Individual Lead 360° page.</span></li>
-          <li><span class="mark todo">·</span><span>Conversations shown as conversations, not logs.</span></li>
-          <li><span class="mark todo">·</span><span>Clear CTAs and next steps; functional QA of every workflow.</span></li>
+          <li><span class="mark done">✓</span><span><strong>Leads now receive real messages.</strong> <span class="why">A deterministic composer, grounded by the same rule as the intelligence agents: it personalises only from the lead's own record and invents no price, product, timeline or claim about intent. Asserted against a list of fabrication patterns.</span></span></li>
+          <li><span class="mark done">✓</span><span><strong>Conversations look like conversations.</strong> <span class="why">Three causes: the lead's own words were replaced by our description of them; internal human tasks appeared as bubbles; and the bodies themselves were internal. All three fixed.</span></span></li>
+          <li><span class="mark done">✓</span><span><strong>The approval queue shows what will be sent</strong>, expanding in place. Clicking a row used to navigate away, so a reviewer could not read the message without leaving the queue.</span></li>
+          <li><span class="mark done">✓</span><span>Intelligence is a real bulk workspace: KPIs, filters, attention chips, table, bulk and per-row analyze.</span></li>
+          <li><span class="mark done">✓</span><span>Outbound is a real bulk workspace: readiness, approvals, execution, replies, follow-ups, bulk approve/execute.</span></li>
+          <li><span class="mark done">✓</span><span><code>/leads/:id</code> remains the 360° record with Overview / Intelligence / Outbound &amp; Activity, showing real data.</span></li>
+          <li><span class="mark done">✓</span><span>KPI rows are responsive grids rather than ragged <code>flex-wrap</code>; verified at 1440px and narrow.</span></li>
         </ul>
       </section>
 
@@ -243,7 +263,7 @@
           <h3 class="phase-title">Landing page, onboarding, publish MVP</h3>
           <span class="pill todo">Not started</span>
         </div>
-        <p class="phase-note">Interactive animated landing page, supporting pages, get-started flow, first client onboarded, then publish.</p>
+        <p class="phase-note">Interactive animated landing page, supporting pages, get-started flow, first client onboarded, then publish. Not started — the product itself comes first.</p>
       </section>
 
       <div class="callout">
@@ -252,43 +272,26 @@
         response → follow-up — is the product.
       </div>
 
-      <h2>Known gaps found while verifying</h2>
+      <h2>Open items</h2>
+      <div class="callout">
+        <strong>Every product defect listed here previously has been fixed.</strong> What remains is not
+        code: a live email send needs an API key and a verified sending domain, and the staging deploy
+        needs your Supabase and Render accounts.
+      </div>
       <div class="scroll">
         <table>
-          <thead>
-            <tr><th>Where</th><th>What</th><th>Phase</th></tr>
-          </thead>
+          <thead><tr><th>Item</th><th>Why it is still open</th><th>Phase</th></tr></thead>
           <tbody>
-            <tr>
-              <td class="k">intelligence.tsx:171</td>
-              <td><strong>“Analyze eligible leads” is permanently disabled.</strong> It disables on <code>!totals.not_run</code>, which counts leads with no snapshot — but every lead gets one at creation, so that count is always 0. The server's rule is different and correct: leads without a READY recommendation.</td>
-              <td class="k">5</td>
-            </tr>
-            <tr>
-              <td class="k">intelligence.tsx</td>
-              <td>The per-row <strong>“Run” only calls <code>/intelligence/run</code></strong>, not synthesis → recommendation → next-best-action. A lead cannot reach “recommendation ready” from that workspace at all.</td>
-              <td class="k">5</td>
-            </tr>
-            <tr>
-              <td class="k">lead-detail.tsx</td>
-              <td>Copy mismatch: empty states say <em>Click “Analyze lead” above</em>, but the button is labelled <em>Refresh intelligence</em>.</td>
-              <td class="k">5</td>
-            </tr>
-            <tr>
-              <td class="k">leads.tsx</td>
-              <td>Add Lead dialog has no <code>role="dialog"</code> and is not focus-trapped.</td>
-              <td class="k">5</td>
-            </tr>
-            <tr>
-              <td class="k">channelRouter.js</td>
-              <td>The email adapter's real Resend/SendGrid calls are still dead code — the router never reaches them.</td>
-              <td class="k">4</td>
-            </tr>
+            <tr><td>Supabase project + Render service</td><td>Needs your accounts. Everything up to that point is done and rehearsed against a real PostgreSQL.</td><td class="k">2</td></tr>
+            <tr><td>A real email actually delivered</td><td>Needs an API key and a verified sending domain. The send path is tested with a stubbed transport.</td><td class="k">4</td></tr>
+            <tr><td>Graceful SIGTERM exercised</td><td>Implemented, but Windows does not deliver SIGTERM the way Linux does — first real exercise is on Render.</td><td class="k">2</td></tr>
+            <tr><td>Rate limiting, webhook signature verification, backups, retention, cost controls</td><td>Remaining <code>M10</code> items, listed in <code>docs/DEPLOYMENT.md</code>.</td><td class="k">—</td></tr>
+            <tr><td>Landing page and onboarding</td><td>Phase 6, not started.</td><td class="k">6</td></tr>
           </tbody>
         </table>
       </div>
 
-      <h2>Fixed in Phase 1</h2>
+      <h2>Defects found and fixed</h2>
       <div class="scroll">
         <table>
           <thead><tr><th>Where</th><th>What</th></tr></thead>
@@ -299,6 +302,13 @@
             <tr><td class="k">outbound.tsx</td><td><code>client:build</code> was broken on the branch (unused variable under <code>tsc -b</code>), so the served frontend could not be rebuilt.</td></tr>
             <tr><td class="k">scripts/smoke-api.js</td><td><code>npm run smoke</code> still called <code>POST /api/organizations</code>, removed when session auth landed — it had been failing with a 401 instead of checking anything. Now registers and carries a session.</td></tr>
             <tr><td class="k">.github/workflows</td><td>CI ran one engine and never built the client, which is how a broken <code>client:build</code> and untested PostgreSQL SQL could both sit on the branch unnoticed. Now three jobs: SQLite, PostgreSQL, client build.</td></tr>
+            <tr><td class="k">outboundAutomationService</td><td><strong>Outbound messages were our internal reasoning.</strong> A configured email provider would have sent "Use the evidence-backed intelligence to prepare the next outbound review" to the lead. Real composed copy now.</td></tr>
+            <tr><td class="k">channelRouter</td><td>The email <strong>subject was the entire body</strong>.</td></tr>
+            <tr><td class="k">api/app.js (settings)</td><td>Every settings page load shipped the <strong>live provider API key</strong> to the browser.</td></tr>
+            <tr><td class="k">intelligence.tsx</td><td>"Analyze eligible leads" was <strong>permanently disabled</strong>; per-row Run never ran the full pipeline.</td></tr>
+            <tr><td class="k">events/worker.js</td><td>A stale <code>LeadCreated</code> event could <strong>resurrect an opted-out lead</strong> back into the outbound flow.</td></tr>
+            <tr><td class="k">channelWorkflowService</td><td>Conversation bubbles showed our description of a reply instead of what the lead said.</td></tr>
+            <tr><td class="k">postgres-adapter.test.js</td><td><strong>Data-loss footgun:</strong> the adapter tests ran <code>DROP SCHEMA public CASCADE</code>, and the documented workflow pointed them at the configured database.</td></tr>
             <tr><td class="k">postgres-adapter.test.js</td><td><strong>Data-loss footgun.</strong> The adapter tests ran <code>DROP SCHEMA public CASCADE</code>. The documented workflow is to run them against the configured <code>DATABASE_URL</code> — which would have destroyed the staging database. Every test now works inside its own generated schema and touches nothing else.</td></tr>
             <tr><td class="k">test tooling</td><td>The test harness read <code>TEST_DATABASE_SSL</code> while the app reads <code>DATABASE_SSL</code> — two names for one concept, so a single <code>.env</code> silently half-worked. Now one falls back to the other.</td></tr>
           </tbody>
@@ -311,8 +321,8 @@
           <thead><tr><th>Milestone</th><th>Status</th></tr></thead>
           <tbody>
             <tr><td class="k">M0–M6</td><td>Complete — skeleton, data foundation, intelligence, next-best-action, outbound, approval, sequences.</td></tr>
-            <tr><td class="k">M7 · Response intelligence</td><td>Partial — inbound events, classification and follow-ups work; intelligence update and escalation remain. <em>Phase 3.</em></td></tr>
-            <tr><td class="k">M8 · Additional channels</td><td>Not started — sandbox adapters exist for email, SMS, WhatsApp, voice. <em>Phase 4.</em></td></tr>
+            <tr><td class="k">M7 · Response intelligence</td><td>Complete — classification, escalation, follow-ups, threading, and reply-driven intelligence/recommendation refresh.</td></tr>
+            <tr><td class="k">M8 · Additional channels</td><td>Email complete and production-ready behind the per-workspace provider setting (no live send yet). SMS, WhatsApp and voice remain sandbox-only by choice.</td></tr>
             <tr><td class="k">M9 · Lead discovery</td><td>Deliberately deferred.</td></tr>
             <tr><td class="k">M10 · Production hardening</td><td>Partial — Phase 1 delivered the database, config, logging and health foundation. Rate limiting, webhook signature verification, cost controls, backups and retention remain.</td></tr>
           </tbody>
@@ -330,6 +340,7 @@
             <tr><td class="k">npm run dev:e2e</td><td>A real server on port 3100 with its own database, for browser QA.</td></tr>
             <tr><td class="k">npm run test:pg</td><td>Runs the <em>entire</em> suite against a real PostgreSQL rather than SQLite. Currently 180/180. Reads <code>DATABASE_URL</code> from <code>.env</code>; safe against a real database.</td></tr>
             <tr><td class="k">npm run verify:deploy</td><td>Pre-deploy gate: connectivity, migrations, schema completeness, and config validation against the configured database.</td></tr>
+            <tr><td class="k">npm run verify:workflows</td><td>55 black-box workflow checks against a running server — signup, auth gate, CSV import and duplicates, the intelligence pipeline, approvals, bulk outbound, credential masking, replies, classification, escalation, opt-out, follow-ups, dashboard totals and tenant isolation. Currently 55/55 on both engines. Point it at staging with <code>VERIFY_BASE_URL</code>.</td></tr>
           </tbody>
         </table>
       </div>

@@ -9,8 +9,9 @@ Staging runs on **Supabase** (PostgreSQL) and **Render** (Node), from the
 PostgreSQL — no build flag, no code change.
 
 ```bash
-npm run verify:deploy   # connectivity, migrations, schema, config
-npm run test:pg         # the whole suite against a real PostgreSQL
+npm run verify:deploy      # connectivity, migrations, schema, config
+npm run test:pg            # the whole suite against a real PostgreSQL
+npm run verify:workflows   # 55 end-to-end workflow checks against a running server
 ```
 
 Both read `DATABASE_URL` from `.env` (gitignored) and print only the host.

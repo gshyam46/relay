@@ -26,6 +26,7 @@ npm run db:status                # Report applied/pending migrations, changing n
 npm run dev:e2e                  # Real server on port 3100 + isolated DB, for browser QA
 npm run test:pg                  # Run the WHOLE suite against PostgreSQL (reads DATABASE_URL from .env)
 npm run verify:deploy            # Pre-deploy checks: connectivity, migrations, schema, config
+npm run verify:workflows         # 55 end-to-end workflow checks against a RUNNING server
 
 # Frontend (React + Vite)
 cd client && npm install         # Install frontend dependencies (first time)
@@ -54,7 +55,7 @@ Then start the server with `node --env-file=.env src/server.js`. Supported provi
 - **Backend**: Raw `node:http` server, modular monolith architecture. One runtime dependency (`pg`); everything else is Node built-ins
 - **Database**: SQLite (`node:sqlite`) for local dev and tests, PostgreSQL/Supabase for staging and production, behind one async `DatabaseClient` contract. Versioned migrations in `src/database/migrations/`
 - **Frontend**: React 19 + Vite 8 + TailwindCSS v4 + shadcn/ui in `client/` (legacy vanilla HTML/CSS/JS still in `public/`)
-- **Testing**: Node.js built-in test runner (`node --test`), 22 test files, 180 tests; TypeScript type checking in `client/`. The suite runs on SQLite by default and on real PostgreSQL via `npm run test:pg` — CI runs both. Note `node --test` auto-discovers any file matching `test-*.js`/`*-test.js` anywhere in the repo, so don't name a non-test script that way
+- **Testing**: Node.js built-in test runner (`node --test`), 26 test files, 219 tests; TypeScript type checking in `client/`. The suite runs on SQLite by default and on real PostgreSQL via `npm run test:pg` — CI runs both. `npm run verify:workflows` adds 55 black-box workflow checks against a running server (also usable against staging via `VERIFY_BASE_URL`). Note `node --test` auto-discovers any file matching `test-*.js`/`*-test.js` anywhere in the repo, so don't name a non-test script that way
 - **AI**: LLM Provider Abstraction supporting Groq, OpenAI, OpenRouter, Ollama (deterministic local agents as fallback when no LLM configured)
 - **CI**: GitHub Actions (`.github/workflows/ci.yml`)
 
@@ -82,7 +83,7 @@ src/
     data-foundation/           # Lead ingestion, CSV parsing, normalization, imports, duplicate detection
     lead-intelligence/         # Intelligence snapshots, synthesis, recommendations, research evidence
     next-best-action/          # Action planning, policy engine
-    outbound-automation/       # Actions, executions, approvals, callbacks
+    outbound-automation/       # Actions, executions, approvals, callbacks, message composition
     channels/                  # Channel messages, inbound events, follow-ups
     workflows/                 # Campaigns, sequences, sequence steps, workflow runs
     events/                    # Domain events queue, audit repository
@@ -201,7 +202,8 @@ Repositories write SQLite-flavoured SQL with `?` placeholders. The PostgreSQL cl
 - Don't build outside the active milestone without justification
 - Don't weaken, skip, or delete failing tests
 - Don't introduce microservices prematurely — modular monolith first
-- Don't invent facts in AI agents — all intelligence must be evidence-grounded
+- Don't invent facts in AI agents — all intelligence must be evidence-grounded. The same rule binds `messageComposer.js`: outbound copy may personalise only from the lead's own record, and a shorter message is correct where an invented one is not
+- Don't put internal vocabulary (`rationale`, plan titles, "next best action") into anything a lead receives — that text is for the reviewer, not the customer
 - Don't allow AI to bypass domain policy or approval requirements
 - Don't make Lead Discovery a core dependency — it's an optional plugin
 - Don't reframe the product identity (it's not "AI SDR", "CRM replacement", or "sales OS")

@@ -181,7 +181,15 @@ curl -s $BASE/api/health/live   # {"status":"ok","check":"live"}  — process is
 curl -s $BASE/api/health/ready  # {"status":"ready", ... "migrations":{"pending":[]}}
 ```
 
-Then in a browser:
+Then run the automated workflow checks against the deployed URL — this is the
+same 55 checks used locally, and it creates its own throwaway workspace so it is
+safe against staging:
+
+```bash
+VERIFY_BASE_URL=$BASE npm run verify:workflows
+```
+
+Expect **55/55**. Then in a browser:
 
 3. **Registration** — create a workspace. You should land on the dashboard.
 4. **Session cookie** — DevTools → Application → Cookies. `relay_session` must

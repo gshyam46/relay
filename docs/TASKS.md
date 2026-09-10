@@ -1444,3 +1444,53 @@ whose text contains none of the product's internal vocabulary.
 Verified in a browser against seeded data: the composed email visible in the approval queue
 before approving, the lead's actual words in the conversation thread, and the KPI grid at two
 widths.
+
+## 2026-09-10 - Functional verification of every workflow
+
+- decision: add `npm run verify:workflows` — 55 black-box checks driven over HTTP against a
+  running server — and treat it as a peer of `npm test` rather than a one-off script.
+- rationale: the unit suite proves each module; it does not prove the chain works together
+  against a real server, a real database and the session auth gate. Three of the defects found
+  in these phases (the permanently-disabled bulk button, outbound messages containing internal
+  reasoning, credentials reaching the browser) were all invisible to unit tests and obvious the
+  moment the running product was exercised.
+- affected modules: `scripts/verify-workflows.js` (new), `package.json`, `docs/DEPLOYMENT.md`,
+  `README.md`, `CLAUDE.md`.
+
+### What it covers
+
+Signup, the auth gate on an unauthenticated request, wrong-password rejection, login, session
+cookie flags; CSV import including a malformed row and duplicate detection on re-import; the
+intelligence summary's eligibility matching what bulk-run actually processes; a bulk run and
+its no-op re-run; evidence grounding; approval-gated action creation; that the action carries
+customer-facing copy and a subject distinct from the body; reject, bulk approve, bulk execute;
+sandbox as the email default and credential masking on read; inbound question classification,
+follow-up scheduling, webhook redelivery idempotency, low-confidence escalation; the
+conversation showing the lead's own words; reply-driven recommendation refresh; opt-out
+handling; follow-up completion; dashboard totals being numbers and matching the lead list; the
+attention queue and activity feed; and four tenant-isolation checks including cross-tenant
+analyse and approve.
+
+It creates its own workspace with a timestamped email, so it is safe to run repeatedly against
+the same database and never touches existing data. `VERIFY_BASE_URL` points it at staging.
+
+### Results
+
+- **55/55 against SQLite** and **55/55 against real PostgreSQL 18.1**.
+- 219 automated tests: 215 + 4 PostgreSQL-only skipped on SQLite, 219/219 on PostgreSQL.
+- `npm run smoke` passes; client typecheck and build clean.
+- Restart persistence checked directly: after a full process restart, migrations report clean,
+  the session still authenticates, and leads, actions and messages are all intact.
+
+### Two things the script itself taught us
+
+- One check was **racing the background worker**. Sandbox channels have no provider to send a
+  delivery webhook, so the server simulates one on its interval — deliberately not inside
+  `POST /api/worker/run`. Asserting immediately passed on SQLite and failed on PostgreSQL
+  purely on timing. It now polls for that state. A test that passes for timing reasons is worse
+  than no test.
+- Several first-draft assertions encoded the wrong response shapes (`succeeded` where the bulk
+  endpoints return `approved`/`rejected`/`executed`, `activity` where the feed returns
+  `events`). Worth recording because each failure had to be investigated to tell "my assumption
+  was wrong" apart from "the product is broken" — and one of them, the recommendation-staleness
+  race, genuinely could have been either.
