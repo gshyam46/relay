@@ -1168,3 +1168,104 @@ PostgreSQL 18 service was never touched) stood in for Supabase for the full sequ
 - Graceful SIGTERM shutdown is implemented but was not exercised: Windows does not deliver
   SIGTERM the way Linux does, so it will first be exercised on Render.
 - No product features were added in this phase, by instruction.
+
+## 2026-09-10 - Phase 3 (M7): reply intelligence + Intelligence workspace defects
+
+- decision: close M7 by making an inbound reply update the lead's recommendation (not merely
+  invalidate it), and fix the two Intelligence workspace defects that made the bulk pipeline
+  unreachable from the UI.
+- rationale: the inbound half of M7 (classification, escalation, follow-ups, conversation
+  threading) was already real. What was missing was the loop closing: a reply changed the
+  snapshot, which made the existing synthesis and recommendation stale, and nothing rebuilt
+  them — so a lead sat showing a recommendation that predated what they had just said.
+- affected modules: `src/api/app.js`, `src/modules/events/worker.js`,
+  `src/modules/channels/channelWorkflowService.js`, `client/src/hooks/use-intelligence.ts`,
+  `client/src/pages/intelligence.tsx`, `client/src/pages/lead-detail.tsx`,
+  `test/intelligence-workspace.test.js` (new), `test/reply-classifier.test.js` (new),
+  `test/reply-intelligence.test.js`.
+- migration requirements: none.
+
+### Intelligence workspace defects
+
+**"Analyze eligible leads" was permanently disabled.** The button disabled on
+`!totals.not_run`, where `not_run` counts leads with no intelligence *snapshot* — but the
+worker creates a readiness snapshot for every lead within seconds of creation, so that count
+is effectively always 0. The server's own rule was different and correct: leads without a
+READY recommendation *for their current inputs*.
+
+Fixed by extracting one `collectEligibleLeadIds()` helper used by **both**
+`POST /api/intelligence/bulk-run` and `GET /api/intelligence/summary`, so the button and the
+endpoint cannot drift apart again. The summary now returns `totals.eligible_for_analysis` and
+`eligible_lead_ids`; the client passes those exact ids back, so a bulk run does not make the
+server scan for eligibility twice. The "Not analyzed" stat card became "Needs analysis" for
+the same reason — it was reporting a number that was always zero.
+
+**Per-row "Run" only ran the readiness snapshot.** It called `/intelligence/run`, so a lead
+could never reach "recommendation ready" from the workspace at all. It now calls the bulk
+endpoint with a single id, which is the one server-side definition of the pipeline order.
+The button reads "Analyze" / "Re-analyze" to match what it does.
+
+`useRunFullPipeline` (used by the lead detail page) previously issued five sequential requests
+from the browser — a second definition of the pipeline order that could leave a lead
+half-analysed if one request failed. It now delegates to the same single endpoint.
+
+Empty states on the lead detail page said `Click "Analyze lead" above` while the button read
+"Refresh intelligence" depending on state; they now use the button's actual current label.
+
+### Reply -> intelligence and recommendation
+
+An inbound reply now does two things, deliberately split by cost:
+
+1. **Inline**, on the write path: re-run the readiness snapshot, so the reply appears as a
+   signal immediately. Deterministic, cheap, and wrapped so it can never fail the provider's
+   webhook.
+2. **Queued**, as a `LeadReplyReceived` domain event: re-run synthesis -> recommendation ->
+   next best action. This is the expensive half (with an LLM configured it makes network
+   calls), so it belongs on the retryable event queue rather than inside a webhook. A slow or
+   failing re-analysis can never make a provider see a failed webhook and redeliver.
+
+Two boundaries were drawn explicitly and are covered by tests:
+
+- **Re-analysis stops at planning.** A plan is an opinion; turning it into a queued outbound
+  message stays a human decision, so a reply can never cause the system to send something on
+  its own.
+- **An opted-out or suppressed lead is not re-analysed** into a fresh reason to contact them.
+  The skip is recorded in the audit log rather than happening silently.
+
+Low-confidence escalation already existed (the `escalated` column on `follow_up_tasks`, and
+the high-priority attention queue) and is now covered by dedicated tests rather than only
+incidentally.
+
+### Bug found while testing: lead status could be resurrected
+
+`LeadCreated` handling wrote `status = NORMALIZED` unconditionally. That event can be
+processed well after it was queued — a backed-up queue, a restart, a worker that was disabled —
+and by then the lead may have replied (ACTIVE), converted, or **opted out**. Processing the
+stale event would put an opted-out lead back into the normal outbound flow. It now only
+normalises a lead still in `NEW`.
+
+This surfaced because a test asserted an opted-out lead stays opted out, and the assertion
+failed for a reason that had nothing to do with the feature being tested.
+
+### Tests
+
+- `test/reply-classifier.test.js` (new, 9 tests) — dedicated coverage of the classifier
+  itself: opt-out precedence over affirmative wording ("yes please unsubscribe me" is an
+  opt-out, not a positive reply), each intent category, LOW-confidence UNKNOWN as the
+  escalation trigger, null/empty input, auditability (every result carries a reason and a
+  next step), case/whitespace tolerance, and purity.
+- `test/intelligence-workspace.test.js` (new, 4 tests) — the eligibility parity invariant
+  (what the summary advertises is exactly what bulk-run processes), a fresh lead being
+  eligible despite having a snapshot, single-lead analysis running the complete pipeline, and
+  tenant scoping.
+- `test/reply-intelligence.test.js` — four more: recommendation regenerated after a reply,
+  no outbound action created by re-analysis, opted-out leads skipped, and a redelivered
+  webhook not queuing a second re-analysis.
+
+### Verification
+
+199 tests: 195 pass + 4 PostgreSQL-only skipped on SQLite, **199/199 on real PostgreSQL**.
+Verified live in a browser: three leads created, `not_run: 0` while
+`eligible_for_analysis: 3` (the exact bug condition), button enabled and labelled
+"Analyze 3 eligible leads", per-row Analyze taking one lead to a planned next action, and a
+reply moving the recommendation READY -> stale -> regenerated with a new id.

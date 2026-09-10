@@ -166,7 +166,7 @@ Repositories write SQLite-flavoured SQL with `?` placeholders. The PostgreSQL cl
 - **M4** (Outbound Automation Foundation): Complete
 - **M5** (Human-in-the-Loop Approval): Complete
 - **M6** (Sequences + Follow-Up Foundation): Complete
-- **M7** (Response/Event Intelligence): Partial — mock inbound events and basic reply handling done; ReplyClassifier, human escalation, and intelligence update not done
+- **M7** (Response/Event Intelligence): Complete — reply classification, low-confidence human escalation, follow-ups, conversation threading, and reply-driven intelligence/recommendation refresh via the `LeadReplyReceived` event
 - **M8** (Additional Channels): Not started
 - **M9** (Lead Discovery): Not started
 - **M10** (Production Hardening): Partial — Phase 5 production foundation done (PostgreSQL adapter, migrations, env/secrets config, structured logging + error taxonomy, health/readiness, graceful shutdown). Rate limiting, webhook signature verification, cost controls, backups and data retention still open

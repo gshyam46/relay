@@ -28,6 +28,7 @@ try {
 
   const health = await get(`${baseUrl}/api/health`);
   assert.equal(health.product, "AI Lead Intelligence & Outbound Automation");
+  assert.equal((await get(`${baseUrl}/api/health/live`)).check, "live");
 
   const ready = await get(`${baseUrl}/api/health/ready`);
   assert.equal(ready.status, "ready");

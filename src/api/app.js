@@ -192,7 +192,12 @@ export function createServices(db, logger = createNullLogger()) {
     actionExecutor,
     auditRepository,
     executionsRepository,
-    callbacksService
+    callbacksService,
+    // Needed to bring a lead's synthesis, recommendation and plan back in line
+    // after an inbound reply changes what we know about them.
+    synthesisService,
+    intelligenceRecommendationService,
+    nextBestActionService
   });
 
   return {
@@ -258,6 +263,7 @@ export function createApp({ db, logger = createNullLogger(), config = null } = {
       const isWebhookRoute = url.pathname.startsWith("/api/webhooks/");
       const PUBLIC_API_ROUTES = new Set([
         "GET /api/health",
+        "GET /api/health/live",
         "GET /api/health/ready",
         "POST /api/auth/register",
         "POST /api/auth/login"
@@ -269,13 +275,17 @@ export function createApp({ db, logger = createNullLogger(), config = null } = {
         url.searchParams.set("organization_id", authContext.organization_id);
       }
 
-      if (route === "GET /api/health") {
-        // Liveness: the process is up and serving. Deliberately does not touch
-        // the database, so a database blip never makes the platform restart a
-        // process that is otherwise healthy.
+      // Liveness: the process is up and serving. Deliberately does not touch the
+      // database, so a database blip never makes the platform restart a process
+      // that is otherwise healthy.
+      //
+      // /api/health is the original path and stays for compatibility;
+      // /api/health/live is the name that pairs readably with /api/health/ready.
+      if (route === "GET /api/health" || route === "GET /api/health/live") {
         sendJson(response, 200, {
           product: "AI Lead Intelligence & Outbound Automation",
-          status: "ok"
+          status: "ok",
+          check: "live"
         });
         return;
       }
@@ -485,6 +495,13 @@ export function createApp({ db, logger = createNullLogger(), config = null } = {
           };
         });
 
+        // Which leads the bulk action would actually process. This MUST come from
+        // the same helper POST /api/intelligence/bulk-run uses, or the button and
+        // the server disagree: `not_run` below counts leads with no intelligence
+        // SNAPSHOT, and every lead gets one at creation, so it is always 0 and
+        // previously left the bulk action permanently disabled.
+        const eligibleLeadIds = await collectEligibleLeadIds(services, organizationId);
+
         const totals = {
           total: rows.length,
           not_run: rows.filter(r => r.intelligence_status === "NOT_RUN").length,
@@ -493,9 +510,12 @@ export function createApp({ db, logger = createNullLogger(), config = null } = {
           failed: rows.filter(r => r.intelligence_status === "FAILED").length,
           with_recommendation: rows.filter(r => r.recommendation_status === "COMPLETED").length,
           with_nba: rows.filter(r => r.nba_status !== null).length,
+          eligible_for_analysis: eligibleLeadIds.length,
         };
 
-        sendJson(response, 200, { leads: rows, totals });
+        // Returned so the client can hand these exact ids back to bulk-run rather
+        // than making the server scan for eligibility a second time.
+        sendJson(response, 200, { leads: rows, totals, eligible_lead_ids: eligibleLeadIds });
         return;
       }
 
@@ -506,18 +526,7 @@ export function createApp({ db, logger = createNullLogger(), config = null } = {
 
         let leadIds = Array.isArray(body.lead_ids) ? body.lead_ids.filter((id) => typeof id === "string") : null;
         if (!leadIds) {
-          // Eligible = doesn't already have a ready recommendation. A lead can already have an
-          // initial (data-readiness) snapshot from lead creation without ever having gone through
-          // synthesis/recommendation/next-best-action, so intelligence_status alone isn't enough.
-          const leads = await services.leadsRepository.listLeads(organizationId, {});
-          leadIds = [];
-          for (const lead of leads) {
-            const hydrated = await hydrateLeadProvenance(services, lead);
-            const current = await services.intelligenceRecommendationService.currentForLead(hydrated);
-            if (current.recommendation_status !== "READY") {
-              leadIds.push(lead.id);
-            }
-          }
+          leadIds = await collectEligibleLeadIds(services, organizationId);
         }
 
         const BATCH_CAP = 50;
@@ -1790,6 +1799,31 @@ async function hydrateLead(services, lead) {
     },
     actions
   };
+}
+
+/**
+ * The leads a bulk intelligence run would process.
+ *
+ * Eligible means "does not already have a READY recommendation for its CURRENT
+ * inputs". A lead always has an initial data-readiness snapshot from creation, so
+ * the presence of a snapshot says nothing about whether analysis is needed; and
+ * the check is fingerprint-aware, so a lead whose data changed since its last
+ * recommendation becomes eligible again.
+ *
+ * One definition, used by both the bulk-run endpoint and the summary that drives
+ * the button — they cannot drift apart.
+ */
+async function collectEligibleLeadIds(services, organizationId) {
+  const leads = await services.leadsRepository.listLeads(organizationId, {});
+  const eligible = [];
+  for (const lead of leads) {
+    const hydrated = await hydrateLeadProvenance(services, lead);
+    const current = await services.intelligenceRecommendationService.currentForLead(hydrated);
+    if (current.recommendation_status !== "READY") {
+      eligible.push(lead.id);
+    }
+  }
+  return eligible;
 }
 
 async function hydrateLeadProvenance(services, lead) {

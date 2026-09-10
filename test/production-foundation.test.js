@@ -7,6 +7,7 @@ import { describeConfig, loadConfig, validateConfig } from "../src/config.js";
 import { createLogger, createNullLogger } from "../src/shared/logger.js";
 import { describeError, notFoundError, validationError } from "../src/shared/errors.js";
 import { sendError } from "../src/shared/http.js";
+import { startClient } from "./helpers/testClient.js";
 
 test("placeholder translation rewrites ? into $n without touching literals or comments", () => {
   assert.equal(
@@ -244,6 +245,40 @@ test("unexpected errors never leak their message to the client, expected ones do
   assert.equal(unexpected.body.error, "Unexpected server error.");
   assert.equal(unexpected.body.request_id, "req_42");
   assert.equal(JSON.stringify(unexpected.body).includes("secret_internal_column"), false);
+});
+
+test("liveness answers without touching the database; readiness reports migration state", async (t) => {
+  const client = await startClient(t);
+
+  // Both liveness paths behave identically. /api/health is the original;
+  // /api/health/live pairs readably with /api/health/ready and is what the
+  // deployment checklist names.
+  for (const path of ["/api/health", "/api/health/live"]) {
+    const response = await fetch(`${client.baseUrl}${path}`);
+    assert.equal(response.status, 200, `${path} must be public and healthy`);
+    const body = await response.json();
+    assert.equal(body.status, "ok");
+    assert.equal(body.check, "live");
+  }
+
+  const ready = await fetch(`${client.baseUrl}/api/health/ready`);
+  assert.equal(ready.status, 200);
+  const readyBody = await ready.json();
+  assert.equal(readyBody.status, "ready");
+  assert.deepEqual(readyBody.migrations.pending, []);
+  assert.equal(readyBody.database.reachable, true);
+});
+
+test("health endpoints require no session, everything else does", async (t) => {
+  const client = await startClient(t);
+
+  for (const path of ["/api/health", "/api/health/live", "/api/health/ready"]) {
+    assert.equal((await fetch(`${client.baseUrl}${path}`)).status, 200, `${path} must not require a session`);
+  }
+
+  // A representative authenticated route, with no cookie attached.
+  const guarded = await fetch(`${client.baseUrl}/api/leads`);
+  assert.equal(guarded.status, 401);
 });
 
 function captureResponse(run) {

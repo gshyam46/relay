@@ -156,9 +156,10 @@ health check.
   gates on.
 - **Health check** — `/api/health/ready`. This is *readiness*, not liveness: it
   returns 503 while the database is unreachable or a migration is pending, so a
-  half-deployed instance never receives traffic. (`/api/health` is liveness and
-  deliberately does not touch the database, so a database blip never causes the
-  platform to restart a healthy process.)
+  half-deployed instance never receives traffic. `/api/health/live` (and its
+  original alias `/api/health`) is liveness and deliberately does not touch the
+  database, so a database blip never causes the platform to restart a healthy
+  process.
 - **HTTPS** — Render terminates TLS and forwards over plain HTTP. `TRUST_PROXY`
   is what lets the app read `X-Forwarded-Proto` and mark session cookies
   `Secure`. It is off by default locally, because trusting that header from an
@@ -176,7 +177,7 @@ In order. Stop at the first failure; each step depends on the one before.
 ```bash
 BASE=https://relay-staging.onrender.com
 
-curl -s $BASE/api/health        # {"status":"ok"}
+curl -s $BASE/api/health/live   # {"status":"ok","check":"live"}  — process is up
 curl -s $BASE/api/health/ready  # {"status":"ready", ... "migrations":{"pending":[]}}
 ```
 

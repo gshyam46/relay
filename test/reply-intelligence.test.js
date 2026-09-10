@@ -185,3 +185,170 @@ test("duplicate inbound events do not double-apply classification columns or re-
   const snapshot = await client.get(`/api/leads/${lead.lead.id}/intelligence?organization_id=${organization.organization.id}`);
   assert.equal(snapshot.intelligence.version, 1);
 });
+
+test("an inbound reply makes the lead's existing recommendation stale, then the worker refreshes it", async (t) => {
+  const client = await startClient(t);
+  const { organization } = await client.register("Reply Reanalysis Org");
+  const lead = (
+    await client.post("/api/leads", {
+      organization_id: organization.id,
+      name: "Ananya Rao",
+      email: "ananya@example.com",
+      company: "Rao Furnishings",
+      source: "MANUAL"
+    })
+  ).lead;
+
+  // Drain the LeadCreated event first, exactly as the live server's interval
+  // worker does within a few seconds of creation. Leaving it queued would mean
+  // the later worker run in this test processes lead-creation side effects
+  // instead of the reply.
+  await client.post("/api/worker/run", { organization_id: organization.id });
+
+  // Analyse the lead fully, so there is a recommendation for the reply to invalidate.
+  await client.post("/api/intelligence/bulk-run", { organization_id: organization.id, lead_ids: [lead.id] });
+  const before = await client.get(`/api/leads/${lead.id}/intelligence?organization_id=${organization.id}`);
+  assert.equal(before.recommendation_status, "READY");
+  const recommendationIdBefore = before.recommendation.id;
+
+  // The lead replies with a question.
+  await client.post("/api/inbound-events/mock", {
+    organization_id: organization.id,
+    lead_id: lead.id,
+    channel: "EMAIL",
+    provider_event_id: "reply-reanalysis-1",
+    payload: { text: "What would a full living room fit-out cost?" }
+  });
+
+  // The inline snapshot refresh already folded the reply in, which changes the
+  // snapshot fingerprint and therefore makes the old recommendation stale. That
+  // alone would leave the lead showing a recommendation that predates the reply.
+  const stale = await client.get(`/api/leads/${lead.id}/intelligence?organization_id=${organization.id}`);
+  assert.notEqual(stale.recommendation_status, "READY", "the pre-reply recommendation must not still count as current");
+
+  // The queued LeadReplyReceived event is what actually rebuilds it.
+  await client.post("/api/worker/run", { organization_id: organization.id });
+
+  const after = await client.get(`/api/leads/${lead.id}/intelligence?organization_id=${organization.id}`);
+  assert.equal(after.recommendation_status, "READY", "the recommendation is regenerated against the reply");
+  assert.notEqual(after.recommendation.id, recommendationIdBefore, "it is a NEW recommendation, not the old one");
+  assert.equal(after.next_best_action_status, "PLANNED", "and a next best action is planned from it");
+
+  // The reply is visible in the intelligence itself, not just in the inbox.
+  // The reply is folded into the snapshot as an intent signal named after what
+  // the lead did, not after the transport it arrived on.
+  const signals = after.intelligence.signals.map((signal) => signal.type);
+  assert.ok(
+    signals.includes("LEAD_ASKED_QUESTION"),
+    `the question reply should appear as a signal, got: ${signals.join(", ")}`
+  );
+});
+
+test("re-analysis after a reply never creates an outbound action on its own", async (t) => {
+  const client = await startClient(t);
+  const { organization } = await client.register("Reply No Autosend Org");
+  const lead = (
+    await client.post("/api/leads", {
+      organization_id: organization.id,
+      name: "Vikram Shah",
+      email: "vikram@example.com",
+      company: "Shah Interiors",
+      source: "MANUAL"
+    })
+  ).lead;
+  await client.post("/api/worker/run", { organization_id: organization.id });
+  await client.post("/api/intelligence/bulk-run", { organization_id: organization.id, lead_ids: [lead.id] });
+
+  const actionsBefore = (await client.get(`/api/leads/${lead.id}/outbound?organization_id=${organization.id}`)).actions
+    .length;
+
+  await client.post("/api/inbound-events/mock", {
+    organization_id: organization.id,
+    lead_id: lead.id,
+    channel: "EMAIL",
+    provider_event_id: "reply-no-autosend-1",
+    payload: { text: "Sounds good, let's talk" }
+  });
+  await client.post("/api/worker/run", { organization_id: organization.id });
+
+  const actionsAfter = (await client.get(`/api/leads/${lead.id}/outbound?organization_id=${organization.id}`)).actions;
+  assert.equal(
+    actionsAfter.length,
+    actionsBefore,
+    "planning is an opinion; turning a plan into a queued message stays a human decision"
+  );
+});
+
+test("an opted-out lead is not re-analysed into a fresh reason to contact them", async (t) => {
+  const client = await startClient(t);
+  const { organization } = await client.register("Reply Opt Out Org");
+  const lead = (
+    await client.post("/api/leads", {
+      organization_id: organization.id,
+      name: "Neha Gupta",
+      email: "neha@example.com",
+      company: "Gupta Homes",
+      source: "MANUAL"
+    })
+  ).lead;
+  await client.post("/api/worker/run", { organization_id: organization.id });
+  await client.post("/api/intelligence/bulk-run", { organization_id: organization.id, lead_ids: [lead.id] });
+
+  await client.post("/api/inbound-events/mock", {
+    organization_id: organization.id,
+    lead_id: lead.id,
+    channel: "EMAIL",
+    provider_event_id: "reply-opt-out-1",
+    payload: { text: "Please unsubscribe me" }
+  });
+  await client.post("/api/worker/run", { organization_id: organization.id });
+
+  const leadAfter = await client.get(`/api/leads/${lead.id}?organization_id=${organization.id}`);
+  assert.equal(leadAfter.lead.status, "OPTED_OUT");
+
+  const after = await client.get(`/api/leads/${lead.id}/intelligence?organization_id=${organization.id}`);
+  assert.notEqual(
+    after.next_best_action_status,
+    "PLANNED",
+    "an opted-out lead must not come back with a planned next action"
+  );
+
+  const audit = await client.get(`/api/activity/feed?organization_id=${organization.id}`);
+  assert.ok(
+    JSON.stringify(audit).includes("opted out"),
+    "the skip should be recorded rather than happening silently"
+  );
+});
+
+test("a duplicate inbound reply does not queue a second re-analysis", async (t) => {
+  const client = await startClient(t);
+  const { organization } = await client.register("Reply Idempotency Org");
+  const lead = (
+    await client.post("/api/leads", {
+      organization_id: organization.id,
+      name: "Imran Qureshi",
+      email: "imran@example.com",
+      source: "MANUAL"
+    })
+  ).lead;
+
+  const send = () =>
+    client.post("/api/inbound-events/mock", {
+      organization_id: organization.id,
+      lead_id: lead.id,
+      channel: "EMAIL",
+      provider_event_id: "reply-duplicate-1",
+      payload: { text: "How much does it cost?" }
+    });
+
+  const first = await send();
+  const second = await send();
+  assert.equal(first.duplicate, false);
+  assert.equal(second.duplicate, true, "the same provider event id is the idempotency key");
+
+  const queued = await client.db.all("SELECT * FROM domain_events WHERE type = ? AND lead_id = ?", [
+    "LeadReplyReceived",
+    lead.id
+  ]);
+  assert.equal(queued.length, 1, "a redelivered webhook must not cause the lead to be re-analysed twice");
+});

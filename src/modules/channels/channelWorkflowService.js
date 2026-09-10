@@ -206,14 +206,35 @@ export class ChannelWorkflowService {
         message: "Inbound channel event recorded.",
         metadata: { channel, event_type: resolvedEventType, provider_event_id, message_id: message.id, classification }
       });
-      // Refresh the lead's intelligence foundation so the reply (and its confidence) shows up as
-      // a signal on the Intelligence tab. Deterministic and cheap — never let it block the inbound
-      // write path, the same defensive posture the reply classifier itself takes toward its LLM call.
+      // Two-part refresh, deliberately split by cost.
+      //
+      // The snapshot re-run is deterministic and cheap, so it happens inline and
+      // the reply shows up as a signal on the Intelligence tab immediately. It
+      // must never block the inbound write path, hence the catch — the same
+      // defensive posture the reply classifier takes toward its LLM call.
       try {
         await this.intelligenceService?.runForLead(await this.leadsRepository.getLead(lead.id));
       } catch (error) {
         console.error("Intelligence refresh after inbound reply failed:", error.message);
       }
+
+      // Re-running synthesis -> recommendation -> next best action is the
+      // expensive half (and, with an LLM configured, involves network calls), so
+      // it goes on the domain event queue instead of inside a provider webhook.
+      // The worker retries it; a slow or failing re-analysis can never cause a
+      // provider to see a failed webhook and redeliver the reply.
+      await this.eventsRepository?.publish({
+        organization_id,
+        lead_id: lead.id,
+        type: "LeadReplyReceived",
+        payload: {
+          lead_id: lead.id,
+          inbound_event_id: inboundEvent.id,
+          channel,
+          event_type: resolvedEventType,
+          confidence: classification?.confidence || null
+        }
+      });
     }
 
     return { inbound_event: inboundEvent, message, follow_up: followUp, duplicate, classification, lead, lead_created: leadCreated };

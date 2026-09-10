@@ -19,7 +19,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { useWorkspaceStore } from "@/stores/workspace";
 import {
   useIntelligenceSummary,
-  useRunIntelligence,
+  useAnalyzeLead,
   useBulkRunIntelligence,
   type IntelligenceRow,
 } from "@/hooks/use-intelligence";
@@ -58,7 +58,7 @@ function IntelligenceWithOrg() {
   const org = useWorkspaceStore((s) => s.currentOrg)!;
   const { data, isLoading, isError, refetch } = useIntelligenceSummary();
   const { data: attention } = useAttentionQueue();
-  const runIntel = useRunIntelligence();
+  const analyzeLead = useAnalyzeLead();
   const bulkRun = useBulkRunIntelligence();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
@@ -87,12 +87,16 @@ function IntelligenceWithOrg() {
   }, [data, search, statusFilter]);
 
   const totals = data?.totals;
+  // Eligibility comes from the server so this button can never disagree with
+  // what the bulk endpoint would actually do.
+  const eligibleLeadIds = useMemo(() => data?.eligible_lead_ids ?? [], [data]);
+  const eligibleCount = totals?.eligible_for_analysis ?? 0;
 
   const handleRunOne = async (leadId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setRunningIds((prev) => new Set(prev).add(leadId));
     try {
-      await runIntel.mutateAsync(leadId);
+      await analyzeLead.mutateAsync(leadId);
     } finally {
       setRunningIds((prev) => {
         const next = new Set(prev);
@@ -107,7 +111,9 @@ function IntelligenceWithOrg() {
     setBulkRunning(true);
     setBulkResult(null);
     try {
-      const result = await bulkRun.mutateAsync(undefined);
+      // Hand back the ids the summary already resolved, so the server does not
+            // repeat the eligibility scan.
+      const result = await bulkRun.mutateAsync(eligibleLeadIds.length ? eligibleLeadIds : undefined);
       setBulkResult(
         `Analyzed ${result.processed} lead${result.processed !== 1 ? "s" : ""} — ${result.succeeded} succeeded${result.failed ? `, ${result.failed} failed` : ""}${result.remaining ? `, ${result.remaining} remaining (run again to continue)` : ""}.`,
       );
@@ -168,7 +174,12 @@ function IntelligenceWithOrg() {
         actions={
           <button
             onClick={handleRunAllPending}
-            disabled={bulkRunning || !totals?.not_run}
+            disabled={bulkRunning || !eligibleCount}
+            title={
+              eligibleCount
+                ? `Run the full pipeline for ${eligibleCount} lead${eligibleCount !== 1 ? "s" : ""} without a current recommendation`
+                : "Every lead already has a current recommendation"
+            }
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-brand text-white rounded-lg hover:bg-brand-strong transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {bulkRunning ? (
@@ -176,7 +187,11 @@ function IntelligenceWithOrg() {
             ) : (
               <Play className="w-3.5 h-3.5" />
             )}
-            {bulkRunning ? "Analyzing..." : `Analyze eligible leads${totals?.not_run ? ` (${totals.not_run})` : ""}`}
+            {bulkRunning
+              ? "Analyzing..."
+              : eligibleCount
+                ? `Analyze ${eligibleCount} eligible lead${eligibleCount !== 1 ? "s" : ""}`
+                : "All leads analyzed"}
           </button>
         }
       />
@@ -192,7 +207,7 @@ function IntelligenceWithOrg() {
             <div className="flex items-start gap-6 flex-wrap">
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 flex-1 min-w-[320px]">
                 <StatCard label="Total leads" value={totals.total} />
-                <StatCard label="Not analyzed" value={totals.not_run} color="text-muted" />
+                <StatCard label="Needs analysis" value={totals.eligible_for_analysis} color="text-warn" />
                 <StatCard label="Analyzing" value={totals.pending} color="text-warn" />
                 <StatCard label="Analyzed" value={totals.completed} color="text-ok" />
                 <StatCard label="Failed" value={totals.failed} color="text-danger" />
@@ -411,7 +426,7 @@ function IntelRow({
           className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold text-brand bg-brand-light rounded-md hover:bg-brand-muted transition-colors cursor-pointer disabled:opacity-50"
         >
           {running ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-          {running ? "Running" : "Run"}
+          {running ? "Analyzing" : row.recommendation_status === "COMPLETED" ? "Re-analyze" : "Analyze"}
         </button>
       </td>
     </tr>

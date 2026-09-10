@@ -25,11 +25,24 @@ export interface IntelligenceTotals {
   failed: number;
   with_recommendation: number;
   with_nba: number;
+  /**
+   * How many leads a bulk analysis would actually process, computed server-side
+   * by the same helper the bulk-run endpoint uses.
+   *
+   * Do NOT use `not_run` for this. That counts leads with no intelligence
+   * SNAPSHOT, and every lead gets one the moment it is created, so it is
+   * effectively always 0 — which is what left the bulk action permanently
+   * disabled.
+   */
+  eligible_for_analysis: number;
 }
 
 interface IntelligenceSummaryResponse {
   leads: IntelligenceRow[];
   totals: IntelligenceTotals;
+  /** The exact ids behind `eligible_for_analysis`, so a bulk run does not have
+   *  to make the server scan for eligibility a second time. */
+  eligible_lead_ids: string[];
 }
 
 export function useIntelligenceSummary() {
@@ -45,18 +58,40 @@ export function useIntelligenceSummary() {
   });
 }
 
-export function useRunIntelligence() {
+/**
+ * Runs the COMPLETE intelligence pipeline for one lead:
+ * intelligence -> synthesis -> recommendation -> next best action, and creates
+ * the outbound action when the plan calls for one.
+ *
+ * This goes through the bulk endpoint with a single id rather than
+ * `/intelligence/run`, deliberately. `/intelligence/run` only refreshes the
+ * data-readiness snapshot, so a lead analysed that way never reached
+ * "recommendation ready" and the workspace could not take a lead through the
+ * pipeline at all. Reusing the bulk endpoint also means there is exactly one
+ * implementation of the pipeline order.
+ */
+export function useAnalyzeLead() {
   const org = useWorkspaceStore((s) => s.currentOrg);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (leadId: string) =>
-      api.post(`/leads/${leadId}/intelligence/run`, {
+      api.post<BulkRunResult>("/intelligence/bulk-run", {
         organization_id: org!.id,
+        lead_ids: [leadId],
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["intelligence-summary"] });
-      qc.invalidateQueries({ queryKey: ["lead-intelligence"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      for (const key of [
+        "intelligence-summary",
+        "lead-intelligence",
+        "lead-outbound",
+        "outbound-summary",
+        "lead-timeline",
+        "activity-feed",
+        "dashboard",
+        "dashboard-attention",
+      ]) {
+        qc.invalidateQueries({ queryKey: [key] });
+      }
     },
   });
 }
@@ -94,37 +129,10 @@ export function useBulkRunIntelligence() {
 }
 
 export function useRunFullPipeline() {
-  const org = useWorkspaceStore((s) => s.currentOrg);
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (leadId: string) => {
-      const orgId = org!.id;
-      await api.post(`/leads/${leadId}/intelligence/run`, { organization_id: orgId });
-      await api.post(`/leads/${leadId}/synthesis/run`, { organization_id: orgId });
-      await api.post(`/leads/${leadId}/intelligence-recommendation/run`, { organization_id: orgId });
-      const planRes = await api.post<{ next_best_action_plan: { id: string; status: string } }>(
-        `/leads/${leadId}/next-best-action/plan`,
-        { organization_id: orgId },
-      );
-      const plan = planRes.next_best_action_plan;
-      if (plan?.status === "PLANNED") {
-        try {
-          await api.post(`/next-best-action-plans/${plan.id}/action`, { organization_id: orgId });
-        } catch {
-          // action may already exist for this plan (idempotent) or plan state moved on
-        }
-      }
-      return planRes;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["intelligence-summary"] });
-      qc.invalidateQueries({ queryKey: ["lead-intelligence"] });
-      qc.invalidateQueries({ queryKey: ["outbound-summary"] });
-      qc.invalidateQueries({ queryKey: ["lead-outbound"] });
-      qc.invalidateQueries({ queryKey: ["lead-timeline"] });
-      qc.invalidateQueries({ queryKey: ["activity-feed"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-      qc.invalidateQueries({ queryKey: ["dashboard-attention"] });
-    },
-  });
+  // Kept as a named export because the lead detail page reads better calling
+  // "run the full pipeline", but it is the same single server-side pipeline as
+  // useAnalyzeLead. It used to issue five sequential requests from the browser,
+  // which duplicated the pipeline ORDER on the client and could leave a lead
+  // half-analysed if one of them failed.
+  return useAnalyzeLead();
 }

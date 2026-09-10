@@ -340,6 +340,7 @@ export function LeadDetailPage() {
             intel={intel}
             timeline={timeline || []}
             onReviewInOutbound={() => setTab("outbound")}
+            analyzeLabel={analyzeLabel}
           />
         )}
         {tab === "outbound" && (
@@ -438,11 +439,15 @@ function IntelligenceTab({
   intel,
   timeline,
   onReviewInOutbound,
+  analyzeLabel,
 }: {
   leadId: string;
   intel: ReturnType<typeof useLeadIntelligence>["data"];
   timeline: TimelineEntry[];
   onReviewInOutbound: () => void;
+  /** The header button's current label, so empty states name the control that
+   *  actually exists rather than a fixed string that goes stale. */
+  analyzeLabel: string;
 }) {
   const readiness = intel?.readiness;
   const synthesis = intel?.synthesis;
@@ -531,7 +536,7 @@ function IntelligenceTab({
               </div>
             </div>
           ) : (
-            <EmptySection message="No readiness assessment yet. Click “Analyze lead” above." />
+            <EmptySection message={`No readiness assessment yet. Use “${analyzeLabel}” above.`} />
           )}
         </Section>
 
@@ -552,7 +557,7 @@ function IntelligenceTab({
               message={
                 intel?.synthesis_status === "NOT_READY"
                   ? "Not enough data yet to qualify this lead."
-                  : "No qualification yet. Click “Analyze lead” above."
+                  : `No qualification yet. Use “${analyzeLabel}” above.`
               }
             />
           )}
@@ -633,7 +638,7 @@ function IntelligenceTab({
               message={
                 intel?.recommendation_status === "NOT_READY"
                   ? "Analyze this lead to generate a recommendation."
-                  : "No recommendation yet. Click “Analyze lead” above."
+                  : `No recommendation yet. Use “${analyzeLabel}” above.`
               }
             />
           )}
