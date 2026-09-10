@@ -54,6 +54,7 @@ import { WhatsAppAdapter } from "../modules/handlers/whatsappAdapter.js";
 import { VoiceAdapter } from "../modules/handlers/voiceAdapter.js";
 import { ActionExecutor } from "../modules/handlers/actionExecutor.js";
 import { SettingsRepository } from "../modules/settings/settingsRepository.js";
+import { maskSecrets, stripUnchangedSecrets } from "../modules/settings/secretSettings.js";
 import { Worker } from "../modules/events/worker.js";
 import { parseJson } from "../database/database.js";
 import { createId } from "../shared/ids.js";
@@ -227,6 +228,11 @@ export function createServices(db, logger = createNullLogger()) {
     inboundEventsRepository,
     followUpsRepository,
     channelWorkflowService,
+    // Exposed so tests (and any future operational tooling) can drive a single
+    // action through the real channel routing without going via HTTP.
+    actionExecutor,
+    channelRouter,
+    emailAdapter,
     workflowsRepository,
     workflowsService,
     callbacksRepository,
@@ -367,7 +373,8 @@ export function createApp({ db, logger = createNullLogger(), config = null } = {
       if (route === "GET /api/settings") {
         const organizationId = url.searchParams.get("organization_id");
         requireText(organizationId, "organization_id");
-        const settings = await services.settingsRepository.getAll(organizationId);
+        // Credentials are masked on the way out — see modules/settings/secretSettings.js.
+        const settings = maskSecrets(await services.settingsRepository.getAll(organizationId));
         const aiConfigured = isLlmConfigured();
         const aiProvider = aiConfigured ? getLlmProvider() : null;
         const aiStatus = {
@@ -390,10 +397,18 @@ export function createApp({ db, logger = createNullLogger(), config = null } = {
         if (!body.values || typeof body.values !== "object") {
           throw httpError(400, "values must be an object");
         }
-        await services.settingsRepository.setBulk(body.organization_id, body.category, body.values);
+        // A secret submitted as the mask means "unchanged", so saving the form
+        // without retyping the key does not overwrite it with the mask.
+        await services.settingsRepository.setBulk(
+          body.organization_id,
+          body.category,
+          stripUnchangedSecrets(body.values)
+        );
         sendJson(response, 200, {
           category: body.category,
-          settings: await services.settingsRepository.getCategory(body.organization_id, body.category),
+          settings: maskSecrets({
+            [body.category]: await services.settingsRepository.getCategory(body.organization_id, body.category),
+          })[body.category],
         });
         return;
       }

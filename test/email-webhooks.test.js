@@ -84,6 +84,15 @@ test("SendGrid Inbound Parse webhook resolves the org by token and auto-classifi
   });
   const retryResult = await retry.json();
   assert.equal(retryResult.duplicate, true);
+
+  // And the redelivery must not queue a second re-analysis of the lead, or a
+  // provider retrying a webhook would cost an extra pass of the whole
+  // intelligence pipeline every time.
+  const queued = await client.db.all("SELECT * FROM domain_events WHERE type = ? AND lead_id = ?", [
+    "LeadReplyReceived",
+    lead.lead.id
+  ]);
+  assert.equal(queued.length, 1);
 });
 
 test("SendGrid Inbound Parse webhook rejects an unknown token", async (t) => {

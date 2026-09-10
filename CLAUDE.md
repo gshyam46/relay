@@ -167,7 +167,7 @@ Repositories write SQLite-flavoured SQL with `?` placeholders. The PostgreSQL cl
 - **M5** (Human-in-the-Loop Approval): Complete
 - **M6** (Sequences + Follow-Up Foundation): Complete
 - **M7** (Response/Event Intelligence): Complete — reply classification, low-confidence human escalation, follow-ups, conversation threading, and reply-driven intelligence/recommendation refresh via the `LeadReplyReceived` event
-- **M8** (Additional Channels): Not started
+- **M8** (Additional Channels): Email complete — real Resend/SendGrid sending behind the per-organization provider setting, sandbox still the default, with masked credentials, a real subject line, provider idempotency keys, text+HTML parts, and retry/permanent-failure handling. SMS, WhatsApp and voice remain sandbox-only
 - **M9** (Lead Discovery): Not started
 - **M10** (Production Hardening): Partial — Phase 5 production foundation done (PostgreSQL adapter, migrations, env/secrets config, structured logging + error taxonomy, health/readiness, graceful shutdown). Rate limiting, webhook signature verification, cost controls, backups and data retention still open
 

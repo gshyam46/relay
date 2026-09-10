@@ -55,8 +55,12 @@ export class ChannelRouter {
     }
     const result = await this.emailAdapter.send(action.organization_id, {
       to,
-      subject: bodyFor(payload, "Update from your outreach"),
+      subject: subjectFor(payload, lead),
       body: bodyFor(payload),
+      // The action id is stable across retries of the same action, so a provider
+      // that honours an idempotency key will not deliver twice if we retry after
+      // a timeout that actually succeeded.
+      idempotencyKey: `relay-action-${action.id}`,
       metadata: { action_id: action.id },
     });
     return normalizeAdapterResult(result, `email-${provider}`, action, attempt);
@@ -159,6 +163,23 @@ function mockBehaviorResult(payload, attempt, label) {
     return { ok: false, retryable: false, error: `Permanent ${label} failure (mock)` };
   }
   return null;
+}
+
+/**
+ * A real subject line.
+ *
+ * This used to be `bodyFor(payload)` — the same text as the body — so a real
+ * email went out with its entire message as the subject. An explicit subject on
+ * the payload wins; otherwise fall back to something short and human that names
+ * the company when we know it.
+ */
+function subjectFor(payload, lead) {
+  const explicit =
+    payload.human_review?.edited_payload?.subject || payload.subject || payload.email_subject;
+  if (typeof explicit === "string" && explicit.trim()) {
+    return explicit.trim().slice(0, 200);
+  }
+  return lead?.company ? `Following up with ${lead.company}` : "Following up on your enquiry";
 }
 
 function bodyFor(payload, fallback = "Outbound activity prepared from the recommended next step.") {

@@ -3,7 +3,7 @@ export class EmailAdapter {
     this.settingsRepository = settingsRepository;
   }
 
-  async send(organizationId, { to, subject, body, replyTo, metadata = {} }) {
+  async send(organizationId, { to, subject, body, replyTo, idempotencyKey = null, metadata = {} }) {
     const config = await this.settingsRepository.getCategory(organizationId, "channel_email");
     const provider = config.provider || "sandbox";
 
@@ -11,10 +11,16 @@ export class EmailAdapter {
       return this.#sandboxSend({ to, subject, body });
     }
     if (provider === "resend") {
-      return await this.#resendSend(config, { to, subject, body, replyTo });
+      return await this.#resendSend(config, { to, subject, body, replyTo, idempotencyKey });
     }
     if (provider === "sendgrid") {
-      return await this.#sendgridSend(config, { to, subject, body, replyTo, metadata: { ...metadata, organization_id: organizationId } });
+      return await this.#sendgridSend(config, {
+        to,
+        subject,
+        body,
+        replyTo,
+        metadata: { ...metadata, organization_id: organizationId }
+      });
     }
     throw new Error(`Unknown email provider: ${provider}`);
   }
@@ -25,7 +31,7 @@ export class EmailAdapter {
     return { ok: true, provider: "sandbox", provider_reference: ref };
   }
 
-  async #resendSend(config, { to, subject, body, replyTo }) {
+  async #resendSend(config, { to, subject, body, replyTo, idempotencyKey }) {
     const apiKey = config.api_key;
     if (!apiKey) {
       return { ok: false, retryable: false, error: "Resend API key not configured" };
@@ -36,7 +42,11 @@ export class EmailAdapter {
       from,
       to: [to],
       subject,
-      html: body,
+      // The message we hold is plain text. Sending it as `html` verbatim would
+      // both swallow line breaks and let a stray "<" mangle the email, so send a
+      // real text part and an escaped HTML part.
+      text: body,
+      html: textToHtml(body),
     };
     if (replyTo) payload.reply_to = replyTo;
 
@@ -45,6 +55,9 @@ export class EmailAdapter {
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`,
+        // Resend deduplicates on this, so retrying an attempt that actually
+        // succeeded but whose response we never saw does not send twice.
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
       },
       body: JSON.stringify(payload),
     });
@@ -70,7 +83,13 @@ export class EmailAdapter {
       personalizations: [{ to: [{ email: to }] }],
       from: { email: from },
       subject,
-      content: [{ type: "text/html", value: body }],
+      // Text part first: SendGrid treats the last content entry as preferred, and
+      // a plain-text alternative is what keeps the message out of spam filters
+      // that penalise HTML-only mail.
+      content: [
+        { type: "text/plain", value: body },
+        { type: "text/html", value: textToHtml(body) }
+      ],
     };
     if (replyTo) payload.reply_to = { email: replyTo };
     // SendGrid echoes custom_args back verbatim on every Event Webhook delivery/bounce
@@ -101,4 +120,17 @@ export class EmailAdapter {
     const messageId = res.headers.get("x-message-id") || `sg-${Date.now()}`;
     return { ok: true, provider: "sendgrid", provider_reference: messageId };
   }
+}
+
+/**
+ * Renders our plain-text message body as safe HTML: escape first so nothing in a
+ * lead's own data can inject markup, then turn newlines into line breaks.
+ */
+function textToHtml(text) {
+  const escaped = String(text ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+  return escaped.replaceAll("\n", "<br />");
 }

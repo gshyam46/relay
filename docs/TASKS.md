@@ -1269,3 +1269,88 @@ Verified live in a browser: three leads created, `not_run: 0` while
 `eligible_for_analysis: 3` (the exact bug condition), button enabled and labelled
 "Analyze 3 eligible leads", per-row Analyze taking one lead to a planned next action, and a
 reply moving the recommendation READY -> stale -> regenerated with a new id.
+
+## 2026-09-10 - Phase 4 (M8): email as the first real production channel
+
+- decision: make email production-ready end to end, keeping sandbox the default, without
+  adding any other channel.
+- rationale: one channel that genuinely works — configured safely, sending correctly, handling
+  failure, retry and redelivery — is worth more than four that are almost wired.
+- affected modules: `src/modules/handlers/channelRouter.js`, `src/modules/handlers/emailAdapter.js`,
+  `src/modules/settings/secretSettings.js` (new), `src/api/app.js`,
+  `test/email-channel.test.js` (new), `test/email-webhooks.test.js`.
+- migration requirements: none.
+
+### Correction to an earlier note
+
+`docs/TASKS.md` recorded that "`EmailAdapter`'s real Resend/SendGrid HTTP calls are still dead
+code — `ChannelRouter#routeEmail` never calls them". That was true when written but has not
+been for some time: `ChannelRouter` reads the per-organization provider setting and routes to
+the adapter whenever it is anything other than `sandbox`. The wiring existed; what was missing
+was everything around it being fit to point at real recipients.
+
+### Credentials no longer reach the browser
+
+`GET /api/settings` returned every stored setting, including the provider `api_key`, in
+plaintext. The Settings page renders it into a password input, so **every settings page load
+put a live provider credential into the browser** — reachable by any XSS, browser extension,
+screen share, or client-side error reporter. The key is only ever needed server-side.
+
+`src/modules/settings/secretSettings.js` now masks credential-shaped keys on read and returns a
+`<key>_configured` boolean so the UI can still show what is set. The other half matters just as
+much: a secret submitted back as the mask means "unchanged" and is dropped, so saving the form
+after editing only the from-address does not overwrite the real key with the mask. Submitting
+an empty string still clears it deliberately.
+
+### The subject line was the body
+
+`#routeEmail` passed `bodyFor(payload)` as **both** the subject and the body, so a real email
+would have gone out with its entire message as the subject line. There is now a real
+`subjectFor()`: an explicit `subject` on the action payload (including a human-reviewed edit)
+wins, otherwise a short line that names the company when known.
+
+### Other correctness work on the real path
+
+- **Idempotency.** The router passes `relay-action-<action id>` as Resend's `Idempotency-Key`.
+  The id is stable across retries of the same action, so retrying an attempt that actually
+  succeeded but whose response was never seen does not deliver twice.
+- **Plain text was being sent as raw HTML.** The stored message is plain text; sending it as
+  `html` swallowed line breaks and let a stray `<` mangle the message. Both providers now get
+  a real `text/plain` part plus an escaped HTML part, so lead-supplied data cannot inject
+  markup into an outgoing email either.
+
+### Tests
+
+`test/email-channel.test.js` (new, 12 tests) stubs `fetch`, so the real provider path is
+exercised without a byte leaving the machine and without an API key:
+
+- sandbox default makes **no** HTTP call at all;
+- a configured Resend send: correct URL, auth header, idempotency key, normalized recipient,
+  a subject that is not the body, and both content parts;
+- an explicit payload subject overriding the generated one;
+- lead data cannot inject markup into the HTML part;
+- a 5xx leaves the action RETRYING and the retry succeeds;
+- a 4xx BLOCKS the action rather than retrying a bad API key forever;
+- a missing key and a lead with no email address both fail *before* any network call;
+- SendGrid's two content parts and the `custom_args` the Event Webhook needs to attribute a
+  delivery back to the right action and tenant;
+- credentials masked on read, preserved across a save that did not retype them, and clearable.
+
+`test/email-webhooks.test.js` gains an assertion that a redelivered inbound webhook does not
+queue a second `LeadReplyReceived`, so a provider retrying does not cost an extra pass of the
+whole intelligence pipeline each time.
+
+### Verification
+
+211 tests: 207 pass + 4 PostgreSQL-only skipped on SQLite, **211/211 on real PostgreSQL**.
+
+### Deliberately not done
+
+- No other channel was touched. SMS, WhatsApp and voice remain sandbox-only by default and
+  their adapters are unchanged.
+- **No real provider send has been made.** These tests prove what would be sent; they do not
+  prove Resend accepts it. That needs an API key and a verified sending domain, and is a
+  staging step.
+- Webhook signature verification is still not implemented — the SendGrid routes authenticate
+  with an opaque per-organization token in the URL, not a signature. Recorded in
+  `docs/DEPLOYMENT.md` as an outstanding `M10` item.
