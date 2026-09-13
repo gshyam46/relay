@@ -2,9 +2,10 @@ const SESSION_COOKIE_NAME = "relay_session";
 
 export function getSessionCookie(request) {
   const header = request.headers.cookie;
-  if (!header) {
+  if (typeof header !== "string" || header.length > 16384) {
     return null;
   }
+  let sessionId = null;
   for (const part of header.split(";")) {
     const separatorIndex = part.indexOf("=");
     if (separatorIndex === -1) {
@@ -12,10 +13,12 @@ export function getSessionCookie(request) {
     }
     const name = part.slice(0, separatorIndex).trim();
     if (name === SESSION_COOKIE_NAME) {
-      return decodeURIComponent(part.slice(separatorIndex + 1).trim());
+      if (sessionId !== null) return null;
+      try { sessionId = decodeURIComponent(part.slice(separatorIndex + 1).trim()); } catch { return null; }
+      if (!sessionId || sessionId.length > 128 || /[\s\x00-\x1f\x7f]/.test(sessionId)) return null;
     }
   }
-  return null;
+  return sessionId;
 }
 
 export function setSessionCookie(response, sessionId, { secure = false } = {}) {

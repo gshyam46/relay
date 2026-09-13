@@ -24,6 +24,7 @@ import {
   type FollowUp,
 } from "@/hooks/use-follow-ups";
 import { cn } from "@/lib/utils";
+import { useMe } from "@/hooks/use-auth";
 
 type Tab = "follow-ups" | "activity";
 
@@ -84,6 +85,11 @@ function TabButton({
   return (
     <button
       onClick={onClick}
+      role="link"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && event.key === "Enter") onClick();
+      }}
       className={cn(
         "flex items-center gap-1.5 px-1 pb-2.5 text-sm font-medium border-b-2 transition-colors cursor-pointer",
         active
@@ -98,6 +104,9 @@ function TabButton({
 
 function FollowUpsPanel() {
   const { data, isLoading, isError, refetch } = useFollowUpSummary();
+  const { data: session } = useMe();
+  const canManage = session?.user.role === "OWNER";
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const completeFu = useCompleteFollowUp();
   const cancelFu = useCancelFollowUp();
   const navigate = useNavigate();
@@ -108,9 +117,13 @@ function FollowUpsPanel() {
 
   const withBusy = (id: string, fn: () => Promise<unknown>) => async (e: React.MouseEvent) => {
     e.stopPropagation();
+    setMutationError(null);
     setBusyIds((prev) => new Set(prev).add(id));
     try {
       await fn();
+    } catch {
+      setMutationError("The follow-up could not be updated. Refresh its current state and try again.");
+      void refetch();
     } finally {
       setBusyIds((prev) => {
         const next = new Set(prev);
@@ -122,15 +135,16 @@ function FollowUpsPanel() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      {mutationError && <p role="alert" className="px-6 py-3 text-sm text-danger">{mutationError}</p>}
       {/* Summary */}
       {totals && totals.total > 0 && (
         <div className="flex flex-wrap gap-3 px-6 py-4 border-b border-line bg-surface">
           <FollowUpStatCard label="Total" value={totals.total} />
           <FollowUpStatCard
-            label="Overdue"
-            value={totals.by_status["OVERDUE"] ?? 0}
+            label="Needs review"
+            value={totals.by_status["BLOCKED"] ?? 0}
             color="text-danger"
-            highlight={(totals.by_status["OVERDUE"] ?? 0) > 0}
+            highlight={(totals.by_status["BLOCKED"] ?? 0) > 0}
           />
           <FollowUpStatCard
             label="Due"
@@ -140,7 +154,7 @@ function FollowUpsPanel() {
           />
           <FollowUpStatCard
             label="Scheduled"
-            value={totals.by_status["SCHEDULED"] ?? 0}
+            value={totals.by_status["PLANNED"] ?? 0}
           />
           <FollowUpStatCard
             label="Completed"
@@ -174,6 +188,7 @@ function FollowUpsPanel() {
                 key={fu.id}
                 followUp={fu}
                 busy={busyIds.has(fu.id)}
+                canManage={canManage}
                 onComplete={withBusy(fu.id, () => completeFu.mutateAsync(fu.id))}
                 onCancel={withBusy(fu.id, () => cancelFu.mutateAsync(fu.id))}
                 onClick={() => navigate(`/leads/${fu.lead_id}`)}
@@ -195,24 +210,31 @@ function FollowUpsPanel() {
 function FollowUpRow({
   followUp,
   busy,
+  canManage,
   onComplete,
   onCancel,
   onClick,
 }: {
   followUp: FollowUp;
   busy: boolean;
+  canManage: boolean;
   onComplete: (e: React.MouseEvent) => void;
   onCancel: (e: React.MouseEvent) => void;
   onClick: () => void;
 }) {
-  const isUrgent =
-    followUp.status === "OVERDUE" || followUp.status === "DUE";
-  const isActionable =
-    followUp.status !== "COMPLETED" && followUp.status !== "CANCELLED";
+  const isUrgent = followUp.status === "DUE";
+  const canComplete = canManage && ["PLANNED", "DUE"].includes(followUp.status);
+  const canCancel = canManage && ["PLANNED", "DUE", "BLOCKED"].includes(followUp.status);
+  const hasDueTime = followUp.due_at !== null && Number.isFinite(Date.parse(followUp.due_at));
 
   return (
     <div
       onClick={onClick}
+      role="link"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && event.key === "Enter") onClick();
+      }}
       className={cn(
         "flex items-center gap-4 px-6 py-3.5 hover:bg-soft transition-colors cursor-pointer group",
         isUrgent && "bg-warn-light/30",
@@ -230,8 +252,8 @@ function FollowUpRow({
       </div>
       <div className="text-right shrink-0">
         <p className="text-xs text-muted">
-          Due{" "}
-          {new Date(followUp.due_at).toLocaleDateString("en-US", {
+          {hasDueTime ? "Due " : "Schedule needs review"}
+          {hasDueTime && new Date(followUp.due_at!).toLocaleDateString("en-US", {
             month: "short",
             day: "numeric",
             hour: "2-digit",
@@ -245,16 +267,18 @@ function FollowUpRow({
       {/* Action buttons */}
       {busy ? (
         <Loader2 className="w-4 h-4 animate-spin text-brand shrink-0" />
-      ) : isActionable ? (
+      ) : canCancel ? (
         <div className="flex items-center gap-1 shrink-0">
-          <button
+          {canComplete && <button
+            aria-label="Mark follow-up complete"
             onClick={onComplete}
             title="Mark complete"
             className="p-1.5 rounded-md bg-ok-light text-ok hover:bg-green-200 transition-colors cursor-pointer"
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
-          </button>
+          </button>}
           <button
+            aria-label="Cancel follow-up"
             onClick={onCancel}
             title="Cancel"
             className="p-1.5 rounded-md bg-soft text-muted hover:bg-line transition-colors cursor-pointer"
@@ -274,9 +298,9 @@ function FollowUpStatusIcon({ status }: { status: string }) {
     string,
     { icon: typeof Clock; className: string }
   > = {
-    OVERDUE: { icon: AlertTriangle, className: "text-danger" },
+    BLOCKED: { icon: AlertTriangle, className: "text-danger" },
     DUE: { icon: Clock, className: "text-warn" },
-    SCHEDULED: { icon: CalendarClock, className: "text-brand" },
+    PLANNED: { icon: CalendarClock, className: "text-brand" },
     COMPLETED: { icon: CheckCircle2, className: "text-ok" },
     CANCELLED: { icon: XCircle, className: "text-muted" },
   };
@@ -286,9 +310,9 @@ function FollowUpStatusIcon({ status }: { status: string }) {
     <div
       className={cn(
         "w-9 h-9 rounded-full flex items-center justify-center shrink-0",
-        status === "OVERDUE" && "bg-danger-light",
+        status === "BLOCKED" && "bg-danger-light",
         status === "DUE" && "bg-warn-light",
-        status === "SCHEDULED" && "bg-brand-light",
+        status === "PLANNED" && "bg-brand-light",
         status === "COMPLETED" && "bg-ok-light",
         status === "CANCELLED" && "bg-soft",
       )}
@@ -300,9 +324,9 @@ function FollowUpStatusIcon({ status }: { status: string }) {
 
 function FollowUpStatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    OVERDUE: "bg-danger-light text-danger",
+    BLOCKED: "bg-danger-light text-danger",
     DUE: "bg-warn-light text-warn",
-    SCHEDULED: "bg-brand-light text-brand",
+    PLANNED: "bg-brand-light text-brand",
     COMPLETED: "bg-ok-light text-ok",
     CANCELLED: "bg-soft text-muted",
   };
@@ -313,7 +337,7 @@ function FollowUpStatusBadge({ status }: { status: string }) {
         styles[status] ?? "bg-soft text-muted",
       )}
     >
-      {status}
+      {status === "PLANNED" ? "Scheduled" : status === "BLOCKED" ? "Needs review" : status}
     </span>
   );
 }

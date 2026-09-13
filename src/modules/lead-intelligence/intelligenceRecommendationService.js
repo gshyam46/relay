@@ -1,3 +1,7 @@
+import { currentLeadData } from "../data-foundation/leadDataSafety.js";
+import { captureBusinessContext, withCurrentBusinessContext, withScopedCurrentService, inputAuthority } from "./businessContextGuard.js";
+import { IntelligenceRecommendationRepository } from "./intelligenceRecommendationRepository.js";
+import { AuditRepository } from "../events/auditRepository.js";
 import { createHash } from "node:crypto";
 import { LocalRecommendationAgent } from "./localRecommendationAgent.js";
 import {
@@ -13,8 +17,10 @@ export class IntelligenceRecommendationService {
     synthesisService,
     intelligenceRepository,
     auditRepository = null,
-    recommendationAgent = new LocalRecommendationAgent()
+    recommendationAgent = new LocalRecommendationAgent(),
+    now = Date.now
   }) {
+    this.now = now;
     this.recommendationRepository = recommendationRepository;
     this.synthesisService = synthesisService;
     this.intelligenceRepository = intelligenceRepository;
@@ -23,7 +29,10 @@ export class IntelligenceRecommendationService {
   }
 
   async runForLead(lead, { simulate_failure_stage = null } = {}) {
+    lead = await currentLeadData(this.recommendationRepository.db, lead);
+    const capturedContext = await captureBusinessContext(this.recommendationRepository.db, lead, { now: this.now });
     const input = await this.buildInput(lead);
+    const guard = { now: this.now, stage: "intelligenceRecommendationService", input_fingerprint: input.input_fingerprint, input_authority: inputAuthority(input) };
     const existing = await this.recommendationRepository.findByFingerprint({
       organization_id: lead.organization_id,
       lead_id: lead.id,
@@ -31,7 +40,8 @@ export class IntelligenceRecommendationService {
       pipeline_version: INTELLIGENCE_RECOMMENDATION_PIPELINE_VERSION
     });
     if (existing?.status === INTELLIGENCE_RECOMMENDATION_STATUS.READY) {
-      return this.recommendationRepository.runDetail(existing);
+      return withCurrentBusinessContext(this.recommendationRepository.db, lead, capturedContext, tx =>
+        new IntelligenceRecommendationRepository(tx).runDetail(existing), guard);
     }
 
     const run =
@@ -64,33 +74,37 @@ export class IntelligenceRecommendationService {
         throw new Error(errors.join(" "));
       }
 
-      const finalized = await this.recommendationRepository.markReady(run.id, {
-        priority: output.priority,
-        segment: output.segment,
-        personalization_context: output.personalization_context,
-        recommendation: output.recommendation,
-        evidence_refs: collectRecommendationEvidenceRefs(output)
-      });
-      await this.recommendationRepository.supersedeReadyRuns({
-        organization_id: lead.organization_id,
-        lead_id: lead.id,
-        except_run_id: finalized.id
-      });
-      await this.auditRepository?.record({
-        organization_id: lead.organization_id,
-        lead_id: lead.id,
-        event_type: "LeadIntelligenceRecommendationUpdated",
-        message: "Evidence-grounded Lead Intelligence recommendation generated.",
-        metadata: {
-          recommendation_id: finalized.id,
-          synthesis_id: input.synthesis.id,
-          snapshot_id: input.snapshot.id,
-          recommended_step: output.recommendation.step,
-          segment: output.segment.type,
-          priority_score: output.priority.score
-        }
-      });
-      return this.recommendationRepository.runDetail(finalized);
+      return await withCurrentBusinessContext(this.recommendationRepository.db, lead, capturedContext, async (tx) => {
+        const repository = tx === this.recommendationRepository.db ? this.recommendationRepository : new IntelligenceRecommendationRepository(tx);
+        const audit = this.auditRepository ? (tx === this.auditRepository.db ? this.auditRepository : new AuditRepository(tx)) : null;
+        const finalized = await repository.markReady(run.id, {
+          priority: output.priority,
+          segment: output.segment,
+          personalization_context: output.personalization_context,
+          recommendation: output.recommendation,
+          evidence_refs: collectRecommendationEvidenceRefs(output)
+        });
+        await repository.supersedeReadyRuns({
+          organization_id: lead.organization_id,
+          lead_id: lead.id,
+          except_run_id: finalized.id
+        });
+        await audit?.record({
+          organization_id: lead.organization_id,
+          lead_id: lead.id,
+          event_type: "LeadIntelligenceRecommendationUpdated",
+          message: "Evidence-grounded Lead Intelligence recommendation generated.",
+          metadata: {
+            recommendation_id: finalized.id,
+            synthesis_id: input.synthesis.id,
+            snapshot_id: input.snapshot.id,
+            recommended_step: output.recommendation.step,
+            segment: output.segment.type,
+            priority_score: output.priority.score
+          }
+        });
+        return repository.runDetail(finalized);
+      }, guard);
     } catch (error) {
       await this.recommendationRepository.markFailed(run.id, error);
       throw error;
@@ -98,6 +112,7 @@ export class IntelligenceRecommendationService {
   }
 
   async currentForLead(lead) {
+    if (!this.recommendationRepository.db.transactionBound) return withScopedCurrentService(this.recommendationRepository.db, lead, "intelligenceRecommendationService", service => service.currentForLead(lead), { now: this.now });
     const input = await this.tryBuildInput(lead);
     if (!input.ready) {
       return {

@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 
 type Mode = "login" | "register";
 
-export function AuthPage() {
-  const [mode, setMode] = useState<Mode>("login");
+export function AuthPage({ initialMode = "login" }: { initialMode?: Mode } = {}) {
+  const [mode, setMode] = useState<Mode>(initialMode);
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-page px-4">
@@ -42,6 +42,7 @@ export function AuthPage() {
           </div>
 
           {mode === "login" ? <LoginForm /> : <RegisterForm onDone={() => setMode("login")} />}
+          {mode === "login" && <p className="mt-4 text-sm"><a className="text-brand underline" href="/recover">Recover with an offline code</a></p>}
         </div>
       </div>
     </div>

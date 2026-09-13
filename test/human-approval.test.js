@@ -32,12 +32,15 @@ test("approving an action is idempotent and allows sandbox execution", async (t)
     organization_id: organization.id
   });
 
+  const reviewed = await client.review(prepared.action.id);
   const approved = await client.post(`/api/actions/${prepared.action.id}/approval/approve`, {
+    expected_revision_id: reviewed.prepared_revision.id,
     organization_id: organization.id,
     reviewer_name: "Ops reviewer",
     reviewer_note: "Looks good."
   });
   const repeated = await client.post(`/api/actions/${prepared.action.id}/approval/approve`, {
+    expected_revision_id: reviewed.prepared_revision.id,
     organization_id: organization.id,
     reviewer_name: "Ops reviewer",
     reviewer_note: "Looks good."
@@ -60,24 +63,13 @@ test("edit and approve stores reviewed payload without losing action metadata", 
     organization_id: organization.id
   });
 
-  const approved = await client.post(`/api/actions/${prepared.action.id}/approval/edit-and-approve`, {
-    organization_id: organization.id,
-    reviewer_name: "Sales lead",
-    reviewer_note: "Use a warmer opener.",
-    edited_payload: {
-      instruction: "Use a warmer opener before contacting."
-    }
-  });
-  const detail = await client.get(`/api/actions/${prepared.action.id}/approval?organization_id=${organization.id}`);
-
+  const approved = await client.approve(prepared.action.id, { body: "Hello. Would a conversation be useful?" });
+  const detail = await client.review(prepared.action.id);
   assert.equal(approved.approval.status, "APPROVED");
-  assert.deepEqual(approved.approval.edited_payload, {
-    instruction: "Use a warmer opener before contacting."
-  });
+  assert.equal(approved.prepared_revision.envelope.body, "Hello. Would a conversation be useful?");
   assert.equal(detail.action.payload.source, "NEXT_BEST_ACTION_PLAN");
-  assert.deepEqual(detail.action.payload.human_review.edited_payload, {
-    instruction: "Use a warmer opener before contacting."
-  });
+  assert.equal(detail.prepared_revision.content_hash, approved.prepared_revision.content_hash);
+  assert.equal(detail.prepared_revision.envelope.body, "Hello. Would a conversation be useful?");
 });
 
 test("rejecting an action blocks execution and cannot be reversed by approve", async (t) => {
@@ -87,7 +79,9 @@ test("rejecting an action blocks execution and cannot be reversed by approve", a
     organization_id: organization.id
   });
 
+  const reviewed = await client.review(prepared.action.id);
   const rejected = await client.post(`/api/actions/${prepared.action.id}/approval/reject`, {
+    expected_revision_id: reviewed.prepared_revision.id,
     organization_id: organization.id,
     reviewer_name: "Manager",
     reviewer_note: "Do not contact yet."
@@ -100,7 +94,7 @@ test("rejecting an action blocks execution and cannot be reversed by approve", a
   const approveAfterReject = await client.rawFetch(`/api/actions/${prepared.action.id}/approval/approve`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ organization_id: organization.id })
+    body: JSON.stringify({ organization_id: organization.id, expected_revision_id: reviewed.prepared_revision.id })
   });
 
   assert.equal(rejected.approval.status, "REJECTED");
@@ -149,10 +143,7 @@ test("approval state survives restart", async (t) => {
     const prepared = await firstClient.post(`/api/next-best-action-plans/${plan.id}/action`, {
       organization_id: organization.id
     });
-    await firstClient.post(`/api/actions/${prepared.action.id}/approval/approve`, {
-      organization_id: organization.id,
-      reviewer_name: "Restart reviewer"
-    });
+    await firstClient.approve(prepared.action.id);
     await firstClient.stop();
 
     secondClient = await startClient(t, databaseFile, { autoCleanup: false });

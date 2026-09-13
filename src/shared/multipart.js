@@ -18,6 +18,8 @@ export function parseMultipartFormData(buffer, contentType) {
 
   const delimiter = Buffer.from(`--${boundary}`);
   const fields = {};
+  const duplicateIdentityFields = new Set();
+  const identityFields = new Set(["from", "to", "headers", "envelope", "subject", "text", "html"]);
   let cursor = buffer.indexOf(delimiter);
 
   while (cursor !== -1) {
@@ -39,13 +41,22 @@ export function parseMultipartFormData(buffer, contentType) {
       const headerText = part.subarray(0, headerEnd).toString("utf8");
       const nameMatch = /name="([^"]*)"/i.exec(headerText);
       const isFile = /filename="/i.test(headerText);
-      if (nameMatch && !isFile) {
-        fields[nameMatch[1]] = part.subarray(headerEnd + 4).toString("utf8");
+      if (nameMatch && !isFile && !nameMatch[1].startsWith("__")) {
+        const name = nameMatch[1], value = part.subarray(headerEnd + 4).toString("utf8");
+        if (Object.hasOwn(fields, name)) {
+          if (identityFields.has(name)) duplicateIdentityFields.add(name);
+          // Preserve all bounded policy text for opt-out detection on quarantined
+          // ambiguous input, while never silently selecting another identity.
+          if (name === "text") fields.text += "\n" + value;
+        } else {
+          Object.defineProperty(fields, name, { value, writable: true, enumerable: true, configurable: true });
+        }
       }
     }
 
     cursor = nextDelimiter;
   }
 
+  if (duplicateIdentityFields.size) fields.__duplicate_identity_fields = [...duplicateIdentityFields];
   return fields;
 }

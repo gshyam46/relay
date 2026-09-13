@@ -1,4 +1,4 @@
-export const INTELLIGENCE_RECOMMENDATION_PIPELINE_VERSION = "m2.3-intelligence-recommendation-v1";
+export const INTELLIGENCE_RECOMMENDATION_PIPELINE_VERSION = "l1.09-bounded-recommendation-v2";
 
 export const INTELLIGENCE_RECOMMENDATION_STATUS = Object.freeze({
   DRAFT: "DRAFT",

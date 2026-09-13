@@ -1,226 +1,50 @@
-# CLAUDE.md — Relay
+# Contributor Handoff
 
-## Project Identity
+## Identity and authority
 
-**Relay** — AI Lead Intelligence & Outbound Automation Platform
+The product is **AI Lead Intelligence & Outbound Automation**. Relay is an existing working brand, not another product category. Lead Intelligence is core; Outbound Automation executes its decisions; Lead Discovery is optional.
 
-A modular SaaS platform that transforms fragmented lead data into actionable intelligence and automates outbound actions. Built for SMBs across any vertical (real estate, furniture, SaaS, construction, services).
+Follow [AGENTS.md](AGENTS.md). Read PRODUCT, ARCHITECTURE, DOMAIN, ROADMAP, TASKS and TESTING before work; consult DECISIONS/DEPLOYMENT for affected design and operations.
 
-Two primary pillars:
-1. **AI Lead Intelligence** — understand leads, qualify, score, segment, recommend next steps
-2. **Outbound Automation** — execute actions based on intelligence (email, WhatsApp, SMS, voice, human tasks)
+Current delivery is L0-L6 in [ROADMAP](docs/ROADMAP.md), with status in [TASKS](docs/TASKS.md). Earlier phases/checklists remain in [history](docs/history/MILESTONES.md). docs/status.html is not authoritative.
 
-## Quick Start
+## Current implementation
 
-```bash
-# Backend (requires Node.js 24+, uses node:sqlite)
-npm start                        # Start backend on http://localhost:3000
-node --env-file=.env src/server.js  # Start with LLM env vars (.env has LLM_PROVIDER, API key)
-npm test                         # Run all backend tests (Node.js built-in test runner)
-npm run ci                       # Lint + format check + test
-npm run dev:reset                # Reset local dev database (backs up first)
-npm run dev:seed:qa              # Seed QA data for manual testing
-npm run smoke                    # Run API smoke tests
-npm run db:migrate               # Apply pending migrations and exit (deploy pre-step)
-npm run db:status                # Report applied/pending migrations, changing nothing
-npm run dev:e2e                  # Real server on port 3100 + isolated DB, for browser QA
-npm run test:pg                  # Run the WHOLE suite against PostgreSQL (reads DATABASE_URL from .env)
-npm run verify:deploy            # Pre-deploy checks: connectivity, migrations, schema, config
-npm run verify:workflows         # 55 end-to-end workflow checks against a RUNNING server
+- Node.js 24+ ESM modular monolith; HTTP API in src/api/app.js.
+- React/TypeScript/Vite in client/; server serves client/dist. public/ is retired UI but still referenced by legacy tests.
+- SQLite for fast local work; async pg adapter for PostgreSQL.
+- Ordered migrations in src/database/migrations/index.js and src/database/migrate.js. Schema is not inline in database.js.
+- Repository/service boundaries exist; API also contains raw SQL/integration logic. Complete separation is a target.
+- Optional LLM agents are wired in createServices; deterministic fallbacks exist. Process-wide configuration and provenance need planned controls.
+- Channel adapters and auth exist, with unfinished live verification and unsafe mutations in [REVIEW](docs/REVIEW.md).
 
-# Frontend (React + Vite)
-cd client && npm install         # Install frontend dependencies (first time)
-cd client && npm run dev         # Start Vite dev server on http://localhost:5173
-cd client && npx tsc --noEmit    # TypeScript type check
-```
+Never claim duplicate requests cannot duplicate effects or complete tenant isolation before the regression gates prove it.
 
-Database is auto-created at `data/app.db` on first start. No setup required.
+## Commands and hazards
 
-`npm start` and the db/test scripts load a local `.env` automatically via
-`--env-file-if-exists`, so `node --env-file=.env src/server.js` is no longer needed.
-Secrets belong in `.env` (gitignored) or the deployment platform — never on a
-command line, and never committed. `.env.example` documents every variable.
+Use [README](README.md), [TESTING](docs/TESTING.md) and [DEPLOYMENT](docs/DEPLOYMENT.md).
 
-### AI Provider Setup (optional)
-Create a `.env` file in the project root:
-```
-LLM_PROVIDER=groq
-GROQ_API_KEY=your-key-here
-```
-Then start the server with `node --env-file=.env src/server.js`. Supported providers: `groq`, `openai`, `openrouter`, `ollama`.
+Common local checks: npm.cmd run ci, npm.cmd run smoke, npm.cmd run client:build. A direct-node Windows frontend build fallback is documented.
 
-## Tech Stack
+npm start reads .env; DATABASE_URL overrides DATABASE_FILE. npm test now uses scripts/run-tests.js to launch isolated SQLite tests. test:pg requires TEST_DATABASE_URL plus TEST_DATABASE_DISPOSABLE=1 and uses a random run namespace; no application DB fallback. dev:e2e refuses inherited DB/provider settings and creates only in-memory SQLite. verify:workflows requires that isolated loopback harness before mutation. verify:deploy/db:status/readiness inspect without DDL. Normal startup requires existing compatible migrations; use db:migrate deliberately. Staging/production migration commands require MIGRATION_DATABASE_URL in a separate job, never the web runtime. Only the isolated E2E memory harness bootstraps on server start.
 
-- **Runtime**: Node.js 24+ (ESM modules, `"type": "module"`)
-- **Backend**: Raw `node:http` server, modular monolith architecture. One runtime dependency (`pg`); everything else is Node built-ins
-- **Database**: SQLite (`node:sqlite`) for local dev and tests, PostgreSQL/Supabase for staging and production, behind one async `DatabaseClient` contract. Versioned migrations in `src/database/migrations/`
-- **Frontend**: React 19 + Vite 8 + TailwindCSS v4 + shadcn/ui in `client/` (legacy vanilla HTML/CSS/JS still in `public/`)
-- **Testing**: Node.js built-in test runner (`node --test`), 26 test files, 219 tests; TypeScript type checking in `client/`. The suite runs on SQLite by default and on real PostgreSQL via `npm run test:pg` — CI runs both. `npm run verify:workflows` adds 55 black-box workflow checks against a running server (also usable against staging via `VERIFY_BASE_URL`). Note `node --test` auto-discovers any file matching `test-*.js`/`*-test.js` anywhere in the repo, so don't name a non-test script that way
-- **AI**: LLM Provider Abstraction supporting Groq, OpenAI, OpenRouter, Ollama (deterministic local agents as fallback when no LLM configured)
-- **CI**: GitHub Actions (`.github/workflows/ci.yml`)
+## Contracts
 
-## Directory Structure
+- Application owns domain policy; React, n8n and providers cannot bypass it.
+- Tenant and actor identity are server-derived. OWNER is the only current HTTP write/settings/approval role; additional roles require L5-02. Simulation routes default off and cannot be enabled in staging/production. GET /api/auth/me reports capabilities.test_controls for UI gating; it does not grant server authority.
+- Retry identity belongs to one intended action; a genuine new message needs a new identity.
+- Durable restrictions, immutable exact review, fenced leases, action due checks, bounded retries, exact callbacks and owner recovery are implemented locally. L1-07 adds durable receipts and bounded callback/inbound effect replay. L1-06 adds fair normal scheduling, staged bounded domain-event recovery, owner sequence controls, delivery-gated advancement and explicit due-task transitions. All canonical replies stop existing sequences; new stop_on_reply=false inputs are rejected. See docs/verification/L1-06.md; PostgreSQL/provider/browser acceptance remains pending.
+- PostgreSQL-specific operational persistence belongs behind an explicit tested boundary and ADR; don't force unsafe behavior to preserve identical SQL.
+- Use immutable additive migrations. No DB transaction across a network call. L1-03 adds createUnitOfWork and distinct transactionBound clients; all participating repositories use the same scoped handle. Parent escapes/nested or expired scope use reject. Approval, settings, restrictions, dispatch and inbox processing use a shared workspace gate; full import atomicity remains tracked. Pending receipt policy defers workspace sends without consuming attempts; no owner decision can waive an unresolved restriction. Permanently invalid pending-policy events need operator remediation before customer readiness.
+- L1-10 adds verified database TLS, strict bounded configuration, separate deployed migration credentials, canonical PUBLIC_APP_ORIGIN and AUTH_RATE_LIMIT_SECRET. HTTP/auth/provider work is bounded; routine logs omit private payload/exception data. Typed workspace_dispatch_controls in migration0008 provides owner revisioned pause/limits; deployed OUTBOUND_DISPATCH_ENABLED defaults false. All SEND authorization checks occur under the workspace transaction and use one UTC authorization timestamp. Socket close does not complete handler work; shutdown drains both before database close. See docs/verification/L1-10.md.
+- Require real-provider evidence and human QA for customer/pilot gates. L2-01 now implements append-only business/enquiry revisions, owner forms/history, exact money/manual source facts and current-analysis/review binding. See docs/L2-01_BUSINESS_CONTEXT.md and docs/verification/L2-01.md. Never score business fit from stored criteria or treat inferred/conflicted/unknown values as customer facts. L2-02 now adds mapped/reviewed CSV, raw cells, audited row corrections, frozen selected chunks, durable outcomes and exact IMPORT_ROW provenance. See docs/L2-02_REVIEWED_IMPORT.md and docs/verification/L2-02.md. Never replay ambiguous unfinished legacy batches or clear restrictions on import. L2-03 now implements owner-reviewed source-only linking or separate enquiry creation, with an immutable resolution ledger and unchanged original import outcomes. See docs/L2-03_IDENTITY_RESOLUTION.md and docs/verification/L2-03.md. Exact sources and restrictions survive; shared-contact ambiguous replies stop directly matched automation and remain unassigned for recovery. Next is L2-04 contact correction/archive/export and complete data work; external L1-L2 acceptance stays open.
 
-```
-src/
-  server.js                    # Entry point: config validation, boot, graceful shutdown
-  config.js                    # ALL environment configuration + validation (the only env reader)
-  api/app.js                   # All HTTP routes (~50 endpoints) + static file serving
-  database/
-    database.js                # createDatabase() -> driver selection + migrations
-    sqliteClient.js            # SQLite implementation of the DatabaseClient contract
-    postgresClient.js          # PostgreSQL implementation (pg pool, ?->$n, type coercion)
-    sql.js                     # Placeholder translation + statement splitting
-    migrate.js                 # Migration runner (schema_migrations, transactional)
-    migrations/                # Versioned, ordered migrations
-  shared/
-    http.js                    # JSON request/response helpers, static file server, sendError
-    logger.js                  # Structured logger (JSON when deployed, text locally)
-    errors.js                  # Error taxonomy: status + code + expected/defect
-    ids.js                     # UUID-based ID generator with prefix (org_, lead_, etc.)
-    time.js                    # ISO timestamp helper
-  modules/
-    data-foundation/           # Lead ingestion, CSV parsing, normalization, imports, duplicate detection
-    lead-intelligence/         # Intelligence snapshots, synthesis, recommendations, research evidence
-    next-best-action/          # Action planning, policy engine
-    outbound-automation/       # Actions, executions, approvals, callbacks, message composition
-    channels/                  # Channel messages, inbound events, follow-ups
-    workflows/                 # Campaigns, sequences, sequence steps, workflow runs
-    events/                    # Domain events queue, audit repository
-    handlers/                  # Action executor, mock n8n adapter, LLM provider abstraction
+The requested interactive landing page is specified in docs/LANDING_PAGE.md, with L4-07 prototype, L5-07 production funnel and L6-04 publication. Current auth-gated React routing is unchanged; do not claim the proposed public/auth/app routes or CTA endpoints exist.
 
-client/                        # React frontend (React 19 + Vite 8 + TailwindCSS v4 + shadcn/ui)
-  src/
-    pages/                     # Page components (dashboard, leads, lead-detail, intelligence,
-                               #   intelligence-detail, outbound, conversations, activity, settings)
-    components/                # Reusable UI components (layout/, ui/)
-    hooks/                     # Custom hooks (use-leads, use-intelligence, use-outbound, etc.)
-    stores/                    # Zustand stores (workspace)
-    lib/                       # Utilities (api client, utils)
-    types/                     # TypeScript type definitions
-  vite.config.ts               # Vite config with API proxy to localhost:3000
+## Parallel work and docs
 
-public/                        # Legacy frontend (vanilla HTML/CSS/JS SPA, being replaced by client/)
+Assign concrete file ownership first. One integrating owner controls shared API wiring, global contracts/configuration, migration registry and package scripts per batch. Agents request shared changes rather than editing overlapping files.
 
-test/                          # 22 test files + fixtures + helpers
-scripts/                       # dev-reset, dev-seed-qa, lint, format-check, smoke-api
-docs/                          # ARCHITECTURE.md, DOMAIN.md, PRODUCT.md, ROADMAP.md, TASKS.md, TESTING.md
-```
+Update TASKS at start; update affected product/domain/architecture/testing/deployment docs alongside implementation. Record actual commands/environment and human QA state. Handoffs report Completed, Files Changed, Contracts Changed, Tests, Known Issues, Human QA and Next Step.
 
-## Key Architecture Patterns
-
-### Repository Pattern
-Every domain module has its own repository class wrapping database operations. Services consume repositories, never raw SQL. Repository methods are the only code that touches the database.
-
-### Contract-First
-Each domain area has explicit contract files defining types, statuses, and vocabulary (e.g., `intelligenceContract.js`, `actionContract.js`, `channelContract.js`). Contracts are the source of truth for valid states and transitions.
-
-### Idempotency Everywhere
-Nearly every write operation has idempotency keys and deduplication. Duplicate requests never create duplicate side effects. This applies to imports, intelligence runs, synthesis, recommendations, actions, executions, callbacks, channel messages, inbound events, and workflow enrollment.
-
-### Organization-Scoped (Multi-tenant)
-All data is isolated by `organization_id`. Every query must be tenant-scoped. Cross-tenant access is a bug.
-
-### Provider-Independent
-External providers (email, WhatsApp, LLM, n8n) are behind adapter/handler interfaces. Core domain modules never depend on a specific provider. If n8n/a provider is replaced, only the adapter changes.
-
-### State Machines
-Entities use explicit state machines with defined transitions. Key state machines: ImportBatch, IntelligenceSnapshot, SynthesisRun, RecommendationRun, NextBestActionPlan, Action, ActionExecution, ActionApproval, WorkflowRun, FollowUpTask.
-
-### Database Client Contract
-All database access goes through an **async** contract: `await exec(sql)`, `await run(sql, params)`, `await get(sql, params)`, `await all(sql, params)`, `await columnExists(table, column)`, `await transaction(fn)`, `await close()`.
-
-Two implementations satisfy it identically — `SqliteDatabaseClient` (local dev and tests; still synchronous underneath) and `PostgresDatabaseClient` (staging and production, via `pg`). Setting `DATABASE_URL` is the entire switch between them; no module code changes.
-
-Repositories write SQLite-flavoured SQL with `?` placeholders. The PostgreSQL client rewrites `?` to `$1..$n` and coerces BIGINT/NUMERIC to `Number`, so there is only ever one dialect of SQL in the codebase. Do not write engine-specific SQL (`datetime('now', ...)`, `date(col)`, `PRAGMA`) — compute date cutoffs in JavaScript and pass them as parameters.
-
-## Database
-
-- SQLite at `data/app.db` (auto-created on start)
-- 22+ tables, 20+ indexes for query performance and idempotency
-- Schema defined inline in `src/database/database.js` via `migrateDatabase()`
-- Uses `CREATE TABLE IF NOT EXISTS` + `ensureColumn()` helper for additive migrations
-- No separate migration files — all DDL in one place
-- Key tables: `organizations`, `users`, `leads`, `import_batches`, `import_rows`, `import_issues`, `intelligence_snapshots`, `intelligence_evidence`, `intelligence_claims`, `intelligence_signals`, `intelligence_qualifications`, `intelligence_recommendations`, `research_evidence_ingestions`, `research_evidence_items`, `intelligence_synthesis_runs`, `intelligence_recommendation_runs`, `next_best_action_plans`, `domain_events`, `actions`, `action_executions`, `action_approvals`, `callbacks`, `channel_messages`, `inbound_events`, `follow_up_tasks`, `campaigns`, `sequences`, `sequence_steps`, `workflow_runs`, `audit_logs`
-
-## API
-
-- All routes defined in `src/api/app.js` using `method + pathname` pattern matching
-- ~50 endpoints covering: health, organizations, leads, imports (CSV), intelligence, research evidence, synthesis, recommendations, next-best-action, outbound actions, approvals, channels, follow-ups, timeline, campaigns, sequences, workflows
-- JSON request/response via helpers in `src/shared/http.js`
-- Non-`/api/` paths serve static files from `public/` (legacy) or proxied from Vite dev server (`client/`)
-- `escapeHtml()` used in legacy frontend for XSS prevention; React frontend uses JSX auto-escaping
-- AI status endpoint: `GET /api/ai/status` — reports configured provider, model, and connection state
-- Settings categories: `channel_email`, `channel_whatsapp`, `channel_sms`, `channel_telegram`, `channel_call`, `ai_provider`
-
-## Milestone Status
-
-- **M0** (Architecture + Walking Skeleton): Complete
-- **M1** (Lead Data Foundation — CSV import, normalization): Complete
-- **M1.1** (Lead Data Foundation UX Refinement): Complete
-- **M2.0** (AI Lead Intelligence Foundation): Complete
-- **M2.1** (Research Evidence Adapters): Complete
-- **M2.2** (Structured Synthesis + Qualification): Complete
-- **M2.3** (Recommendation Intelligence): Complete
-- **M3** (Next Best Action Planning): Complete
-- **M3.1** (Product UX Consistency): Complete
-- **M4** (Outbound Automation Foundation): Complete
-- **M5** (Human-in-the-Loop Approval): Complete
-- **M6** (Sequences + Follow-Up Foundation): Complete
-- **M7** (Response/Event Intelligence): Complete — reply classification, low-confidence human escalation, follow-ups, conversation threading, and reply-driven intelligence/recommendation refresh via the `LeadReplyReceived` event
-- **M8** (Additional Channels): Email complete — real Resend/SendGrid sending behind the per-organization provider setting, sandbox still the default, with masked credentials, a real subject line, provider idempotency keys, text+HTML parts, and retry/permanent-failure handling. SMS, WhatsApp and voice remain sandbox-only
-- **M9** (Lead Discovery): Not started
-- **M10** (Production Hardening): Partial — Phase 5 production foundation done (PostgreSQL adapter, migrations, env/secrets config, structured logging + error taxonomy, health/readiness, graceful shutdown). Rate limiting, webhook signature verification, cost controls, backups and data retention still open
-
-## Next Major Phases (Planned)
-
-1. ~~Frontend revamp: React + Vite + TailwindCSS + shadcn/ui~~ **In progress** — scaffold, pages, and core flows built in `client/`
-2. Executive dashboard with charts, KPIs, pipeline funnel
-3. ~~Leads & Intelligence UI revamp~~ **In progress** — Leads, Intelligence, Intelligence Detail, Outbound, Settings pages built
-4. Authentication & multi-tenancy
-5. ~~AI integration: multi-provider LLM~~ **Partial** — LLM provider abstraction built (Groq/OpenAI/OpenRouter/Ollama), AI status endpoint live; synthesis/recommendation/message generation with real LLM pending
-6. Inbound channels: web chat widget, WhatsApp, SMS, email with AI-powered responses
-7. Outbound real providers + visual campaign builder
-8. Voice: open source stack (LiveKit + Whisper + Piper TTS)
-9. Organization knowledge base & bot configuration
-10. Lead discovery plugins
-
-## Code Conventions
-
-- ESM modules throughout (`import`/`export`, no `require`)
-- 2-space indent, double quotes, no trailing commas (`.prettierrc.json`)
-- LF line endings, UTF-8 (`.editorconfig`)
-- Prefix IDs with entity type: `org_`, `lead_`, `imp_`, `snap_`, `act_`, `exec_`, `syn_`, `rec_`, `nba_`, `cam_`, `seq_`, `wfr_`, `cha_`, `ibe_`, `fut_`
-- ISO 8601 timestamps everywhere via `src/shared/time.js`
-- Test files: `test/<module-name>.test.js`
-- Custom lint (`scripts/lint.js`) and format check (`scripts/format-check.js`)
-
-## What NOT to Do
-
-- Don't couple domain logic to n8n or any specific provider
-- Don't store important state only in frontend, n8n, LLM context, or provider systems
-- Don't build outside the active milestone without justification
-- Don't weaken, skip, or delete failing tests
-- Don't introduce microservices prematurely — modular monolith first
-- Don't invent facts in AI agents — all intelligence must be evidence-grounded. The same rule binds `messageComposer.js`: outbound copy may personalise only from the lead's own record, and a shorter message is correct where an invented one is not
-- Don't put internal vocabulary (`rationale`, plan titles, "next best action") into anything a lead receives — that text is for the reviewer, not the customer
-- Don't allow AI to bypass domain policy or approval requirements
-- Don't make Lead Discovery a core dependency — it's an optional plugin
-- Don't reframe the product identity (it's not "AI SDR", "CRM replacement", or "sales OS")
-- Don't write engine-specific SQL — it must run on both SQLite and PostgreSQL
-- Don't read `process.env` outside `src/config.js` for anything environment-dependent
-- Don't edit or reorder a released migration — add a new one
-- Don't return a raw error message to a client for a 5xx; log it and return the request id
-
-## Reference Docs
-
-- `AGENTS.md` — Product identity (non-negotiable), engineering principles, agent roles, definition of done
-- `docs/PRODUCT.md` — Product vision, target customers, vertical examples, success criteria
-- `docs/ARCHITECTURE.md` — High-level architecture, module responsibilities, dependency direction, implementation notes per milestone
-- `docs/DOMAIN.md` — Domain model definitions (30+ entities with states and rules)
-- `docs/ROADMAP.md` — Milestones M0-M10 with deliverables and exit criteria
-- `docs/TASKS.md` — Task tracker with completion status and architecture change log
-- `docs/TESTING.md` — Testing strategy and QA checklists per milestone
-- `docs/DEPLOYMENT.md` — Supabase + Render deployment runbook, verification steps, operational notes
-- `render.yaml` — Render blueprint for the staging service (branch `mvp`)
-- `docs/status.html` — Live build-status tracker across the six phases to MVP
+A documentation task does not imply production deployment, real sends or customer-data mutation.

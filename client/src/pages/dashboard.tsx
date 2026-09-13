@@ -1,3 +1,5 @@
+import {LoadingScreen} from "@/components/loading-screen";
+import {SetupJourney} from "@/components/setup-journey";
 import {
   Users,
   UserCheck,
@@ -28,15 +30,17 @@ import {
   AreaChart,
   Area,
 } from "recharts";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Header } from "@/components/layout/header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { useDashboardData, useAttentionQueue } from "@/hooks/use-dashboard";
-import { useBulkRunIntelligence } from "@/hooks/use-intelligence";
+import { useIntelligenceSummary } from "@/hooks/use-intelligence";
+import { useAnalysisSubmission } from "@/hooks/use-analysis-jobs";
+import { AnalysisSubmissionRecovery } from "@/components/analysis-jobs";
+import { useMe } from "@/hooks/use-auth";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
 
 const CHART_COLORS = [
   "#0f766e",
@@ -74,38 +78,9 @@ export function DashboardPage() {
 }
 
 function AnalyzeEligibleButton() {
-  const bulkRun = useBulkRunIntelligence();
-  const [running, setRunning] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const handleClick = async () => {
-    if (running) return;
-    setRunning(true);
-    setMessage(null);
-    try {
-      const result = await bulkRun.mutateAsync(undefined);
-      setMessage(`Analyzed ${result.processed} lead${result.processed !== 1 ? "s" : ""}.`);
-    } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : "Bulk analysis failed");
-    } finally {
-      setRunning(false);
-      setTimeout(() => setMessage(null), 6000);
-    }
-  };
-
-  return (
-    <div className="flex items-center gap-2">
-      {message && <span className="text-xs text-muted hidden sm:inline">{message}</span>}
-      <button
-        onClick={handleClick}
-        disabled={running}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-brand text-white rounded-lg hover:bg-brand-strong transition-colors cursor-pointer disabled:opacity-50"
-      >
-        {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-        {running ? "Analyzing..." : "Analyze eligible leads"}
-      </button>
-    </div>
-  );
+  const submission = useAnalysisSubmission(), query = useIntelligenceSummary(), { data: me } = useMe();
+  const ids = (query.data?.eligible_lead_ids || []).slice(0, 50);
+  return <div className="max-w-xl space-y-2"><div className="flex flex-wrap items-center gap-2"><button type="button" disabled={me?.user.role !== "OWNER" || submission.busy || !!submission.pending || query.isError || !ids.length} onClick={() => void submission.submit(ids)} className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">{submission.busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}{submission.busy ? "Queuing analysis..." : ids.length ? "Analyze " + ids.length + " eligible leads" : "No leads need analysis"}</button>{submission.job && <Link className="text-sm text-brand underline" to={"/intelligence?view=jobs&job=" + submission.job.id}>View saved analysis job</Link>}</div><AnalysisSubmissionRecovery submission={submission} /></div>;
 }
 
 function DashboardContent() {
@@ -123,34 +98,9 @@ function DashboardContent() {
     );
   }
 
-  if (isLoading || !data) {
-    return (
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div
-              key={i}
-              className="bg-surface border border-line rounded-xl p-4 h-[100px] animate-pulse"
-            />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div
-              key={i}
-              className="bg-surface border border-line rounded-xl h-64 animate-pulse"
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  if (isLoading || !data) return <LoadingScreen compact title="Loading your dashboard" />;
 
   const m = data;
-  const conversionRate =
-    m.leads.total > 0
-      ? ((m.leads.converted_count / m.leads.total) * 100).toFixed(1)
-      : "0.0";
 
   const sourceData = m.sources.map(({ source, count }) => ({
     name: formatLabel(source),
@@ -166,6 +116,7 @@ function DashboardContent() {
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-5">
+      <SetupJourney/>
       {/* KPI Row */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <MetricCard
@@ -182,11 +133,11 @@ function DashboardContent() {
           sublabel={`${m.leads.total > 0 ? ((m.leads.active_count / m.leads.total) * 100).toFixed(0) : 0}% of total`}
         />
         <MetricCard
-          label="Converted"
-          value={m.leads.converted_count}
+          label="Reported wins"
+          value={m.business_outcomes.by_kind.WON.enquiries}
           icon={TrendingUp}
           accent="ok"
-          sublabel={`${conversionRate}% rate`}
+          sublabel="Active enquiries with a recorded won outcome"
         />
         <MetricCard
           label="Pending Review"

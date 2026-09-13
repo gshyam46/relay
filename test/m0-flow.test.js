@@ -1,4 +1,5 @@
 import test from "node:test";
+import { advanceToNextAttempt } from "./helpers/review.js";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -36,7 +37,8 @@ test("M0 flow creates a lead, generates intelligence, executes an action, and co
     action_id: action.id,
     provider_event_id: "provider-event-1",
     status: "COMPLETED",
-    provider_reference: "provider-ref-1"
+    action_execution_id: action.executions[0].id,
+    provider_reference: action.executions[0].provider_reference
   });
   assert.equal(callback.duplicate, false);
   assert.equal(callback.action.status, "COMPLETED");
@@ -44,9 +46,9 @@ test("M0 flow creates a lead, generates intelligence, executes an action, and co
   const leadAfterCallback = await client.get(
     `/api/leads/${leadResponse.lead.id}?organization_id=${organization.organization.id}`
   );
-  assert.equal(leadAfterCallback.lead.status, "ACTIVE");
+  assert.equal(leadAfterCallback.lead.status, "NORMALIZED");
   assert.equal(leadAfterCallback.lead.actions[0].executions[0].status, "COMPLETED");
-  assert.equal((await client.db.get("SELECT status FROM leads WHERE id = ?", [leadResponse.lead.id])).status, "ACTIVE");
+  assert.equal((await client.db.get("SELECT status FROM leads WHERE id = ?", [leadResponse.lead.id])).status, "NORMALIZED");
   assert.equal((await client.db.get("SELECT status FROM actions WHERE id = ?", [action.id])).status, "COMPLETED");
 });
 
@@ -149,11 +151,13 @@ test("retryable handler failure moves action to retrying and succeeds on the nex
     mock_behavior: "TRANSIENT_FAIL_ONCE"
   });
 
+  await client.approve(manualAction.action.id);
   const firstRun = await client.post("/api/worker/run", {});
   const failedExecution = firstRun.executed_actions.find((item) => item.action_id === manualAction.action.id);
   assert.equal(failedExecution.status, "RETRYING");
   assert.equal(failedExecution.retryable, true);
 
+  await advanceToNextAttempt(client.services, manualAction.action.id);
   const secondRun = await client.post("/api/worker/run", {});
   const retriedExecution = secondRun.executed_actions.find((item) => item.action_id === manualAction.action.id);
   assert.equal(retriedExecution.status, "EXECUTING");
@@ -177,6 +181,7 @@ test("non-retryable execution failure blocks the action", async (t) => {
     mock_behavior: "PERMANENT_FAILURE"
   });
 
+  await client.approve(manualAction.action.id);
   const workerResult = await client.post("/api/worker/run", {});
   const failedExecution = workerResult.executed_actions.find((item) => item.action_id === manualAction.action.id);
   assert.equal(failedExecution.status, "BLOCKED");
@@ -241,7 +246,7 @@ test("persisted state survives application restart", async (t) => {
       `/api/leads/${leadResponse.lead.id}?organization_id=${organization.organization.id}`
     );
 
-    assert.equal(restartedLead.lead.status, "ACTIVE");
+    assert.equal(restartedLead.lead.status, "NORMALIZED");
     assert.equal(restartedLead.lead.intelligence.next_best_action, "CREATE_HUMAN_TASK");
     assert.equal(restartedLead.lead.intelligence.recommendation.action_type, "READY_FOR_RESEARCH");
     assert.equal(restartedLead.lead.actions[0].status, "COMPLETED");
@@ -284,7 +289,14 @@ test("lead creation requires a session and validates malformed fields", async (t
     })
   });
   assert.equal(invalidPhone.status, 400);
-  assert.match((await invalidPhone.json()).error, /phone must include an explicit country code/);
+  assert.match((await invalidPhone.json()).error, /without letters, extensions or multiple contacts/);
+  const localPhone = await client.rawFetch("/api/leads", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Unspecified phone region", phone: "9876543210" })
+  });
+  assert.equal(localPhone.status, 400);
+  assert.match((await localPhone.json()).error, /phone must include an explicit country code/);
+  assert.equal((await client.db.get("SELECT COUNT(*) AS n FROM leads")).n, 0);
   assert.ok(organization.organization.id); // keeps the registered org referenced/used above
 });
 

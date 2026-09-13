@@ -8,7 +8,7 @@ export interface FollowUp {
   action_id: string | null;
   reason: string;
   status: string;
-  due_at: string;
+  due_at: string | null;
   created_at: string;
   completed_at: string | null;
   escalated: boolean | number;

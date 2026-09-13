@@ -38,17 +38,20 @@ test("outbound execution records channel activity and schedules idempotent follo
     mock_behavior: "SUCCESS"
   });
 
-  await client.post(`/api/actions/${action.action.id}/execute`, {
+  await client.approve(action.action.id);
+  const dispatched = await client.post(`/api/actions/${action.action.id}/execute`, {
     organization_id: organization.organization.id
   });
   const beforeCallback = await client.get(`/api/leads/${lead.lead.id}/timeline?organization_id=${organization.organization.id}`);
   await client.post(`/api/actions/${action.action.id}/callback`, {
     organization_id: organization.organization.id,
+    action_execution_id: dispatched.execution_result.execution.id,
     provider_event_id: "channel-outbound-callback",
     status: "COMPLETED"
   });
   await client.post(`/api/actions/${action.action.id}/callback`, {
     organization_id: organization.organization.id,
+    action_execution_id: dispatched.execution_result.execution.id,
     provider_event_id: "channel-outbound-callback",
     status: "COMPLETED"
   });
@@ -115,11 +118,13 @@ test("opt-out inbound event stops open follow-ups and updates lead state", async
     type: "SEND_EMAIL",
     mock_behavior: "SUCCESS"
   });
-  await client.post(`/api/actions/${action.action.id}/execute`, {
+  await client.approve(action.action.id);
+  const dispatched = await client.post(`/api/actions/${action.action.id}/execute`, {
     organization_id: organization.organization.id
   });
   await client.post(`/api/actions/${action.action.id}/callback`, {
     organization_id: organization.organization.id,
+    action_execution_id: dispatched.execution_result.execution.id,
     provider_event_id: "opt-out-outbound-complete",
     status: "COMPLETED"
   });

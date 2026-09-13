@@ -1,3 +1,4 @@
+import type { ReplyInterpretation } from "@/types/intelligence-generation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -16,6 +17,7 @@ export interface ChannelMessage {
   provider: string;
   occurred_at: string;
   classification_event_type: string | null;
+  interpretation?: ReplyInterpretation | null;
   classification_confidence: "HIGH" | "MEDIUM" | "LOW" | null;
   suggested_next_step: string | null;
 }
@@ -77,6 +79,7 @@ export function useSimulateInbound() {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["dashboard-attention"] });
       qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["lead-directory"] });
     },
   });
 }

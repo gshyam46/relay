@@ -60,6 +60,8 @@ test("local synthesis agent satisfies the M2.2 evaluation fixture", async () => 
           idempotency_key: `evaluation-${item.id}`,
           evidence_items: item.research_evidence.map((evidence) => companyEvidence(evidence))
         });
+        assert.equal((await services.intelligenceService.assessLead(lead)).snapshot, null);
+        await services.intelligenceService.runForLead(lead);
       }
 
       const synthesis = await services.synthesisService.runForLead(lead);
@@ -104,7 +106,7 @@ test("synthesis run persists evidence-grounded qualification without outbound si
     email: "priya@example.com",
     company: "Northstar Interiors"
   });
-  const snapshot = await client.post(`/api/leads/${leadResponse.lead.id}/intelligence/run`, {
+  let snapshot = await client.post(`/api/leads/${leadResponse.lead.id}/intelligence/run`, {
     organization_id: organization.organization.id
   });
   await client.post(`/api/leads/${leadResponse.lead.id}/research-evidence`, {
@@ -113,6 +115,10 @@ test("synthesis run persists evidence-grounded qualification without outbound si
     idempotency_key: "synthesis-research",
     evidence_items: [companyEvidence()]
   });
+  const originalSnapshotId = snapshot.intelligence.id;
+  snapshot = await refreshAfterResearch(client, leadResponse.lead.id, organization.organization.id);
+  assert.notEqual(snapshot.intelligence.id, originalSnapshotId);
+  assert.equal((await client.db.get("SELECT status FROM intelligence_snapshots WHERE id=?", [originalSnapshotId])).status, "SUPERSEDED");
 
   const result = await client.post(`/api/leads/${leadResponse.lead.id}/synthesis/run`, {
     organization_id: organization.organization.id
@@ -204,6 +210,7 @@ test("new staged research evidence creates a new synthesis version and preserves
     idempotency_key: "new-evidence-for-synthesis",
     evidence_items: [companyEvidence({ claim_value: "Restart Co" })]
   });
+  await refreshAfterResearch(client, leadResponse.lead.id, organization.organization.id);
   const second = await client.post(`/api/leads/${leadResponse.lead.id}/synthesis/run`, {
     organization_id: organization.organization.id
   });
@@ -291,7 +298,15 @@ function companyEvidence(overrides = {}) {
     claim_field: "COMPANY_NAME",
     claim_value: "Northstar Interiors",
     confidence: "MEDIUM",
+    evidence_timestamp: new Date(Date.now() - 1000).toISOString(),
     metadata: { reviewed_by: "qa" },
     ...overrides
   };
+}
+
+async function refreshAfterResearch(client, leadId, organizationId) {
+  const outdated = await client.get(`/api/leads/${leadId}/intelligence`);
+  assert.equal(outdated.intelligence, null);
+  assert.equal(outdated.currentness.state, "OUTDATED");
+  return client.post(`/api/leads/${leadId}/intelligence/run`, { organization_id: organizationId });
 }

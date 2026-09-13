@@ -23,13 +23,12 @@ services:
     # that would make the build break the day this is copied to production.
     buildCommand: npm ci && npm --prefix client ci --include=dev && npm --prefix client run build
 
-    # Migrations run BEFORE the new instance replaces the old one, so a bad
-    # migration fails the deploy instead of taking the service down. The script
-    # exits non-zero if anything is still pending.
-    #
-    # preDeployCommand requires a paid instance type; it is unavailable on the
-    # free plan, which is one of the reasons this uses Starter.
-    preDeployCommand: npm run db:migrate
+    # Run the authorized migration job separately before deploying this release.
+    # Supply MIGRATION_DATABASE_URL to that controlled job only, never to this
+    # web service. The job/roles are not provisioned by this blueprint.
+    # This check uses the runtime DATABASE_URL and never applies migrations.
+    # preDeployCommand requires an eligible paid instance type.
+    preDeployCommand: npm run verify:deploy
 
     startCommand: npm start
 
@@ -47,11 +46,34 @@ services:
       - key: NODE_VERSION
         value: "24"
 
-      # Supabase connection string — the POOLER one (port 6543), because a web
-      # service opens many short-lived connections and Supabase's direct port
-      # exhausts quickly. Set in the dashboard; never commit it.
+      # Application-role PostgreSQL connection, without schema migration rights.
+      # Persistent Node: use direct networking or a session pool appropriate to
+      # the host. Budget all process pools; transaction pooling is not automatic.
       - key: DATABASE_URL
         sync: false
+      - key: DATABASE_SSL
+        value: enable
+      # Optional custom trust: set DATABASE_SSL_CA as a multiline PEM secret if
+      # the selected database requires it. Never disable verification.
+      - key: DATABASE_MAX_CONNECTIONS
+        value: "10"
+      - key: DATABASE_CONNECTION_TIMEOUT_MS
+        value: "10000"
+      - key: DATABASE_STATEMENT_TIMEOUT_MS
+        value: "15000"
+      - key: DATABASE_QUERY_TIMEOUT_MS
+        value: "20000"
+      - key: DATABASE_IDLE_TRANSACTION_TIMEOUT_MS
+        value: "15000"
+
+      # Required actual HTTPS origin and independently generated 32..4096-byte
+      # admission secret. Neither is inherited from proxy headers or DB settings.
+      - key: PUBLIC_APP_ORIGIN
+        sync: false
+      - key: AUTH_RATE_LIMIT_SECRET
+        sync: false
+      - key: OUTBOUND_DISPATCH_ENABLED
+        value: "false"
 
       - key: LOG_LEVEL
         value: info
@@ -65,15 +87,13 @@ services:
       - key: FORCE_SECURE_COOKIES
         value: "true"
 
-      # Single instance for staging, so the in-process worker is correct here.
-      # Before scaling to more than one instance, set this to false on the extra
-      # instances (or split the worker into its own service) — otherwise several
-      # instances race to execute the same actions.
+      # Keep automated dispatch disabled until L1 execution gates pass.
+      # A single process does not prevent API/worker or concurrent-request races.
       - key: WORKER_ENABLED
-        value: "true"
+        value: "false"
 
-      # Optional. Without it the deterministic local agents are used and the
-      # product still works end to end.
+      # Optional. Without it the deterministic local agents support sandbox
+      # intelligence. Customer workflow and launch acceptance remain in docs/TASKS.md.
       - key: LLM_PROVIDER
         sync: false
       - key: GROQ_API_KEY

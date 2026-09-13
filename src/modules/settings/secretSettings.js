@@ -14,7 +14,7 @@
  */
 
 /** Setting keys whose values are credentials. */
-const SECRET_KEYS = new Set(["api_key", "api_secret", "auth_token", "password", "client_secret", "private_key"]);
+const SECRET_KEYS = new Set(["bot_token", "api_key", "api_secret", "auth_token", "password", "client_secret", "private_key"]);
 
 /**
  * What a configured secret reads back as. A fixed sentinel rather than a

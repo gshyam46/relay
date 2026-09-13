@@ -31,6 +31,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Intelligence regression gate
+        run: npm run eval:intelligence -- --check
+
   # The engine staging and production actually run. Without this job, a query
   # that only works on SQLite reaches production; the two dialects are kept
   # compatible by the PostgreSQL client's translation layer, and this is what
@@ -72,6 +75,7 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/relay_test
           TEST_DATABASE_SSL: disable
+          TEST_DATABASE_DISPOSABLE: "1"
         run: npm run test:pg
 
   # A broken frontend build means the server has nothing to serve — this failed

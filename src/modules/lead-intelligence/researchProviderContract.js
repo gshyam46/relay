@@ -1,3 +1,4 @@
+import { instant } from "../business-context/businessContextContract.js";
 import { CLAIM_FIELDS, CONFIDENCE, EVIDENCE_SOURCE_TYPES } from "./intelligenceContract.js";
 
 export const RESEARCH_EVIDENCE_ADAPTER_TYPES = Object.freeze({
@@ -39,8 +40,8 @@ export function normalizeResearchEvidenceItem(item = {}, { provider_key }) {
     raw_content_reference: normalizeOptionalText(item.raw_content_reference),
     claim_field: normalizeRequiredText(item.claim_field),
     claim_value: normalizeRequiredText(item.claim_value),
-    evidence_timestamp: normalizeOptionalText(item.evidence_timestamp),
-    retrieved_at: normalizeOptionalText(item.retrieved_at),
+    evidence_timestamp: normalizeTimestamp(item.evidence_timestamp),
+    retrieved_at: normalizeTimestamp(item.retrieved_at),
     confidence: normalizeConfidence(item.confidence),
     metadata: {
       provider_key,
@@ -66,6 +67,7 @@ export function validateResearchEvidenceItem(item) {
   if (!Object.values(CONFIDENCE).includes(item.confidence)) {
     errors.push("confidence must be LOW, MEDIUM, or HIGH.");
   }
+  for (const [key, maximum] of Object.entries({ source_reference: 500, source_url: 2048, title: 500, raw_content_reference: 500, claim_field: 100, claim_value: 500 })) if (typeof item[key] === "string" && item[key].length > maximum) errors.push(key + " exceeds its supported text limit.");
   if (item.source_url && !/^https?:\/\/\S+$/i.test(item.source_url)) {
     errors.push("source_url must be an http or https URL.");
   }
@@ -99,4 +101,9 @@ function normalizeMetadata(value) {
     return {};
   }
   return value;
+}
+
+function normalizeTimestamp(value) {
+  if (value === null || value === undefined || value === "") return null;
+  return instant(value, "research timestamp");
 }

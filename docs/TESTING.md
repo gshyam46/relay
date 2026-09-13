@@ -1,785 +1,409 @@
-# Testing Strategy
-
-## Principle
-
-The product requires two independent forms of validation:
-
-1. Automated engineering verification.
-2. Human product verification.
-
-Both are required.
-
----
-
-# 1. Unit Tests
-
-Use for deterministic business logic.
-
-Examples:
-
-- normalization
-- identity resolution
-- scoring
-- policy
-- state transitions
-- idempotency
-- retry classification
-- segmentation rules
-
----
-
-# 2. Integration Tests
-
-Validate module boundaries.
-
-Examples:
-
-- API → database
-- domain → event
-- worker → action
-- action → handler
-- handler → adapter
-- webhook → application state
-
----
-
-# 3. Contract Tests
-
-Validate stable interfaces.
-
-Important contracts include:
-
-- Lead
-- LeadCandidate
-- IntelligenceSnapshot
-- Agent results
-- NextBestAction
-- Action
-- ActionExecution
-- webhook payloads
-- provider adapters
-
-Provider implementations must satisfy the internal contract.
-
----
-
-# 4. End-to-End Tests
-
-Validate complete product workflows.
-
-Primary example:
-
-```text
-Import Lead
- ↓
-Normalize
- ↓
-Generate Intelligence
- ↓
-Qualify / Score
- ↓
-Recommend Next Best Action
- ↓
-Approve
- ↓
-Execute
- ↓
-Receive Event
- ↓
-Update Lead Intelligence
- ↓
-Determine Next Action
-```
-
----
-
-# 5. Lead Intelligence Evaluation
-
-Lead Intelligence is a core product capability and must be evaluated independently from outbound execution.
-
-Evaluate:
-
-## Enrichment
-
-- accuracy
-- completeness
-- source reliability
-
-## Research
-
-- factual accuracy
-- evidence quality
-- relevance
-- stale/contradictory information handling
-
-## Signals
-
-- signal correctness
-- relevance
-- false positives
-- false negatives
-
-## Qualification
-
-- qualification accuracy
-- consistency
-- handling of missing information
-
-## Scoring
-
-- ranking quality
-- consistency
-- explainability
-- sensitivity to important signals
-
-## Segmentation
-
-- correct membership
-- boundary cases
-- conflicting attributes
-
-## Personalization
-
-- relevance
-- factual grounding
-- usefulness
-- avoidance of invented claims
-
-## Next Best Action
-
-- action relevance
-- policy compliance
-- contextual appropriateness
-- consistency
-
-A successful outbound execution does not prove that the underlying Lead Intelligence was correct.
-
----
-
-# 6. AI Agent Testing
-
-Every agent should have:
-
-- representative inputs
-- expected schema
-- edge cases
-- incomplete data
-- contradictory data
-- failure cases
-- policy-sensitive cases
-
-Agent outputs must be machine validated.
-
-Do not test only whether an LLM request succeeded.
-
----
-
-# 7. Failure Testing
-
-Important external operations must test:
-
-- timeout
-- network failure
-- malformed response
-- provider error
-- rate limit
-- duplicate webhook
-- duplicate action
-- worker restart
-- partial failure
-- callback failure
-
----
-
-# 8. Idempotency Testing
-
-Prove that repeated requests do not produce duplicate side effects.
-
-Examples:
-
-```text
-same action submitted twice
-same webhook received twice
-same provider event received twice
-worker retry after timeout
-```
-
-Expected behavior must be deterministic.
-
----
-
-# 9. Outbound Automation Testing
-
-Test:
-
-- action planning
-- policy
-- approval
-- scheduling
-- sequence progression
-- wait states
-- conditions
-- stop conditions
-- handler execution
-- retries
-- provider failures
-- inbound responses
-
----
-
-# 10. Human QA
-
-Human QA validates aspects that automated tests cannot reliably judge.
-
-## Lead Intelligence
-
-A human should assess:
-
-- Does the lead summary make sense?
-- Is the displayed readiness clearly a data-readiness measure rather than a lead score?
-- Are important signals identified?
-- Is research useful?
-- Are explanations understandable?
-- Is personalization actually relevant?
-- Does the recommended next action make sense?
-
-## Outbound Automation
-
-A human should assess:
-
-- Is the proposed action appropriate?
-- Is the message useful?
-- Is the workflow understandable?
-- Are approval controls clear?
-- Are follow-ups sensible?
-- Does the system stop when it should?
-- Are failures understandable?
-
-## UX
-
-Verify:
-
-- navigation
-- loading states
-- errors
-- empty states
-- approvals
-- lead intelligence presentation
-- action execution visibility
-
----
-
-# 11. Real-World Data Testing
-
-Use deliberately messy datasets containing:
-
-- duplicate leads
-- missing names
-- missing phones
-- invalid emails
-- inconsistent capitalization
-- different phone formats
-- incomplete addresses
-- mixed-language text
-- empty rows
-- malformed rows
-- conflicting information
-- stale information
-
-The system must degrade gracefully.
-
----
-
-# 12. Regression Testing
-
-When a bug is found:
-
-1. reproduce it
-2. create a regression test
-3. fix it
-4. run relevant tests
-5. perform human QA if user-visible
-
-Never repeatedly fix the same bug only through manual intervention.
-
----
-
-# 13. Milestone Acceptance
-
-Every milestone must define:
-
-### Automated
-
-- unit tests
-- integration tests
-- contract tests where relevant
-- end-to-end tests where relevant
-- failure tests where relevant
-
-### Human
-
-- realistic workflow
-- UX
-- intelligence quality where applicable
-- edge cases
-- failure/recovery behavior
-
----
-
-# 14. Definition of Test Complete
-
-A task is test-complete when:
-
-- relevant automated tests exist
-- tests pass
-- failure behavior is covered where applicable
-- contracts are validated
-- human QA requirements are documented
-- required human QA has passed
-- no known regression exists
-
----
-
-# Current M0 Test Command
-
-Run the current automated suite with:
-
-```powershell
-npm.cmd test
-```
-
-The suite currently covers the M0 walking skeleton:
-
-- API health and validation behavior.
-- Duplicate organization validation.
-- Lead creation through the API.
-- LeadCreated event processing by the worker.
-- Initial Lead Intelligence snapshot generation.
-- Next-best-action planning.
-- Handler execution through the mock n8n adapter.
-- Callback completion.
-- Retryable execution failure.
-- Non-retryable execution failure.
-- Idempotent action planning.
-- Duplicate callback handling.
-- Tenant isolation for lead list and lead detail.
-- Persisted state after application restart.
-- Invalid lead input.
-- Invalid action input.
-- Unit tests for lead and action validation contracts.
-- UI state derivation for no organization selected, loading, empty, success, and loading failure.
-- Product navigation labels.
-- Product-facing lead display labels.
-- Overview metrics derived from real lead/action state.
-
-M1 Lead Data Foundation coverage adds:
-
-- CSV flexible headers.
-- Quoted CSV fields.
-- Empty CSV rows.
-- Extra CSV columns preserved as raw data.
-- Malformed CSV issue reporting.
-- Email trim/lowercase normalization.
-- India phone normalization.
-- US phone normalization.
-- International-only phone validation.
-- Invalid phone validation.
-- Source normalization.
-- Preview creates no leads.
-- Raw import values preserved.
-- Normalized import values produced.
-- Invalid import rows rejected from commit.
-- Imported rows accepted without a person name when company + contact exists.
-- Existing email duplicate candidates.
-- Existing phone duplicate candidates.
-- Duplicate candidates within the same CSV.
-- Possible name + company duplicate candidates.
-- Duplicate candidates are not merged or skipped automatically.
-- Valid selected rows become leads.
-- Lead provenance is recorded.
-- Repeated commit is idempotent.
-- Partial commit failure can retry safely.
-- Import state survives application restart.
-- Organization-scoped import list/detail/commit behavior.
-- Imported leads, rows, and issues remain organization scoped.
-- Lead search.
-- Lead source and status filtering.
-- UI state derivation for import history, preview errors, duplicate preview, commit success/failure, and empty search results.
-
-M1.1 UX refinement coverage adds:
-
-- Workspace-facing language for tenant selection states.
-- Upload, review, and complete import presentation states.
-- Human-readable import state labels.
-- Ready to import, needs attention, duplicate warning, selected, and imported counts.
-- Invalid preview rows are not selectable.
-- Duplicate-warning rows remain selectable.
-- Normalized value disclosure state for original vs stored values.
-- Human-readable validation issue labels.
-- Empty search result presentation.
-
-M2.0 AI Lead Intelligence Foundation coverage adds:
-
-- Deterministic intelligence snapshot creation.
-- Explicit separation of lead status, intelligence status, data readiness, recommendation, and outbound state.
-- A lead with enough data can be ready for intelligence while still not analyzed.
-- Intelligence failure is persisted as a failed state and can be retried safely.
-- Snapshot versioning and history preservation.
-- Evidence creation and association with lead/snapshot.
-- Claim creation with confidence and evidence references.
-- Signal creation from current Lead Data Foundation data.
-- Company data is represented as customer-provided, not externally identified or verified.
-- Qualification foundation creation.
-- Conservative next-step recommendation creation without outbound execution coupling.
-- Email presence alone does not create a fake contact recommendation.
-- Data readiness for leads with email, phone, company, complete contact information, missing contact information, and duplicate warnings.
-- CSV import provenance becoming intelligence evidence.
-- Human-readable CSV provenance display mapping file and row information.
-- Duplicate warnings from import provenance are visible on lead detail.
-- Repeated intelligence runs are idempotent for the same lead data version.
-- Retry after failed intelligence generation does not create uncontrolled duplicate children.
-- New lead data versions create new snapshots.
-- Organization A cannot read or trigger organization B intelligence.
-- Intelligence API validation for missing/wrong organization.
-- UI state derivation for no selected lead, loading, not analyzed, error, available intelligence, needs data, evidence display, recommendation display, readiness labels, duplicate warning display, empty outbound activity, and quoted CSV values.
-- Customer Activity and Outbound views do not display M0 mock executions as real outbound activity.
-
-M2.0 deliberately does not test real research, scraping, enrichment APIs, LLM calls, discovery, or outbound provider execution because those capabilities are not implemented in this milestone.
-
-M2.1 Research / Evidence Adapter coverage adds:
-
-- Normalized research evidence contract validation.
-- Approved local/manual adapter normalization.
-- Unsupported claim fields rejected.
-- Invalid source URLs rejected.
-- Research evidence ingestion persistence.
-- Research evidence item staging.
-- Ingestion idempotency.
-- Failed ingestion can retry safely.
-- Research evidence state survives application restart.
-- Organization A cannot read or submit organization B research evidence.
-- Research evidence ingestion does not directly mutate intelligence snapshots, claims, signals, recommendations, actions, or outbound execution state.
-
-M2.1 deliberately does not test real web research, scraping, enrichment APIs, LLM calls, discovery, provider credentials, or outbound provider execution because those capabilities are not implemented in this milestone.
-
-M2.2 Structured Synthesis + Qualification coverage adds:
-
-- Structured synthesis output contract validation.
-- Evidence-grounding requirements for findings, qualification, and recommendations.
-- A small M2.2 synthesis evaluation fixture.
-- Local synthesis agent evaluation against ready, research-backed, and incomplete foundation cases.
-- Synthesis requires a current ready Lead Intelligence snapshot.
-- Synthesis consumes staged approved research evidence without mutating outbound state.
-- Repeated synthesis runs are idempotent for the same snapshot and staged evidence.
-- Failed synthesis runs can retry safely.
-- New staged research evidence creates a new synthesis version and supersedes the prior ready run.
-- Organization A cannot read or trigger organization B synthesis.
-- Synthesis state survives application restart.
-
-M2.2 deliberately does not test real LLM calls, provider credentials, web research, scraping, search APIs, enrichment APIs, discovery, segmentation, personalization, real next-best-action planning, or outbound provider execution because those capabilities are not implemented in this milestone.
-
-M2.3 Recommendation Intelligence coverage adds:
-
-- Recommendation output contract validation.
-- Evidence-grounding requirements for attention priority, segment, personalization context, and recommended next step.
-- Recommendation requires a current ready synthesis.
-- Ready leads can produce attention priority, segment, personalization context, and a recommended next step.
-- Incomplete leads recommend gathering more data and stay low attention.
-- Duplicate-warning leads recommend duplicate review instead of outbound preparation.
-- Recommendation generation does not create outbound actions.
-- Repeated recommendation runs are idempotent for the same synthesis.
-- Failed recommendation runs can retry safely.
-- New synthesis creates a new recommendation version and supersedes the prior ready run.
-- Organization A cannot read or trigger organization B recommendations.
-- Recommendation state survives application restart.
-- UI state exposes recommendation priority, segment, recommended next step, and personalization labels.
-
-M2.3 deliberately does not test the M3 action planner, policy engine, approval workflow, outbound execution, real provider calls, discovery, or autonomous sending because those capabilities are not implemented in this milestone.
-
-M3 Next Best Action Planning coverage adds:
-
-- Next-best-action output contract validation.
-- Planning requires current ready M2.3 recommendation intelligence.
-- Ready recommendation intelligence creates a policy-checked plan.
-- Incomplete recommendation intelligence creates a gather-more-data plan.
-- Duplicate-warning recommendation intelligence creates a duplicate-review plan.
-- Opted-out leads produce blocked plans.
-- Plans persist policy decision, approval requirement, evidence references, and non-executable execution contract.
-- Planning does not create executable outbound actions.
-- Repeated planning is idempotent for the same recommendation input.
-- Failed planning can retry safely.
-- New recommendation intelligence creates a new plan version and preserves history.
-- Organization A cannot read or plan organization B next-best-action records.
-- Plan state survives application restart.
-- UI state exposes not-ready, planned, policy, approval, evidence, and non-executable planning labels.
-
-M3 deliberately does not test outbound execution, approval queues, real provider calls, n8n calls, message sending, sequencing, discovery, or autonomous sending because those capabilities belong to later milestones.
-
-M4 Outbound Automation Foundation coverage adds:
-
-- Next-best-action plans can idempotently create one outbound action.
-- Approval-required plans create `AWAITING_APPROVAL` actions and do not execute before M5 approval workflow exists.
-- Non-approval actions can execute through the sandbox handler boundary.
-- Execution attempts are persisted.
-- Repeated execution calls for in-progress actions do not create duplicate attempts.
-- Retryable execution failure moves the action to `RETRYING` and can execute successfully on retry.
-- Non-retryable execution failure blocks the action.
-- Scoped callbacks complete actions and executions.
-- Duplicate callbacks do not duplicate side effects.
-- Outbound action, execution, and callback state survive restart.
-- Organization A cannot prepare, execute, callback, or read organization B outbound activity.
-- UI state exposes action type, approval state, execution state, callback count, and error state.
-
-M4 deliberately does not test real outbound providers, production n8n workflows, approval queues, approve/reject/edit workflow, campaigns, sequences, follow-up automation, real message generation, discovery, or autonomous sending because those capabilities belong to later milestones.
-
-M5 Human-in-the-Loop coverage adds:
-
-- Approval-required actions create one pending approval request.
-- Approval queue reads are organization scoped.
-- Approval detail reads are organization scoped.
-- Approving an action moves it to `APPROVED`.
-- Repeated approval is idempotent.
-- Approved actions can proceed through the existing sandbox execution foundation.
-- Edit-and-approve stores reviewer edits without losing action metadata.
-- Rejecting an action moves it to `BLOCKED`.
-- Rejected actions cannot be approved later in M5.
-- Invalid approval input is rejected with a validation error.
-- Approval state survives application restart.
-
-M5 deliberately does not test real outbound providers, authentication, user assignment, real message editing, production n8n workflows, campaigns, sequences, bulk sending, or follow-up automation because those capabilities belong to later milestones.
-
-M6/M7 Channel Workflow Foundation coverage adds:
-
-- Outbound sandbox execution records one persisted channel message.
-- Completed sandbox email/WhatsApp activity schedules one planned no-response follow-up.
-- Duplicate execution callbacks do not create duplicate channel messages or follow-ups.
-- Mock inbound events create persisted inbound events and inbound channel messages.
-- Duplicate inbound provider event ids are idempotent.
-- Question and unknown inbound events create due human-review follow-ups.
-- Positive, negative, and opt-out inbound events stop open follow-ups.
-- Opt-out inbound events update lead state to `OPTED_OUT`.
-- Lead timeline reads combine channel messages and follow-ups.
-- Follow-up queue reads are organization scoped.
-- Organization A cannot read, write, or complete organization B channel/follow-up records.
-- Channel messages, inbound events, and follow-ups survive application restart.
-- UI state exposes follow-up queue and lead timeline labels without provider-specific implementation wording.
-
-M6/M7 foundation deliberately does not test campaign sequencing, scheduler loops, conditional branching, real WhatsApp/email/SMS/voice/CRM providers, production n8n workflows, autonomous bots, bulk outbound, AI reply classification, or automatic Lead Intelligence regeneration from inbound events because those capabilities are not implemented yet.
-
-M6 Sequence and Follow-Up Foundation coverage adds:
-
-- Campaigns can be created and listed by organization.
-- Sequences can be created with ordered steps.
-- Multi-lead enrollment is idempotent by organization, sequence, and lead.
-- Due workflow runner processes active and waiting runs.
-- Wait steps delay later work until due.
-- Approval-required sequence steps create normal approval-gated actions.
-- Approved sequence actions continue through the existing sandbox execution boundary.
-- Sequence step action creation is idempotent by workflow run and step.
-- Inbound positive replies stop open workflow runs.
-- Tenant isolation prevents cross-organization sequence enrollment and run visibility.
-- Campaign, sequence, step, and workflow run state survives restart.
-
-M6 foundation deliberately does not test a full visual sequence builder, production scheduler service, branch editor, real providers, real n8n workflows, bulk outbound sending, autonomous bots, or AI reply classification because those capabilities are not implemented yet.
-
-## M2.0 Human QA Checklist
-
-1. Create/select workspace.
-2. Open Leads.
-3. Verify lead status and intelligence status are distinct.
-4. Select a lead that has never been analyzed.
-5. Confirm it says "Not analyzed yet."
-6. Confirm data readiness is separate.
-7. Run intelligence.
-8. Confirm intelligence becomes available.
-9. Verify only customer-provided information is shown.
-10. Verify evidence is human-readable.
-11. Verify no fake verification claims.
-12. Verify duplicate warning consistency.
-13. Verify incomplete lead says "Needs more data."
-14. Verify email-only lead does not receive fake qualification.
-15. Verify no fake outbound activity appears.
-16. Verify long lead list scrolls naturally.
-17. Verify detail panel fits viewport.
-18. Verify mobile layout.
-19. Verify quoted CSV company/email display correctly.
-20. Refresh.
-21. Restart server.
-22. Verify persistence.
-23. Run duplicate intelligence request.
-24. Verify idempotency.
-
-## M2.2 Human QA Checklist
-
-1. Select a lead with generated Lead Intelligence.
-2. Run synthesis through the M2.2 API.
-3. Verify the summary is understandable and evidence-grounded.
-4. Verify findings reference current Lead Intelligence evidence.
-5. Add approved local/manual research evidence.
-6. Run synthesis again.
-7. Verify the new synthesis includes staged evidence.
-8. Verify previous synthesis is preserved in history.
-9. Repeat the same synthesis request.
-10. Verify no duplicate current synthesis run is created.
-11. Try wrong-workspace access.
-12. Verify it is rejected.
-13. Confirm the UI/API does not imply real LLM research or outbound execution.
-
-## M2.3 Human QA Checklist
-
-1. Select a lead with generated Lead Intelligence and synthesis.
-2. Run recommendation.
-3. Verify attention priority is understandable.
-4. Verify segment is understandable.
-5. Verify recommended next step is not presented as an executed action.
-6. Verify personalization context only uses evidence-backed facts.
-7. Verify duplicate-warning leads recommend duplicate review.
-8. Verify incomplete leads recommend gathering more data.
-9. Repeat recommendation.
-10. Verify no duplicate current recommendation run is created.
-11. Add approved evidence, rerun synthesis, and rerun recommendation.
-12. Verify recommendation history is preserved.
-13. Try wrong-workspace access.
-14. Verify it is rejected.
-
-## M3 Human QA Checklist
-
-1. Select a lead with generated Lead Intelligence, synthesis, and recommendation intelligence.
-2. Open Outbound.
-3. Plan next best action.
-4. Verify the recommended action is understandable.
-5. Verify the rationale explains why the action is recommended.
-6. Verify policy decision is visible.
-7. Verify approval requirement is visible.
-8. Verify evidence reference count is visible.
-9. Confirm the UI says planning does not execute outbound work.
-10. Repeat planning for the same lead.
-11. Verify no duplicate current plan is created.
-12. Test a duplicate-warning lead and verify duplicate review is recommended.
-13. Test an incomplete lead and verify gathering more data is recommended.
-14. Refresh the browser and verify the plan remains visible.
-15. Restart the server and verify the plan persists.
-16. Try wrong-workspace access through API and verify it is rejected.
-
-## M3.1 Product UX QA Checklist
-
-1. Create or select a clean workspace.
-2. Confirm Overview summarizes leads, attention, intelligence, recommendations, and recent activity without listing every lead.
-3. Open Leads and verify Import leads remains visible with 10, 50, and 500+ leads.
-4. Search by name, company, email, and phone.
-5. Filter by source, status, intelligence state, and attention.
-6. Select a lead and verify the detail panel explains source, data quality, Lead Intelligence, recommendation, and activity without raw IDs.
-7. Refresh Lead Intelligence and verify data completeness is not presented as lead quality.
-8. Prepare insights and recommendation without implying external research, web scraping, or LLM use.
-9. Open Outbound and confirm it says nothing has been sent.
-10. Open Activity and verify it shows customer-facing workspace activity only.
-11. Open Developer / Test Controls and verify worker/callback/sandbox controls are isolated from the normal product flow.
-12. Restart the server and confirm persisted workspace state remains available.
-
-## M4 Engineering QA Checklist
-
-1. Select a lead with generated Lead Intelligence, synthesis, recommendation, and next-best-action plan.
-2. Open Outbound.
-3. Use Developer / Test Controls or the scoped API to prepare an outbound action.
-4. If the action is waiting for approval, verify it cannot be executed yet.
-5. Test a gather-more-data plan and prepare its action.
-6. Run sandbox execution through the scoped API.
-7. Verify persisted execution state through API/database checks.
-8. Trigger a scoped callback through the API or Developer / Test Controls.
-9. Verify the action and execution become completed.
-10. Repeat the callback.
-11. Verify no duplicate callback side effect appears.
-12. Test retryable execution failure.
-13. Verify retry succeeds on the next execution.
-14. Test non-retryable execution failure.
-15. Verify the action becomes blocked with an understandable error.
-16. Refresh browser and verify normal customer Activity does not present sandbox execution as real customer outreach.
-17. Restart server and verify outbound state persists.
-
-## M5 Human Approval QA Checklist
-
-1. Select a lead with generated Lead Intelligence, synthesis, recommendation, and next-best-action plan.
-2. Open Outbound.
-3. Prepare the recommended step for human review.
-4. Verify the pending approval state is clear.
-5. Approve the recommended step.
-6. Verify the action becomes approved.
-7. Prepare another approval-required action.
-8. Add a reviewer edit and approve it.
-9. Verify reviewer edits remain visible after refresh.
-10. Prepare another approval-required action.
-11. Reject it.
-12. Verify the rejected action is blocked.
-13. Restart the server and verify approval state persists.
-14. Try wrong-workspace approval access through the API and verify it is rejected.
-
-## M6/M7 Channel Workflow Foundation QA Checklist
-
-1. Select a lead with contact data.
-2. Prepare and approve a recommended outbound step.
-3. Use Developer / Test Controls to run sandbox execution.
-4. Open the lead detail and confirm communication activity appears.
-5. Simulate callback.
-6. Confirm the outbound activity shows completed.
-7. Confirm a follow-up is planned.
-8. Simulate an inbound question.
-9. Confirm a due follow-up appears.
-10. Simulate a positive reply.
-11. Confirm open follow-ups are stopped.
-12. Simulate an opt-out on another lead.
-13. Confirm lead status becomes opted out.
-14. Refresh the browser and verify timeline/follow-up state remains visible.
-15. Restart the server and verify persisted timeline/follow-up state remains visible.
-16. Confirm normal UI uses customer-facing words and Developer / Test Controls contain the mock simulation tools.
-
-## M6 Sequence Foundation QA Checklist
-
-1. Select a workspace and lead.
-2. Open Outbound.
-3. Create a follow-up sequence.
-4. Enroll the selected lead.
-5. Confirm the lead shows an active follow-up workflow.
-6. Open Developer / Test Controls.
-7. Run due workflows.
-8. Confirm an approval-required sequence step appears for review.
-9. Approve the step.
-10. Run due workflows again.
-11. Confirm communication activity appears.
-12. Simulate a callback.
-13. Confirm a follow-up is planned.
-14. Simulate a positive reply.
-15. Confirm the workflow is stopped.
-16. Refresh browser and verify workflow/timeline state remains visible.
-17. Restart server and verify workflow/timeline state persists.
-
-The current CI-equivalent command is:
-
-```powershell
+﻿# Testing and Release Evidence
+
+Product: **AI Lead Intelligence & Outbound Automation**.
+Planning baseline: **2026-09-11**. Current phases and task ownership are in
+[ROADMAP.md](ROADMAP.md) and [TASKS.md](TASKS.md).
+
+This document separates existing checks from required launch evidence. The L0
+documentation update does not implement the planned tests or certify a release.
+Lead Intelligence quality, safe execution, customer usability, and operational
+recovery each need independent proof.
+
+## Current verification baseline
+
+The preceding integrated candidate passed 1341 automated tests with 49 explicit PostgreSQL skips and 103 actual React browser checks. The subsequent frontend-only [loading and CTA refinement](verification/LANDING_LOADING.md) passed 55 focused browser checks on its own final build; the full backend suite was not rerun for this UI slice. Exact commands, candidate identity and limits are recorded in [COMPLETION](verification/COMPLETION.md). The rows below are historical baselines and tooling context; they are not the latest suite result.
+
+| Evidence | What it establishes | Limits |
+| --- | --- | --- |
+| L3-01 final safe suite at concurrency 2: 1063 total, 1021 passed, 42 explicit PostgreSQL skips; 91 React browser checks; 57 workflow checks | Syntax/format, complete safe suite, final TypeScript/build and smoke pass; [evidence](verification/L3-01.md) records the prior default-concurrency TLS timeout and exact browser/build chronology | Customer ranking, real PostgreSQL/provider/operator acceptance remain open; no default-concurrency CI pass is claimed for that final invocation |
+| Previous conversational review: 215 automated tests passed, four PostgreSQL-specific tests skipped | Existing local regression suite passed in that review | Not a fresh result from this documentation update; skipped PostgreSQL checks do not establish database readiness |
+| Previous conversational review: 55/55 HTTP workflow checks and isolated API smoke passed | Existing API workflows can complete with sandbox data and adapters | Does not drive the React UI, prove factual AI output, exercise concurrent sends, or certify real delivery/replies |
+| Previous review: direct TypeScript and Vite commands passed | Frontend typechecking and production bundling worked | The npm build encountered a Windows ampersand-path shim problem; record direct fallback separately from an npm build pass |
+| Historical project notes report a full suite on a local PostgreSQL server | Earlier PostgreSQL verification was performed | Historical counts are snapshots, not the required count for a future release; see [milestone history](history/MILESTONES.md) |
+| Current source inspection of `.github/workflows/ci.yml` | CI defines SQLite syntax/format/tests, a PostgreSQL 16 service job, and React typecheck/build | This is configuration evidence, not evidence that current remote CI passed |
+| Current source inspection of `test/ui-layout.test.js` and `test/ui-state.test.js` | Some existing UI checks read retired `public/` files | They do not verify shipped `client/src/` interactions; isolated React browser verifiers now exist, while a dependency-locked portable browser CI job remains open |
+
+Existing suites cover normalization/imports, evidence and intelligence versions,
+planning, approvals, channel workflows, sequences, authentication, provider
+mapping, and persistence. Preserve useful coverage. Replace obsolete UI coverage
+only when equivalent or stronger behavior checks exist; do not delete failing
+tests to obtain a green result.
+
+The review reproduced gaps despite the baseline passing: cross-workspace legacy
+callback mutation, sends after opt-out, late callbacks restoring lead status,
+future actions executing early, concurrent adapter calls for one action, and
+unsupported LLM assertions accepted with unrelated evidence references. The
+original sources also showed callback crash windows, incomplete provider suppression,
+and deployment/test-harness risks. [REVIEW.md](REVIEW.md) now separates the
+historical findings from Batch A and L1-03/L1-04/L1-08/L1-05/L1-07/L1-06/L1-10 local corrections. The
+verification sections below identify remaining external and recovery gates.
+
+## Three readiness levels
+
+| Level | Required proof | Permitted claim |
+| --- | --- | --- |
+| Internal sandbox | Isolated synthetic data, sandbox adapters, existing regression checks, known gaps visible | Engineering demonstration; no claim of customer readiness |
+| Supervised customer pilot | L1-L5 acceptance passed, selected real channel verified, trained operator, customer consent/source policy, restore drill, funded limits, customer workflow QA | Limited use within a documented cohort, volume, channel, and support window |
+| Public launch | L6 pilot evidence, unresolved-risk review, sustainable support/costs, tested account recovery and abuse controls, release sign-off | Availability for the explicitly supported customer/workflow scope |
+
+A passing health endpoint, a successful deployment, or a high test count cannot
+advance a readiness level on its own. Safety defects affecting tenant isolation,
+contact eligibility, approval integrity, or duplicate sending block customer use.
+
+## Existing commands and their boundaries
+
+Run from the repository root with Node 24+ and installed dependencies:
+
+~~~powershell
 npm.cmd run ci
-```
-
-That command runs lint, format check, and the automated test suite.
-
-Local API smoke checks must not use the normal development database. Use:
-
-```powershell
 npm.cmd run smoke
-```
+npm.cmd run client:build
+~~~
 
-The smoke script creates a temporary SQLite database, verifies health, CSV preview, import commit, not-run intelligence state, and explicit intelligence generation, then removes the temporary database.
+- ci runs syntax checks, whitespace checks and the isolated SQLite test launcher.
+  npm test now invokes scripts/run-tests.js; its child receives only operating-system
+  essentials and explicit test settings. Inherited DB/provider credentials, proxies
+  and Node preload options are removed. This is process-environment isolation, not
+  an operating-system sandbox; do not preload untrusted code into the outer Node process.
+- For a targeted safe run, use node scripts/run-tests.js test/tenant-boundaries.test.js.
+  Direct node --test is not the supported environment-isolation entry point.
+- smoke sanitizes its environment, creates its own temporary SQLite file/server,
+  enables explicit synthetic controls, and removes its owned data after completion.
+- client:build runs TypeScript and Vite. On a Windows path containing an ampersand,
+  an npm shim failure can be diagnosed with these direct commands from client/.
+  Compilation is not browser or human QA.
 
-If manual smoke testing pollutes `data/app.db`, use the safe local reset command after stopping the server:
+~~~powershell
+node node_modules/typescript/bin/tsc -b
+node node_modules/vite/bin/vite.js build
+~~~
 
-```powershell
-npm.cmd run dev:reset
-```
+### PostgreSQL verification
 
-The reset command backs up the existing local database under `data/backups/` before creating a clean development database. It is a development-only mechanism and is not exposed in the product UI.
+Use a dedicated disposable database, with TEST_DATABASE_URL supplied through a
+protected environment/secret file and TEST_DATABASE_DISPOSABLE=1 explicitly set:
 
-For M2.0 visual human QA, seed deliberate QA data after resetting:
+~~~powershell
+npm.cmd run test:pg
+~~~
 
-```powershell
-npm.cmd run dev:seed:qa
-```
+The runner has no DATABASE_URL fallback and refuses the configured application
+host/port/database even with different credentials. That check cannot recognize
+every hostname alias or prove a target contains no customer data: a human must
+verify the dedicated disposable target. TEST_DATABASE_SSL accepts enable or
+disable independently of runtime DATABASE_SSL. Query/fragment overrides in the
+test URL are refused.
 
-The seed creates an explicit `M2 QA Workspace` with not-run, generated, needs-more-data, duplicate-warning, quoted CSV, and long-list examples. It refuses to run against a non-empty database by default.
+Each run generates a unique schema namespace; file fixtures retain their schema
+only across restarts within that run. Cleanup validates and removes only that
+run's schemas after normal child close. Interrupted runs deliberately leave their
+namespace because descendants may still be terminating; later runs never sweep
+those orphans. Inspect only the printed run namespace after its processes stop.
+
+The runner selects PostgreSQL for startClient fixtures and activates the four
+adapter tests. Tests directly constructing SQLite remain SQLite tests. Use direct
+or session-preserving connections for schema-scoped tests; transaction pooling
+does not guarantee session search_path behavior.
+
+Real PostgreSQL concurrency/abort tests remain pending in this batch. Docker is
+installed locally but its daemon was unavailable; no application DB was used as
+a substitute. PostgreSQL CI now declares disposable opt-in. Fresh-schema tests
+still do not establish upgrade, operational locking, TLS or restore safety.
+
+### HTTP workflow verification
+
+In a clean local shell:
+
+~~~powershell
+npm.cmd run dev:e2e
+~~~
+
+In another shell:
+
+~~~powershell
+npm.cmd run verify:workflows
+~~~
+
+The E2E server defaults to port 3100 (E2E_PORT can override it), uses only fresh
+SQLite :memory:, and refuses inherited DATABASE_URL, provider configuration,
+production/staging mode or file overrides. It explicitly enables test controls,
+keeps the automatic worker disabled and loses its synthetic data on exit.
+
+VERIFY_BASE_URL may select a loopback HTTP origin using 127.0.0.1 or [::1].
+Before any registration/write, the verifier requires the exact isolated-E2E
+health capability; ordinary development/staging/production servers and redirects
+are refused. It drives only its own workspace worker and synthetic callback
+fixtures, including terminal-state and secret-masking checks. The isolated harness
+refuses nonsandbox channel providers. Do not use this tool on customer environments.
+
+General simulation endpoints require ENABLE_TEST_CONTROLS=true in development/test.
+They remain disabled in staging/production even if that variable is supplied.
+GET /api/auth/me exposes capabilities.test_controls for the React UI; authorization
+and tenant scope are enforced server-side. The real selected-provider test gate
+remains separate from these synthetic fixtures.
+
+Local dev:reset and dev:seed:qa are development utilities after stopping the server
+and verifying its resolved target. They are not migration, retention or recovery tools.
+
+## Batch A regression evidence
+
+See [L1-01](verification/L1-01.md), [L1-02](verification/L1-02.md),
+[L1-09](verification/L1-09.md) and [integrated batch evidence](verification/BATCH_A.md).
+The new tests exercise hostile environments, ownership/cleanup, production route
+denial, foreign-state preservation, reviewer identity, mixed enrollment IDs,
+grounding adversarial inputs and provider/conversation copy agreement.
+Human/browser, real PostgreSQL and live-provider checks remain separately pending.
+
+## L2-01 verification and limits
+
+[Integrated evidence](verification/L2-01.md) records the current combined suite, scoped backend/review/API tests, isolated workflow/smoke and actual local React browser checks. Focused evidence separates [typed context and migration](verification/L2-01-backend.md), [review and generation races](verification/L2-01-review.md) and [browser/UI](verification/L2-01-ui.md). Local browser automation is distinct from real customer/operator acceptance.
+
+Required behaviors covered include owner/session/tenant boundaries, strict full snapshots, explicit unknown/conflict/inference, source/date validation, exact money beyond Number.MAX_SAFE_INTEGER, currency precision, zero versus unknown, stale/noop updates, history pagination, composite FKs and audit rollback. Populated0008 upgrades preserve history without inventing business facts. Guarded PostgreSQL cases stay skipped without an explicit disposable target.
+
+Context edits invalidate current fingerprint reads and old-plan materialization; generation racing a context save cannot supersede the newer result. Preview/decision/dispatch bind persisted revisions, preserve no-context compatibility and hold stale approvals before an attempt. New enquiry evidence uses exact manual-source links with stated/observed labels; inferred/conflicting or over-limit combined values require review and never become asserted buying facts.
+
+Human QA must verify the actual business offering/criteria, source authenticity, useful correction-to-reanalysis-to-review, and comprehension of unknown/zero/conflict/inference, in addition to keyboard/mobile/accessibility. Real PostgreSQL concurrency/upgrade/restore, selected provider and pilot value remain open. L2-01 stays [~]. L2-02 reviewed mapping and resumable import is tracked in the next section.
+
+## L1-10 verification and limits
+
+[Integrated evidence](verification/L1-10.md) records the final combined suite, isolated smoke and 57/57 HTTP workflow checks, plus direct TypeScript/Vite build. Focused evidence separates [database/configuration](verification/L1-10-database.md), [auth/HTTP/migration](verification/L1-10-auth-http.md) and [sending/provider controls](verification/L1-10-dispatch-controls.md).
+
+Behavioral coverage includes real loopback trusted/untrusted/wrong-host TLS, hostile configuration and ambient driver settings, transaction timeout/discard behavior, additive migration preservation, durable auth contention/restart/clock boundaries and atomic registration. Real streamed HTTP checks cover malformed/oversized/stalled input, Origin checks, forwarded-header spoofing, reader cleanup, liveness under load and safe errors/logs. The local worker route preserves empty/small-body compatibility while rejecting oversized/stalled input before effects. Disconnected handlers retain admission and keep their database alive through graceful shutdown; static mutation requests close unread input.
+
+Sending checks cover owner/session/revision scope, pause/global holds across SEND paths, concurrent daily/unresolved capacity, exact acceptance/recovery release, old ambiguous execution evidence and retained action budgets. A regression proves quota selection and execution persistence use the same authorization instant across UTC midnight. Synthetic provider streams prove byte/deadline bounds without turning known HTTP acceptance into a resend.
+
+Real PostgreSQL skips remain explicit. Loopback TLS is transport-policy evidence, not a deployed database/role/restore proof. Required external/human acceptance includes staging origin/proxy/cookies, credential rotation, two-session Sending controls conflicts, keyboard/mobile/error behavior, provider outcomes, measured load/cost/alerts and a recovery drill. Full account recovery and customer workflow gates remain open. L1-10 stays [~]; the next local slice records L2-01 business-context contracts.
+
+## L1-06 verification and limits
+
+[Integrated evidence](verification/L1-06.md) records **623 tests, 601 passed, 22 PostgreSQL skips, zero failures**, isolated smoke, 57/57 HTTP workflow checks and direct TypeScript/Vite build. Event tests cover current-input staging, model generation outside transactions, artifact/audit/cursor rollback, expired ownership at claim/commit/failure, retained budgets, canonical duplicate restrictions and pending-policy retries. Scheduler tests cover bounded tenant/phase rotation, competing visit ownership, fairness after restart and shutdown admission.
+
+Workflow tests distinguish approval/acceptance/uncertainty from actual delivery, preserve timing across overdue waits, block invalid linkage and queued sends after pause/stop/reply, and check exact revision/tenant scope. A child-process test uses an owned temporary SQLite file, normal server worker and disabled developer controls to pause, restart and resume into review. Follow-up tests preserve due/invalid/terminal state and one audit per allowed manual transition.
+
+The workflow verifier now allows at most 16 bounded scoped visits for reply intelligence to become current; it preserves all 57 outcome assertions. Migration fixtures check historical versions before explicitly upgrading for current runtime SQL. No PostgreSQL skip or old assertion is removed to obtain a green result. React compilation does not verify browser interaction. Required PostgreSQL multi-process/least-privilege/upgrade/restore, measured due-lag/load, live provider, schedule/recovery browser QA and customer workflow acceptance remain open. See the integrated artifact for the exact human walkthrough; the L1-10 section above records the subsequent operational implementation.
+
+## L1-07 verification and limits
+
+[Integrated evidence](verification/L1-07.md) records **547 tests, 531 passed, 16 PostgreSQL skips, zero failures**; isolated smoke and 57/57 HTTP workflow checks pass. Current React TypeScript/Vite builds pass with the existing large-chunk warning.
+
+Behavior tests cover persisted receipt-before-effects, actual SQLite restart, leased concurrent replay and stale failures, immutable input conflicts, core-versus-effects rollback, exact conversation reconstruction and original task timing, later replies/restrictions, inbound classification/provenance reuse, partial batch storage, policy-pending dispatch holds, owner access/fence/idempotency, safe retention and shutdown. Reply intelligence tests establish an existing snapshot before opt-out and prove the persisted reply event updates it without new contact recommendation stages.
+
+HTTP acknowledgement now means durable receipt. Failed restriction processing after that commit returns a pending receipt; the worker retries while workspace sends wait. Injected receipt-storage failure still returns HTTP 503. Keep both contracts in regression coverage.
+
+Required browser/human QA covers the owner Event recovery queue, pagination, bounded previews, retry/close wording, stale decisions and refresh, keyboard/focus/mobile, policy holds and actual repair without another send. Permanently invalid/foreign pending-policy evidence requires an inspected remediation procedure before customer use. Real PostgreSQL/process/upgrade/restore and signed provider redelivery remain separate gates. The later L1-06 slice above adds bounded failed domain-event retry and scheduling/fairness; receipt replay alone did not complete that work.
+
+## L1-05 verification and limits
+
+[Integrated evidence](verification/L1-05.md) records the local bounded-dispatch/recovery slice: 479 tests, 466 passed, 13 PostgreSQL skips, zero failures; isolated smoke and 57/57 HTTP workflow checks pass. React direct TypeScript/Vite build passes with an existing large-chunk warning.
+
+New behavior tests cover frozen attempt/deadline/key limits, due checks across HTTP/worker/bulk, explicit backoff clock advance, expired/stale ownership, operator recovery and queue visibility, exact callback/core rollback, reviewed-message reconstruction after uncertainty, no synthetic completion for unknown outcomes, transport Retry-After/privacy and graceful shutdown/timeout. Prior migration fixtures use their actual historical SQL shape.
+
+The UI exposes Send details, original attempt history, retry timing and owner evidence decisions. Required browser/human QA must verify focus, keyboard/mobile, stale decisions, error refresh and the acceptance-versus-delivery distinction. Real PostgreSQL/process/provider checks remain pending; 13 skipped tests are not evidence of a pass.
+
+This section records the earlier L1-05 evidence. The later L1-07 slice documented above adds durable receipt/processing and ancillary repair across failures. The later L1-06 slice above adds the bounded scheduler/domain-event retry/fairness implementation. The subsequent L1-10 section above records local operational controls; external acceptance remains open.
+
+## L1-04/L1-08 verification and limits
+
+[Integrated evidence](verification/L1-04-L1-08.md) records policy, exact review, dispatch and provider ingress checks. Tests exercise stale/missing revision tokens, changed recipient/settings, review conflicts/rollback, revoked retry, direct duplicate opt-out, historical backfill, separate SQLite connections, one provider invocation across competing dispatch calls, uncertainty held without resend, signed-byte tamper and failed unsubscribe persistence/retry.
+
+Positive workflow fixtures explicitly obtain the preview and approve its token. Execute helpers never auto-approve. Provider transport tests use synthetic intercepted calls and captured envelope/configuration; these are not evidence of a real delivery.
+
+React typecheck/build is required for the new review dialog/settings controls. A browser and human walkthrough must still prove every displayed field, stale-review error, edit-preview-approve/revoke interaction, keyboard/mobile behavior and received copy. PostgreSQL ordering and production-shaped upgrade/performance remain separate gates.
+
+## L1-03 verification and limits
+
+[Persistence evidence](verification/L1-03.md) records scoped transaction, approval, migration and runtime tests. Coverage includes real multi-repository approval rollback, concurrent decisions, non-reviewable-state guards, nested/escaped/expired transactions, SQLite file-lock contention, statement/commit/rollback failure, populated upgrades, interrupted and competing migrations, unknown history and no-DDL startup/status/readiness. The PostgreSQL suite uses the dedicated disposable harness; pool doubles and SQLite do not certify PostgreSQL isolation or restricted roles.
+
+Keep L1-03 acceptance open until PostgreSQL integration, least-privilege deployment and a populated upgrade/compatible recovery rehearsal have recorded evidence. No customer database is a fallback test target.
+
+## Landing-page verification: planned L4-07/L5-07
+
+The [landing specification](LANDING_PAGE.md) defines a synthetic example and proposed public/auth/protected route split. Tests must cover visible example state, keyboard/reset/opt-out behavior, absence of domain/provider writes, real CTA success/failure/duplicate handling, protected deep-link compatibility and landing operation when API/analytics fail. Add automated accessibility and build/bundle checks, useful initial HTML/metadata and host route checks. Human QA covers screen reader, reduced motion, mobile/slow loading, target-user comprehension and actual request receipt. These checks do not exist simply because the specification lists them; public publication additionally requires L6-04.
+
+## Required launch test matrix
+
+Every row below is a planned requirement unless a linked task contains dated
+passing evidence. QA owns the release matrix; the named engineering role owns
+implementation and regression fixtures. Operations starts in L1 and is proven
+as a whole in L5.
+
+| ID / phase | Owner | Behavior and adverse cases | Passing evidence |
+| --- | --- | --- | --- |
+| T01 / L1 | Backend, security | Two authenticated tenants exercise every read and mutation, including legacy callbacks, worker controls, bulk IDs, approvals, settings, imports, webhook routing, and mixed-tenant child IDs | Foreign state remains unchanged; denied responses reveal no records; developer controls absent/disabled on production-shaped configuration |
+| T02 / L1 | Backend | Queue, approve, then opt out before dispatch; duplicate records sharing normalized contact; unsubscribe, complaint, bounce policy; delayed success after suppression; import/reimport | Every entry point rechecks contact eligibility; suppression persists across duplicates and late events; queued follow-ups stop; explicit scoped re-consent is the only allowed reversal |
+| T03 / L1 | Backend, integrations | Simultaneous API/API, worker/API and worker/worker execution; multiple processes on real PostgreSQL; lease expiry and stale worker completion | One durable claim owns the attempt before adapter invocation; no duplicate send in controlled races; stale ownership cannot commit; retry key survives restart |
+| T04 / L1 | Integrations | Provider accepts then times out; crash before/after provider acceptance; HTTP 429 with retry hints, 5xx, permanent error; exhausted provider idempotency window | Unknown acceptance is reconciled or held for operator review rather than blindly resent; bounded attempts, elapsed-time/spend limits, backoff and jitter; permanent failures do not loop |
+| T05 / L1 | Backend, integrations | Duplicate/out-of-order callback; callback for an older attempt; crash after receipt persistence and before business updates; replay after restart | Durable receipt can resume processing; event maps to its original attempt; transaction/replay produces one message/state transition; older events do not overwrite newer state |
+| T06 / L1 | Backend | Future action via API and worker; server restart; overdue sequence wait; paused/cancelled sequence; timezone boundary and quiet hours; reply concurrent with queued follow-up | Nothing sends before eligible time; normal scheduler advances due sequences; restart recovers due work within target delay; stop policy applies at dispatch |
+| T07 / L1, L4 | Backend, frontend | Change body, subject, recipient, sender, channel, business facts or policy after approval; stale browser approval; repeated click; legitimate second message | Execution uses the exact approved version or requires renewed approval; intentional new messages get new action identity; repeated requests for that version do not duplicate it |
+| T08 / L1, L3 | AI, product | Name-only evidence with invented budget; contradictory/stale evidence; cross-tenant evidence; malicious instructions inside lead/import/reply text; unknown model fields | Unsupported assertions are rejected/marked unknown; claims cite supporting passages; untrusted text cannot change policy or trigger tools; tenant/context boundaries hold |
+| T09 / L3, L4 | AI, product | Draft claims an enquiry, prior relationship, consent, representative role, booking availability, callback promise, discount or delivery time without evidence | No invented relationship or operating promise; deterministic templates and LLM drafts meet the same grounding checks; editable human review stays available |
+| T10 / L2 | Data foundation, frontend | CSV mapping, country and date selection, budget/currency, quoted/mixed-language text, duplicate headers/contacts, malformed rows, ambiguous dates, oversized files, interruption and retry | User reviews before commit; corrections survive; selected valid rows only; actionable row errors and recovery; rerun does not create unintended leads or erase provenance |
+| T11 / L2, L3 | Data foundation, AI | Correct lead data or business criteria after analysis/approval; deduplicate records with conflicting facts; preserve opt-out and interaction history | Versioned facts retain origin/time; stale intelligence and approvals are invalidated appropriately; no automatic loss of stronger suppression or audited history |
+| T12 / L3, L4 | AI, product | Local languages used by pilot, transliteration, code-switching, negation, sarcasm, ambiguous intent, opt-out spelling variants, out-of-office and quoted replies | Held-out evaluation reports per-class precision/recall and opt-out misses; explicit opt-outs bypass probabilistic sending decisions; uncertain intent escalates visibly |
+| T13 / L4 | Integrations, QA | Real selected provider: sender setup, reviewed send, acceptance, delivery, reply routing, operator reply, unsubscribe, complaint, bounce, invalid signature, replay and secret rotation | Dated end-to-end evidence from controlled mailboxes; no real customer recipient needed for pre-pilot verification; verified webhook origin and durable application records |
+| T14 / L2-L5 | Frontend, QA | Shipped React onboarding, import review, lead correction, evidence drilldown, edit/approve/send, inbox assignment/reply/resolve, due work, outcome recording, refresh and deep links | Browser tests drive actual forms/buttons on production build; supported desktop/mobile widths; denied permissions and recovery states verified |
+| T15 / L2-L5 | Frontend, QA | Keyboard-only navigation, labels, focus after dialogs/errors, contrast, zoom, screen reader announcements, long lists, empty/loading/offline states | Automated accessibility scan plus manual keyboard/screen-reader review; critical journeys usable at 200% zoom and chosen mobile viewport |
+| T16 / L1, L5 | Backend, operations | Fresh DB; copy of previous release with migration already marked applied; legacy pre-runner DB; interrupted migration; two deploys; old app on expanded schema | New numbered migrations produce expected columns/indexes/data; bounded serialized migration; data preserved; rollback/roll-forward rehearsed; runtime role does not perform DDL |
+| T17 / L1, L5 | Operations, backend | DB outage, exhausted pool, invalid TLS certificate/hostname, expired secret, bad runtime permissions, active worker during SIGTERM | Verified TLS fails closed; readiness reflects dependency failure; worker drains or leaves recoverable claims; restart neither loses accepted work nor duplicates it |
+| T18 / L1, L5 | Operations | Restore production-shaped backup into isolated target; include attachments/config dependencies; reconcile provider sends after backup timestamp | Recorded recovery time and data-loss window meet selected RTO/RPO; restored jobs stay paused until reconciliation; counts and critical histories verified |
+| T19 / L1, L5 | Backend, operations | Large tenant import/analysis/send burst while small tenants work; database limits, pagination, provider throttling, LLM spending and log growth | Measured p95 latency, queue age and per-tenant fairness within pilot targets; bounded request/input/concurrency/spend; no starvation or cross-tenant leakage |
+| T20 / L1, L5 | Backend, security | Registration/login abuse, logout/recovery/session expiry, role changes, settings/secrets access, CSRF/origin handling, audit spoofing, log redaction | Server-enforced permissions; actor from session; recoverable account access; rate limits and alerts; no keys/session tokens/message bodies exposed in routine logs |
+| T21 / L5, L6 | Product, operations | Workspace export/deletion, retained suppression, outcome edits, entitlement limits, support incident, failed/offline dependency | Documented retention boundaries; portable usable export; audited outcome correction; enforceable pilot caps; support can pause/resume safely |
+| T22 / L6 | Product, QA | Customer completes initial workflow and repeats it with real data; recommendations compared with a simple recency/manual baseline | Pilot report measures time saved, recommendations accepted/corrected, qualified conversations and outcomes without treating message volume as value |
+
+## Intelligence evaluation requirements
+
+Use a versioned, consented or synthetic evaluation set representing the selected
+customer workflow. Keep a held-out set separate from examples used while editing
+prompts/rules. Record business-context version, model/provider version, prompt
+version, dataset version, expected facts, relevant evidence spans, and reviewer
+judgment.
+
+Evaluate data readiness separately from business fit and opportunity priority.
+Compare prioritization against the customer's current method and a simple
+recency baseline before describing AI as an improvement. Include leads for whom
+the best action is to gather data, wait, stop, or create a human task.
+
+Proposed evaluation thresholds, to ratify on a representative dataset in L3 before L5 pilot entry:
+
+- Zero unsupported material assertions in the release-blocking grounding suite.
+- Zero missed explicit opt-outs in the release-blocking multilingual policy suite.
+- Use the priority-usefulness definition and proposed 70% starting target in
+  [PILOT.md](PILOT.md), with domain-reviewer labels, sample size, disagreements
+  and a recency-baseline comparison. Ratify or revise the target before evaluation.
+- Report precision/recall by reply class and language, not a single averaged
+  score. Any policy-sensitive miss blocks release pending correction.
+- Record cost and latency per analyzed lead and per refreshed conversation.
+  Replaying unchanged inputs should avoid unnecessary provider charges.
+
+These are proposed release criteria, not measured production accuracy. A finite
+test set cannot guarantee zero future model errors; production correction,
+suppression enforcement and uncertain-result escalation remain mandatory.
+
+## React browser and human QA
+
+Add a browser runner such as Playwright during implementation; no
+`test:e2e` command exists today. Start with the primary workflow and the
+reproduced regressions. Use actual React routes, role-based locators and
+assertions about visible behavior plus persisted outcomes. Avoid HTML substring
+tests and excessive snapshots of incidental layout.
+
+The human acceptance session for L4/L5 must include:
+
+1. A target customer configures offerings, target criteria, region, language and
+   channel with clear help and meaningful errors.
+2. They import a realistic 100-enquiry dataset, inspect mapped business fields,
+   correct one row and resolve a duplicate without developer intervention.
+3. They explain why a lead was prioritized, identify an unknown fact, and correct
+   a recommendation. Data completeness is not mistaken for purchase intent.
+4. They edit and approve a message, understand sender/recipient and send state,
+   and verify the exact received communication.
+5. They receive a reply, take ownership, send a reviewed response, complete or
+   reschedule a follow-up, and record a meeting/quote/other scoped outcome.
+6. They opt out a contact with pending work and duplicate records, then observe
+   that scheduled work stops even after a delayed delivery event.
+7. They encounter a provider failure, see what happened, and recover without
+   creating an accidental duplicate message.
+8. They refresh/relogin/restart and retain context; keyboard, mobile and long
+   list flows remain usable.
+
+Record participant, environment, build/commit, fixtures, date, result, defects,
+and evidence links. An engineer performing a demonstration is not a substitute
+for target-customer pilot validation.
+
+## Load, recovery and release evidence
+
+Use the proposed workload/SLO envelope in [DEPLOYMENT.md](DEPLOYMENT.md).
+Measure with realistic data volumes, two or more active tenants, a noisy tenant,
+cold and warm requests, and a provider stub with controlled latency/failure.
+A load test with a zero-latency provider or a single empty workspace is insufficient.
+
+Every release record must include:
+
+- Commit/build, phase/task IDs, environment and database major version.
+- Commands and results, including failures, skipped tests, and test artifacts.
+- Migration upgrade fixture and applied versions.
+- Provider/model mode, synthetic versus live controlled-mailbox evidence.
+- Human QA and customer pilot status, separately.
+- Monitoring, backup restore and rollback evidence where applicable.
+- Known issues, scope/volume restrictions, owner and next action.
+- Documentation updated alongside implementation: architecture/domain decisions,
+  task acceptance and this matrix, API/schema examples, deployment runbook and
+  README where affected.
+
+Documentation-only work requires link/consistency/format verification. Runtime,
+integration, browser, live-provider, and restore checks are not to be marked
+passed merely because this plan has been written.
+
+## L2-02 reviewed import verification
+
+[Integrated evidence](verification/L2-02.md) records exact local checks and remaining acceptance. Required coverage includes positional duplicate/blank/reserved headers, malformed quoting, caps, phone/date/currency interpretation, exact money, raw-cell preservation, row correction/history and stale review; owner/tenant/source forgery; atomic preview and row rollback; concurrent frozen selection, response loss and restart/resume; late duplicate holds and suppression preservation; additive migration and guarded PostgreSQL checks.
+
+Actual React browser verification drives inspection, mapping, review without automatic lead creation, row selection/correction, progress/history and imported-source manual correction. A production build is checked separately. Synthetic local browser results do not close customer/operator, mobile/screen-reader or real PostgreSQL acceptance. The optional browser script requires an explicit installed Playwright module and a verified disposable loopback E2E target; it is not a new dependency-locked portable CI browser job.
+
+## L2-03 verification and limits
+
+The [identity contract](L2-03_IDENTITY_RESOLUTION.md) defines source association, exact review, unchanged historical outcomes and shared-contact reply stops. [Integrated evidence](verification/L2-03.md) tracks owner/tenant routes, repeated/shared/in-file enquiries, preserved restrictions and current facts, stale/retry/conflicting commands, transactional rollback/restart, exact citation authority, migration constraints and reply/callback races. Actual React browser checks are separate from build/typecheck and human acceptance.
+
+Use node scripts/run-tests.js test/import-identity-http.test.js for the root HTTP journeys, or the documented safe full CI command. PostgreSQL tests remain skipped without an explicit disposable target. Representative customer files, linked-source comprehension, ambiguous reply handling, keyboard/mobile/accessibility and selected-provider threading remain required human/external checks.
+
+## L2-04 correction/archive/export verification
+
+The [contract](L2-04_DATA_MANAGEMENT.md) and [integrated evidence](verification/L2-04.md) cover reviewed contact correction, exact actor/source history, stale and replayed decisions, archive/restore, directory pagination and explicit-selection export. Run node scripts/run-tests.js test/lead-data-http.test.js test/csv-export.test.js for root integration checks; the safe full CI command also includes module regressions.
+
+Required runtime coverage includes revision-0 upgrade compatibility; edit-back/archive-restore invalidation; stale-input and in-generation races; contact restriction carry at the original channel scope; queued-work cancellation without changing authorized provider facts; late callback suppression of obsolete tasks; archived reply/event handling without new work; and tenant/owner/bounds/rollback/restart cases. New migration and PostgreSQL cases use the explicit disposable gate.
+
+Actual React verification must exercise correction preview/history/stale draft, archive and restore, hidden selected records, paged directory and the downloaded selected CSV. Spreadsheet formula/control/Unicode quoting and exact underlying money/contact strings require automated checks; Excel/LibreOffice open/save/reopen, real PostgreSQL/provider and first-time customer acceptance remain separate human gates. Build/typecheck alone does not satisfy the browser journey.
+
+## L2-05 freshness verification
+
+The [contract](L2-05_FRESHNESS.md) and [integrated evidence](verification/L2-05.md) track exact expiry, durable rollback/restart, source timestamp validity, missing/conflicting/inferred facts, changed criteria/contact/research/reply, unchanged refresh and neutral legacy compatibility. Test source bounds and corrupt metadata before model use, plus time/input races at model finalisation, review, dispatch and late callbacks.
+
+Use node scripts/run-tests.js test/intelligence-currentness-http.test.js for root API cases. Backend/runtime focused tests and full safe CI also verify no duplicate analysis audits and no stale external action. Actual React checks cover currentness, fact issues, previous recommendations, partial failures and timed GET-only rechecks. Operator comprehension, provisional TTL usefulness, mobile/accessibility, real PostgreSQL and deployment clock/restore remain external acceptance.
+
+## L3-01 qualification and ranking verification
+
+Use the [frozen contract](L3-01_BUSINESS_FIT.md) and [integrated evidence](verification/L3-01.md). Exact decimal/date/text and source-freshness boundaries, shared-profile stale writes/history/rollback, corrupt assessment handling, criteria/algorithm authority, bounded scoped paging and downstream review safety require behavioral coverage. Synthetic fixtures compare business ordering against recorded-event recency and existing readiness; report each denominator and abstention, not customer conversion or calibrated model claims. Browser checks must drive actual criteria setup, history, source review and ranking, retain explicit refresh/selection recovery, and verify no provider execution. Customer usefulness, held-out factuality/multilingual cases and actual PostgreSQL remain independent gates.
+
+## L3-02 quality and interpretation verification
+
+Run npm run eval:intelligence for the fixed synthetic report and node scripts/run-tests.js test/l302-provider.test.js test/l302-interpretation-view.test.js test/l302-reply-policy.test.js test/l302-reply-runtime.test.js test/l302-evaluation.test.js for focused behavior. Both launchers sanitize inherited database/provider configuration. The evaluator uses frozen bundled fixtures and injected adapters; it is not a live model benchmark. [Integrated evidence](verification/L3-02.md) records final commands, counts and human gates; [evaluation detail](verification/L3-02-evaluation.md) explains denominators and grader semantics.
+
+Required coverage includes direct/negated/quoted/mixed/multiline replies, finite Hindi and transliterated stops, semantic/body limits, exact source attribution, disagreement/candidate review, immutable replay and restriction effects, malformed provider envelopes, stream deadlines and safe failures. Browser evidence must use actual persisted fixtures and exercise model/local/fallback/history displays, original text, source links and independent stop/review labels. Human/native-language/customer labels and hosted-model quality, latency and cost remain NOT_MEASURED until separately authorized evidence exists.
+
+## L3-03 analysis jobs and AI usage verification
+
+Use node scripts/run-tests.js test/l303-migrations.test.js test/l303-http.test.js test/l303-analysis-jobs.test.js test/l303-analysis-http-race.test.js test/l303-analysis-runtime.test.js for migration/job/API/normal-server behavior; the AI owner's focused commands and results are in [usage evidence](verification/L3-03-usage.md). Run the full sanitized suite after integration. PostgreSQL cases explicitly skip without a disposable configured target; SQLite transactions do not certify PostgreSQL multi-process behavior.
+
+Required cases include atomic selection/idempotency, workspace boundaries, real database close/reopen, stale lease/cancel during generation and pre-draft commits, partial retry/reuse, original budgets, changed source/complete generation manifest, metadata caps and audit rollback. Final compatibility responses must match the job's exact artifacts even if a newer analysis becomes current before response composition.
+
+Usage checks exercise committed permits before I/O, concurrent slot/day limits, rollback/midnight, stale origins, crash/late observation, immutable pricing revisions and exact rounding, reported zero versus unknown counts, malformed output after telemetry, and failure to persist accounting. Workspace admission/quota denial must not produce a READY fallback; direct opt-outs must not depend on model availability.
+
+Run npm.cmd run verify:analysis-ui -- --playwright-module <absolute-installed-Playwright-index.mjs-path> after building the client. The tracked launcher sanitizes configuration and chooses an owned ephemeral loopback port; it installs no package/browser. The actual React verifier is scripts/verify-analysis-jobs-ui.js with its isolated synthetic provider fixture. It may pump only AnalysisRequested events, never the broad outbound worker. Check lost POST response/reload/GET recovery, explicit same-key resubmission, progress/partial recovery/cancel, unchanged reuse, stale command drafts, owner limits/history and unknown/estimated usage. Retain business-context/fit/currentness/data/trust browser regressions. [Integrated evidence](verification/L3-03.md) records the final commands and limits; customer/operator, real provider and PostgreSQL acceptance remain separate.
+
+## L3-04 feedback and evaluation verification
+
+Run the safe harness: node scripts/run-tests.js --test-concurrency=2 test/l304-feedback.test.js test/l304-migrations.test.js test/l304-http.test.js test/l304-evaluation-runtime.test.js test/l304-evaluation-gate.test.js. Never invoke the raw Node test runner with inherited database/provider settings. Migration checks cover populated history, scoped typed references, UTF8 bounds and transactional rollback. Feedback checks cover read-only review, token/revision races, exact retries after later edits, withdrawal/restoration, original-input integrity and zero operational side effects. Evaluation checks cover exact selection/version identity, eligibility/byte preflight, permanent split assignment, one-use HOLDOUT, atomic consumption/audit, historical label currentness and aggregate-only API projections.
+
+npm run eval:intelligence -- --check now recomputes current behavior against pinned baseline-v1.json as well as all prior synthetic safety gates. Both npm run ci and GitHub SQLite CI run it. An arbitrary supplied report cannot satisfy the gate. Customer/hosted-model and language-generalization claims remain out of scope. The actual React workflow verifier is npm run verify:feedback-ui -- --playwright-module ABSOLUTE_INSTALLED_INDEX_MJS; it uses an owned memory fixture, existing installed browser and no provider calls. [Integrated evidence](verification/L3-04.md) records executed checks and remaining human/PostgreSQL gates.
+
+## L4-01A email setup and capability verification
+
+Run node scripts/run-tests.js --test-concurrency=2 test/l401-channel-migrations.test.js test/l401-email-connection.test.js test/l401-channel-http.test.js test/l401-channel-capability.test.js, then the full sanitized suite after integration. Migration coverage includes historical-setting preservation, unique alias ownership, scoped actor/revision constraints, byte bounds and rollback. Real PostgreSQL cases retain the explicit disposable-target gate.
+
+Behavioral checks cover read-only setup/legacy GETs, full strict saves, masked secret KEEP/CLEAR, stale revision/config tokens, atomic history/audit, original request recovery, canonical URL provisioning, legacy ambiguity and reserved drift, signed late aliases, and configuration budgets before reads and writes. Preparation and dispatch checks cover exact Reply-To, complete-but-unverified SendGrid with zero new attempts, unsupported live channels and immutable normal/test runtime profiles. Compatibility webhook fixtures explicitly provision routes; old assertions remain intact.
+
+Run npm.cmd run verify:channel-setup-ui -- --playwright-module ABSOLUTE_INSTALLED_INDEX_MJS after building the client. The owned loopback browser fixture uses Sandbox mutations, readonly synthetic SendGrid setup and no provider sends. Verify lost-response recovery, stale forms, route rotation/history, keyboard/narrow layout and the exact saved Reply-To. Any intercepted presentation check must be reported separately from real API checks. See [integrated evidence](verification/L4-01.md) for executed counts, artifacts and limitations. Human channel selection, provider/security-policy/mailbox setup, exact enquiry threading and PostgreSQL/restore remain open.
+
+## Completion batch verification - 2026-09-13
+
+Run the safe suite wrapper for all new tests. test/completion-http.test.js currently exercises public-interest admission/idempotency, composer creation/edit/recovery, offline account recovery/session revocation, conversation decisions, reminders and corrected outcomes through HTTP. scripts/run-completion-ui.js exercises the actual built composer/inbox/workflow/security journey on an owned in-memory fixture; scripts/run-landing-ui.js exercises public routes, synthetic demo and pilot form. Both require the explicit installed Playwright module path and prohibit live providers. Focused backend and landing evidence lives under verification/L4-02-composer.md, verification/L4-03-customer-workflow.md, verification/L4-07-ui.md and verification/L5-02-account-security.md. The final integrated suite and actual-browser candidate checks are recorded in [COMPLETION](verification/COMPLETION.md). Focused counts overlap the full suite and are not additive. Actual PostgreSQL/provider/customer gates remain separate.
+
+Additional tracked safe browser launchers are verify:setup-journey-ui, verify:intelligence-trust-ui, verify:workspace-data-ui and verify:email-verification-ui, each requiring the explicit installed Playwright module path. The provider-screen fixture injects a synthetic HTTPS verification runtime and no-network configuration adapter while serving the actual React/API locally; this tests interface/service behavior, not provider HTTPS or mailbox acceptance. Run node scripts/verify-operations.js for the isolated measured workload.
+
+## Customer settings refinement - 2026-09-13
+
+[Customer settings evidence](verification/CUSTOMER_SETTINGS.md) records the subsequent default-off developer-screen boundary, customer availability UI and preserved technical workflow tests. Seven new boundary regressions are included in 77 passing targeted backend tests. Technical browser launchers now explicitly enable the separate local developer UI; ordinary customer launchers do not. Earlier full-suite/browser evidence remains tied to its recorded build.
+
+Final customer-settings candidate: 67 browser checks passed (17 setup/customer, 20 channel setup, 12 email verification, 18 analysis); TypeScript/build and formatting passed. See the focused evidence for asset identity and local artifact directories.

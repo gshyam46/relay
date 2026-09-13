@@ -1,3 +1,8 @@
+import { getGenerationDescriptor, synthesisGenerationDescriptor } from "../ai-usage/generationDescriptor.js";
+import { currentLeadData } from "../data-foundation/leadDataSafety.js";
+import { captureBusinessContext, withCurrentBusinessContext, withScopedCurrentService, inputAuthority } from "./businessContextGuard.js";
+import { SynthesisRepository } from "./synthesisRepository.js";
+import { AuditRepository } from "../events/auditRepository.js";
 import { createHash } from "node:crypto";
 import { serializeEvidenceItem } from "./researchEvidenceRepository.js";
 import { LocalSynthesisAgent } from "./localSynthesisAgent.js";
@@ -14,8 +19,12 @@ export class SynthesisService {
     intelligenceService,
     researchEvidenceRepository,
     auditRepository = null,
-    synthesisAgent = new LocalSynthesisAgent()
+    synthesisAgent = new LocalSynthesisAgent(),
+    now = Date.now,
+    generationDescriptor = null
   }) {
+    this.now = now;
+    this.generationDescriptor = generationDescriptor || getGenerationDescriptor(synthesisRepository.db);
     this.synthesisRepository = synthesisRepository;
     this.intelligenceService = intelligenceService;
     this.researchEvidenceRepository = researchEvidenceRepository;
@@ -24,7 +33,10 @@ export class SynthesisService {
   }
 
   async runForLead(lead, { simulate_failure_stage = null } = {}) {
+    lead = await currentLeadData(this.synthesisRepository.db, lead);
+    const capturedContext = await captureBusinessContext(this.synthesisRepository.db, lead, { now: this.now });
     const input = await this.buildInput(lead);
+    const guard = { now: this.now, stage: "synthesisService", input_fingerprint: input.input_fingerprint, input_authority: inputAuthority(input) };
     const existing = await this.synthesisRepository.findByFingerprint({
       organization_id: lead.organization_id,
       lead_id: lead.id,
@@ -32,7 +44,8 @@ export class SynthesisService {
       pipeline_version: SYNTHESIS_PIPELINE_VERSION
     });
     if (existing?.status === SYNTHESIS_STATUS.READY) {
-      return this.synthesisRepository.runDetail(existing);
+      return withCurrentBusinessContext(this.synthesisRepository.db, lead, capturedContext, tx =>
+        new SynthesisRepository(tx).runDetail(existing), guard);
     }
 
     const run =
@@ -64,31 +77,35 @@ export class SynthesisService {
         throw new Error(errors.join(" "));
       }
 
-      const finalized = await this.synthesisRepository.markReady(run.id, {
-        summary: output.summary,
-        findings: output.findings,
-        qualification: output.qualification,
-        recommendation: output.recommendation,
-        evidence_refs: collectEvidenceRefs(output)
-      });
-      await this.synthesisRepository.supersedeReadyRuns({
-        organization_id: lead.organization_id,
-        lead_id: lead.id,
-        except_run_id: finalized.id
-      });
-      await this.auditRepository?.record({
-        organization_id: lead.organization_id,
-        lead_id: lead.id,
-        event_type: "LeadIntelligenceSynthesized",
-        message: "Evidence-grounded Lead Intelligence synthesis generated.",
-        metadata: {
-          synthesis_id: finalized.id,
-          snapshot_id: input.snapshot.id,
-          finding_count: output.findings.length,
-          research_evidence_count: input.research_evidence_items.length
-        }
-      });
-      return this.synthesisRepository.runDetail(finalized);
+      return await withCurrentBusinessContext(this.synthesisRepository.db, lead, capturedContext, async (tx) => {
+        const repository = tx === this.synthesisRepository.db ? this.synthesisRepository : new SynthesisRepository(tx);
+        const audit = this.auditRepository ? (tx === this.auditRepository.db ? this.auditRepository : new AuditRepository(tx)) : null;
+        const finalized = await repository.markReady(run.id, {
+          summary: output.summary,
+          findings: output.findings,
+          qualification: output.qualification,
+          recommendation: output.recommendation,
+          evidence_refs: collectEvidenceRefs(output)
+        });
+        await repository.supersedeReadyRuns({
+          organization_id: lead.organization_id,
+          lead_id: lead.id,
+          except_run_id: finalized.id
+        });
+        await audit?.record({
+          organization_id: lead.organization_id,
+          lead_id: lead.id,
+          event_type: "LeadIntelligenceSynthesized",
+          message: "Evidence-grounded Lead Intelligence synthesis generated.",
+          metadata: {
+            synthesis_id: finalized.id,
+            snapshot_id: input.snapshot.id,
+            finding_count: output.findings.length,
+            research_evidence_count: input.research_evidence_items.length
+          }
+        });
+        return repository.runDetail(finalized);
+      }, guard);
     } catch (error) {
       await this.synthesisRepository.markFailed(run.id, error);
       throw error;
@@ -96,6 +113,7 @@ export class SynthesisService {
   }
 
   async currentForLead(lead) {
+    if (!this.synthesisRepository.db.transactionBound) return withScopedCurrentService(this.synthesisRepository.db, lead, "synthesisService", service => service.currentForLead(lead), { now: this.now });
     const input = await this.tryBuildInput(lead);
     if (!input.ready) {
       return {
@@ -151,16 +169,17 @@ export class SynthesisService {
         lead,
         snapshot,
         research_evidence_items: researchEvidenceItems,
-        input_fingerprint: synthesisFingerprint({ lead, snapshot, researchEvidenceItems })
+        input_fingerprint: synthesisFingerprint({ lead, snapshot, researchEvidenceItems, generationDescriptor: this.generationDescriptor })
       }
     };
   }
 }
 
-function synthesisFingerprint({ lead, snapshot, researchEvidenceItems }) {
+function synthesisFingerprint({ lead, snapshot, researchEvidenceItems, generationDescriptor }) {
   return createHash("sha256")
     .update(
       JSON.stringify({
+        generation: synthesisGenerationDescriptor(generationDescriptor),
         lead_id: lead.id,
         organization_id: lead.organization_id,
         snapshot_id: snapshot.id,

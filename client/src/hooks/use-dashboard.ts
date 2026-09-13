@@ -46,6 +46,7 @@ interface IntelligenceStats {
 
 export interface DashboardMetrics {
   leads: LeadStats;
+  business_outcomes: {scope:"ACTIVE_ENQUIRIES";recorded_outcomes:number;withdrawn_outcomes:number;enquiries_with_recorded_outcome:number;by_kind:Record<"QUALIFIED_CONVERSATION"|"MEETING_BOOKED"|"QUOTE_REQUESTED"|"WON"|"LOST",{outcomes:number;enquiries:number}>};
   sources: SourceEntry[];
   statuses: StatusEntry[];
   pending_approvals: number;

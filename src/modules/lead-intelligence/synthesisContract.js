@@ -1,4 +1,5 @@
-export const SYNTHESIS_PIPELINE_VERSION = "m2.2-structured-local-v1";
+export const SYNTHESIS_PIPELINE_VERSION = "l3.03-extractive-synthesis-v4";
+export const SYNTHESIS_PROMPT_VERSION = "l3.03-synthesis-prompt-v1";
 
 export const SYNTHESIS_STATUS = Object.freeze({
   DRAFT: "DRAFT",

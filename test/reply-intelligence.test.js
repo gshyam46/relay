@@ -2,6 +2,32 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { startClient } from "./helpers/testClient.js";
 
+
+async function assertReplyRefreshPending(client, organizationId, leadId, previous) {
+  const current = await client.get(`/api/leads/${leadId}/intelligence?organization_id=${organizationId}`);
+  assert.equal(current.intelligence, null, "a stale pre-reply snapshot must not be presented as current intelligence");
+  const stored = await client.db.get("SELECT id,version FROM intelligence_snapshots WHERE organization_id = ? AND lead_id = ? ORDER BY version DESC LIMIT 1", [organizationId, leadId]);
+  assert.equal(stored.id, previous.id, "webhook processing must leave snapshot refresh to the worker");
+  assert.equal(stored.version, previous.version);
+}
+
+async function processPersistedReply(client, organizationId, leadId) {
+  const queued = await client.db.all("SELECT * FROM domain_events WHERE organization_id = ? AND lead_id = ? AND type = 'LeadReplyReceived'", [organizationId, leadId]);
+  assert.equal(queued.length, 1, "one canonical reply must publish exactly one intelligence refresh event");
+  const event = queued[0];
+  assert.equal(event.status, "PENDING");
+  assert.equal(event.attempts, 0);
+  const inbound = await client.db.get("SELECT * FROM inbound_events WHERE organization_id = ? AND lead_id = ?", [organizationId, leadId]);
+  assert.equal(inbound.effects_status, "DONE", "the reply projection commits before intelligence refresh");
+  assert.equal(JSON.parse(event.payload_json).inbound_event_id, inbound.id);
+  const result = await client.post("/api/worker/run", { organization_id: organizationId });
+  assert.ok(result.processed_events.includes(event.id), "the worker must consume the persisted reply event");
+  const processed = await client.db.get("SELECT * FROM domain_events WHERE id = ?", [event.id]);
+  assert.equal(processed.status, "PROCESSED");
+  assert.equal(processed.attempts, 1);
+  return event;
+}
+
 test("classification is persisted as first-class columns on inbound_events and channel_messages", async (t) => {
   const client = await startClient(t);
   const organization = await client.register("Classification Columns Org");
@@ -84,6 +110,8 @@ test("a positive reply feeds a signal into the lead's intelligence snapshot auto
     email: "reply-signal@example.com"
   });
 
+  await client.post("/api/worker/run", { organization_id: organization.organization.id });
+
   const before = await client.post(`/api/leads/${lead.lead.id}/intelligence/run`, {
     organization_id: organization.organization.id
   });
@@ -99,6 +127,9 @@ test("a positive reply feeds a signal into the lead's intelligence snapshot auto
     provider_event_id: "reply-signal-1",
     payload: { text: "Sounds good, sign me up" }
   });
+
+  await assertReplyRefreshPending(client, organization.organization.id, lead.lead.id, before.intelligence);
+  await processPersistedReply(client, organization.organization.id, lead.lead.id);
 
   const after = await client.get(`/api/leads/${lead.lead.id}/intelligence?organization_id=${organization.organization.id}`);
   const replySignal = after.intelligence.signals.find((s) => s.type === "LEAD_REPLIED_POSITIVE");
@@ -118,6 +149,14 @@ test("an opt-out reply is reflected as a LEAD_OPTED_OUT signal", async (t) => {
     email: "opt-out-signal@example.com"
   });
 
+  await client.post("/api/worker/run", { organization_id: organization.organization.id });
+  const before = await client.get(`/api/leads/${lead.lead.id}/intelligence?organization_id=${organization.organization.id}`);
+  assert.equal(before.intelligence.signals.some((signal) => signal.type === "LEAD_OPTED_OUT"), false);
+  const recommendationStages = [];
+  for (const stage of ["synthesisService", "intelligenceRecommendationService", "nextBestActionService"]) {
+    client.services.worker[stage] = { async runForLead() { recommendationStages.push(stage); }, async planForLead() { recommendationStages.push(stage); } };
+  }
+
   await client.post("/api/inbound-events/mock", {
     organization_id: organization.organization.id,
     lead_id: lead.lead.id,
@@ -126,8 +165,14 @@ test("an opt-out reply is reflected as a LEAD_OPTED_OUT signal", async (t) => {
     payload: { text: "Please stop contacting me, unsubscribe" }
   });
 
+  assert.equal((await client.services.leadsRepository.getLead(lead.lead.id)).status, "OPTED_OUT", "contact policy applies before intelligence processing");
+  await assertReplyRefreshPending(client, organization.organization.id, lead.lead.id, before.intelligence);
+  await processPersistedReply(client, organization.organization.id, lead.lead.id);
+
   const after = await client.get(`/api/leads/${lead.lead.id}/intelligence?organization_id=${organization.organization.id}`);
   assert.ok(after.intelligence.signals.some((s) => s.type === "LEAD_OPTED_OUT"));
+  assert.ok(after.intelligence.version > before.intelligence.version, "the worker must refresh an existing snapshot after opt-out");
+  assert.deepEqual(recommendationStages, [], "opt-out refresh must not run synthesis or contact recommendation stages");
 });
 
 test("re-running intelligence with no new reply returns the cached snapshot instead of a new version", async (t) => {
@@ -140,6 +185,8 @@ test("re-running intelligence with no new reply returns the cached snapshot inst
     email: "stable-fingerprint@example.com"
   });
 
+  await client.post("/api/worker/run", { organization_id: organization.organization.id });
+
   await client.post("/api/inbound-events/mock", {
     organization_id: organization.organization.id,
     lead_id: lead.lead.id,
@@ -147,12 +194,19 @@ test("re-running intelligence with no new reply returns the cached snapshot inst
     provider_event_id: "stable-1",
     payload: { text: "What does this cost?" }
   });
+  await processPersistedReply(client, organization.organization.id, lead.lead.id);
   const first = await client.get(`/api/leads/${lead.lead.id}/intelligence?organization_id=${organization.organization.id}`);
   const second = await client.post(`/api/leads/${lead.lead.id}/intelligence/run`, {
     organization_id: organization.organization.id
   });
 
   assert.equal(second.intelligence.version, first.intelligence.version);
+  assert.equal(second.intelligence.id, first.intelligence.id);
+  assert.ok(first.intelligence.signals.some((signal) => signal.type === "LEAD_ASKED_QUESTION"));
+  const again = await client.post("/api/worker/run", { organization_id: organization.organization.id });
+  assert.deepEqual(again.processed_events, [], "an idle worker must not refresh the same reply again");
+  const cached = await client.get(`/api/leads/${lead.lead.id}/intelligence?organization_id=${organization.organization.id}`);
+  assert.equal(cached.intelligence.id, first.intelligence.id);
 });
 
 test("duplicate inbound events do not double-apply classification columns or re-trigger a new snapshot version", async (t) => {
@@ -164,6 +218,9 @@ test("duplicate inbound events do not double-apply classification columns or re-
     company: "Idempotent Co",
     email: "idempotent-reply@example.com"
   });
+
+  await client.post("/api/worker/run", { organization_id: organization.organization.id });
+  const before = await client.get(`/api/leads/${lead.lead.id}/intelligence?organization_id=${organization.organization.id}`);
 
   const payload = {
     organization_id: organization.organization.id,
@@ -182,8 +239,19 @@ test("duplicate inbound events do not double-apply classification columns or re-
     1
   );
 
+  await assertReplyRefreshPending(client, organization.organization.id, lead.lead.id, before.intelligence);
+  const event = await processPersistedReply(client, organization.organization.id, lead.lead.id);
   const snapshot = await client.get(`/api/leads/${lead.lead.id}/intelligence?organization_id=${organization.organization.id}`);
-  assert.equal(snapshot.intelligence.version, 1);
+  assert.equal(snapshot.intelligence.version, before.intelligence.version + 1);
+  assert.equal((await client.post("/api/inbound-events/mock", payload)).duplicate, true);
+  const replayWorker = await client.post("/api/worker/run", { organization_id: organization.organization.id });
+  assert.deepEqual(replayWorker.processed_events, []);
+  const replay = await client.get(`/api/leads/${lead.lead.id}/intelligence?organization_id=${organization.organization.id}`);
+  assert.equal(replay.intelligence.id, snapshot.intelligence.id);
+  assert.equal(replay.intelligence.version, snapshot.intelligence.version);
+  assert.equal((await client.db.get("SELECT attempts FROM domain_events WHERE id = ?", [event.id])).attempts, 1);
+  assert.equal((await client.db.get("SELECT COUNT(*) AS count FROM inbound_events WHERE lead_id = ?", [lead.lead.id])).count, 1);
+  assert.equal((await client.db.get("SELECT COUNT(*) AS count FROM channel_messages WHERE lead_id = ? AND direction = 'INBOUND'", [lead.lead.id])).count, 1);
 });
 
 test("an inbound reply makes the lead's existing recommendation stale, then the worker refreshes it", async (t) => {
@@ -220,9 +288,8 @@ test("an inbound reply makes the lead's existing recommendation stale, then the 
     payload: { text: "What would a full living room fit-out cost?" }
   });
 
-  // The inline snapshot refresh already folded the reply in, which changes the
-  // snapshot fingerprint and therefore makes the old recommendation stale. That
-  // alone would leave the lead showing a recommendation that predates the reply.
+  // The persisted reply invalidates the old recommendation while snapshot and
+  // recommendation rebuilding wait for the worker to consume LeadReplyReceived.
   const stale = await client.get(`/api/leads/${lead.id}/intelligence?organization_id=${organization.id}`);
   assert.notEqual(stale.recommendation_status, "READY", "the pre-reply recommendation must not still count as current");
 
@@ -314,10 +381,18 @@ test("an opted-out lead is not re-analysed into a fresh reason to contact them",
   );
 
   const audit = await client.get(`/api/activity/feed?organization_id=${organization.id}`);
-  assert.ok(
-    JSON.stringify(audit).includes("opted out"),
-    "the skip should be recorded rather than happening silently"
-  );
+  const records = await client.db.all("SELECT * FROM audit_logs WHERE organization_id = ? AND lead_id = ? AND event_type = 'LeadIntelligenceUpdated'", [organization.id, lead.id]);
+  const skipped = records.find((record) => {
+    const metadata = JSON.parse(record.metadata_json);
+    return metadata.lead_status === "OPTED_OUT" && metadata.stages?.includes("snapshot");
+  });
+  assert.ok(skipped, "the completed policy snapshot and recommendation skip must be recorded");
+  assert.match(skipped.message, /skipped contact recommendations/i);
+  const visible = audit.events.find((event) => event.lead_id === lead.id && event.event_type === "LeadIntelligenceUpdated"
+    && event.metadata?.lead_status === "OPTED_OUT" && event.metadata?.stages?.includes("snapshot"));
+  assert.ok(visible, "the policy-stage skip must remain visible in the activity feed");
+  assert.equal(visible.message, skipped.message);
+  assert.deepEqual(visible.metadata.stages, ["snapshot"]);
 });
 
 test("a duplicate inbound reply does not queue a second re-analysis", async (t) => {

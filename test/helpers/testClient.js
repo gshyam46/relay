@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { createApp } from "../../src/api/app.js";
 import { createDatabase } from "../../src/database/database.js";
+import { loadConfig } from "../../src/config.js";
+import { assertNoLiveProviders, connectTestAdmin, isOwnedSchema, postgresTestContext, schemaDatabaseConfig, schemaFor } from "../../scripts/helpers/testSafety.js";
 
 const DEFAULT_PASSWORD = "correct-horse-battery-staple";
 
@@ -11,10 +13,12 @@ const DEFAULT_PASSWORD = "correct-horse-battery-staple";
 // single active session cookie that get()/post()/put() attach automatically, and rawFetch() is
 // there for the handful of tests that deliberately want to bypass that (testing the auth gate
 // itself, or simulating a request with no session at all).
-export async function startClient(t, databaseFile = ":memory:", { autoCleanup = true } = {}) {
+export async function startClient(t, databaseFile = ":memory:", { autoCleanup = true, config: appConfig = null } = {}) {
+  assertNoLiveProviders();
   const target = await resolveDatabaseTarget(databaseFile);
   const db = await createDatabase(target);
-  const server = createApp({ db });
+  const config = appConfig || loadConfig({ NODE_ENV: "test", ENABLE_TEST_CONTROLS: "true", WORKER_ENABLED: "false" });
+  const server = createApp({ db, config });
   let stopped = false;
   let cookie = null;
 
@@ -51,6 +55,7 @@ export async function startClient(t, databaseFile = ":memory:", { autoCleanup = 
 
   return {
     baseUrl,
+    services: server.services,
     db,
     stop,
 
@@ -103,6 +108,31 @@ export async function startClient(t, databaseFile = ":memory:", { autoCleanup = 
       return fetch(`${baseUrl}${route}`, { ...options, headers: authHeaders(options.headers) });
     },
 
+    // These helpers explicitly perform the preview/decision protocol. Callers
+    // must opt into simulated review; post/execute never approves silently.
+    async review(actionId) {
+      return this.get("/api/actions/" + actionId + "/approval");
+    },
+
+    async approve(actionId, editedPayload = null) {
+      let reviewed = await this.review(actionId);
+      if (editedPayload) {
+        reviewed = await this.post("/api/actions/" + actionId + "/approval/preview", {
+          expected_revision_id: reviewed.prepared_revision.id, edited_payload: editedPayload
+        });
+      }
+      return this.post("/api/actions/" + actionId + "/approval/approve", {
+        expected_revision_id: reviewed.prepared_revision.id
+      });
+    },
+
+    async reject(actionId, reviewerNote = null) {
+      const reviewed = await this.review(actionId);
+      return this.post("/api/actions/" + actionId + "/approval/reject", {
+        expected_revision_id: reviewed.prepared_revision.id, reviewer_note: reviewerNote
+      });
+    },
+
     async get(route) {
       const response = await fetch(`${baseUrl}${route}`, { headers: authHeaders() });
       if (!response.ok) {
@@ -137,99 +167,46 @@ export async function startClient(t, databaseFile = ":memory:", { autoCleanup = 
   };
 }
 
-// ---------------------------------------------------------------------------
-// Running the whole suite against PostgreSQL
-// ---------------------------------------------------------------------------
-// By default every test runs on an in-memory SQLite database, which is what
-// local development and CI use. Setting RELAY_TEST_PG=1 (together with
-// TEST_DATABASE_URL) instead points every startClient() at a real PostgreSQL,
-// which is how the SQL these repositories emit gets proven on the engine that
-// staging and production actually run:
-//
-//   RELAY_TEST_PG=1 TEST_DATABASE_URL=postgresql://user:pass@host:5432/relay_test \
-//     TEST_DATABASE_SSL=disable npm test
-//
-// Each client gets its OWN schema rather than its own database: CREATE SCHEMA is
-// milliseconds where CREATE DATABASE is hundreds, and the suite starts ~50
-// servers. The schema is selected by putting `search_path` in the connection
-// string's `options`, so every pooled connection lands in it, and the client's
-// `columnExists()` (which filters on `current_schema()`) resolves to it too.
-// The schema is dropped when the client stops.
-//
-// Tests that call createDatabase(":memory:") directly are exercising service
-// logic rather than SQL and deliberately stay on SQLite.
-
-const POSTGRES_MODE = process.env.RELAY_TEST_PG === "1" && !!process.env.TEST_DATABASE_URL;
-
-// TEST_DATABASE_SSL overrides, DATABASE_SSL is the fallback, so a single entry
-// in .env configures the app and the tests alike. Managed Postgres is TLS-only,
-// hence the default of "on".
-const SSL_ENABLED = (process.env.TEST_DATABASE_SSL ?? process.env.DATABASE_SSL) !== "disable";
-
-function postgresUrlWithSchema(schema) {
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  url.searchParams.set("options", `-c search_path=${schema}`);
-  return url.toString();
-}
+// PostgreSQL test contexts are issued by scripts/run-postgres-tests.js only.
+// Memory schemas die with the client; file schemas survive a simulated restart
+// inside this run, but never overlap a concurrent or later run using that path.
+const POSTGRES = postgresTestContext();
 
 async function resolveDatabaseTarget(databaseFile) {
-  // An explicit config object (the postgres adapter tests) is passed through.
   if (typeof databaseFile !== "string") {
+    if (databaseFile?.driver === "postgres") {
+      if (!POSTGRES) throw new Error("PostgreSQL fixtures require npm run test:pg and its owned namespace.");
+      let url;
+      try { url = new URL(databaseFile.databaseUrl); } catch { throw new Error("Invalid test fixture database URL (redacted)."); }
+      const schema = url.searchParams.get("options")?.replace(/^-c search_path=/, "");
+      const expected = schemaDatabaseConfig(POSTGRES, schema);
+      if (databaseFile.databaseUrl !== expected.databaseUrl) throw new Error("Refused PostgreSQL fixture outside this run's target.");
+      return expected;
+    }
     return databaseFile;
   }
-  if (!POSTGRES_MODE) {
-    return databaseFile;
-  }
+  if (!POSTGRES) return databaseFile;
 
-  // A schema name has to mirror SQLite's semantics exactly, because the suite
-  // relies on both:
-  //   ":memory:"  -> a private database that dies with the client, so a fresh
-  //                  random schema, dropped on stop().
-  //   a file path -> a database that OUTLIVES the client, which is how every
-  //                  "survives restart" test works: stop the server, start a
-  //                  second one on the same path, and assert the data is still
-  //                  there. So the schema is derived from the path and is NOT
-  //                  dropped on stop() — a second client with the same path
-  //                  reattaches to it.
   const ephemeral = databaseFile === ":memory:";
   const schema = ephemeral
-    ? `relay_mem_${randomUUID().replaceAll("-", "")}`
-    : `relay_file_${createHash("sha256").update(databaseFile).digest("hex").slice(0, 24)}`;
-
-  const admin = await createDatabaseClient(process.env.TEST_DATABASE_URL);
+    ? schemaFor(POSTGRES.runId, "mem")
+    : schemaFor(POSTGRES.runId, "file", databaseFile);
+  const admin = await connectTestAdmin(POSTGRES);
   try {
-    await admin.exec(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
+    await admin.exec('CREATE SCHEMA IF NOT EXISTS "' + schema + '"');
   } finally {
     await admin.close();
   }
-
-  return {
-    driver: "postgres",
-    databaseUrl: postgresUrlWithSchema(schema),
-    ssl: SSL_ENABLED,
-    maxConnections: 4,
-    __schema: ephemeral ? schema : null
-  };
+  return { ...schemaDatabaseConfig(POSTGRES, schema), __schema: ephemeral ? schema : null };
 }
 
 async function dropSchema(target) {
-  if (!target || typeof target === "string" || !target.__schema) {
-    return;
-  }
-  const admin = await createDatabaseClient(process.env.TEST_DATABASE_URL);
+  if (!target || typeof target === "string" || !target.__schema) return;
+  if (!POSTGRES || !isOwnedSchema(target.__schema, POSTGRES.runId)) throw new Error("Refused cleanup outside this test run.");
+  const admin = await connectTestAdmin(POSTGRES);
   try {
-    await admin.exec(`DROP SCHEMA IF EXISTS ${target.__schema} CASCADE`);
+    await admin.exec('DROP SCHEMA IF EXISTS "' + target.__schema + '" CASCADE');
   } finally {
     await admin.close();
   }
-}
-
-// A bare connection with no migrations run — just for CREATE/DROP SCHEMA.
-async function createDatabaseClient(connectionString) {
-  const { PostgresDatabaseClient } = await import("../../src/database/postgresClient.js");
-  return PostgresDatabaseClient.connect({
-    connectionString,
-    ssl: SSL_ENABLED,
-    maxConnections: 1
-  });
 }

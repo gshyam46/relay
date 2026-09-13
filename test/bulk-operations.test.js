@@ -68,9 +68,10 @@ test("bulk approve, then bulk execute, moves a full batch of pending actions thr
     actionIds.push(await createApprovalRequiredAction(client, organization.organization.id, `Approve Lead ${i}`));
   }
 
+  const revisions = await Promise.all(actionIds.map(async (action_id) => ({ action_id, expected_revision_id: (await client.review(action_id)).prepared_revision.id })));
   const approveResult = await client.post("/api/actions/bulk-approve", {
     organization_id: organization.organization.id,
-    action_ids: actionIds,
+    revisions,
     reviewer_name: "QA Bot"
   });
   assert.equal(approveResult.approved, 4);
@@ -79,7 +80,7 @@ test("bulk approve, then bulk execute, moves a full batch of pending actions thr
   // Re-approving the same batch must be idempotent, not an error pile-up.
   const reApprove = await client.post("/api/actions/bulk-approve", {
     organization_id: organization.organization.id,
-    action_ids: actionIds,
+    revisions,
     reviewer_name: "QA Bot"
   });
   assert.equal(reApprove.approved, 4);
@@ -106,7 +107,10 @@ test("bulk approve reports per-item failure for a cross-tenant action id without
   const actionBId = await createApprovalRequiredAction(client, orgB.organization.id, "Own Tenant Lead B");
 
   const result = await client.post("/api/actions/bulk-approve", {
-    action_ids: [actionAId, actionBId]
+    revisions: [
+      { action_id: actionAId, expected_revision_id: "foreign-revision" },
+      { action_id: actionBId, expected_revision_id: (await client.review(actionBId)).prepared_revision.id }
+    ]
   });
 
   assert.equal(result.approved, 1);

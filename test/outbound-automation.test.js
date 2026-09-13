@@ -1,4 +1,5 @@
 import test from "node:test";
+import { advanceToNextAttempt } from "./helpers/review.js";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -28,7 +29,7 @@ test("approval-required next-best-action plan creates a waiting outbound action 
   assert.equal(first.action.approval_requirement, "REQUIRED");
   assert.equal(first.action.executions.length, 0);
   assert.equal(execute.status, 409);
-  assert.match((await execute.json()).error, /requires approval/);
+  assert.match((await execute.json()).error, /approve the current message revision/);
   assert.equal((await client.db.all("SELECT * FROM actions WHERE lead_id = ?", [lead.id])).length, 1);
   assert.equal((await client.db.all("SELECT * FROM action_executions WHERE action_id = ?", [first.action.id])).length, 0);
 });
@@ -49,13 +50,15 @@ test("non-approval next-best-action action executes through sandbox and complete
     organization_id: organization.id,
     provider_event_id: "m4-provider-event-1",
     status: "COMPLETED",
-    provider_reference: "m4-provider-ref-1"
+    action_execution_id: started.action.executions[0].id,
+    provider_reference: started.action.executions[0].provider_reference
   });
   const duplicateCallback = await client.post(`/api/actions/${prepared.action.id}/callback`, {
     organization_id: organization.id,
     provider_event_id: "m4-provider-event-1",
     status: "COMPLETED",
-    provider_reference: "m4-provider-ref-1"
+    action_execution_id: started.action.executions[0].id,
+    provider_reference: started.action.executions[0].provider_reference
   });
   const outbound = await client.get(`/api/leads/${lead.id}/outbound?organization_id=${organization.id}`);
 
@@ -78,7 +81,8 @@ test("execution retry and non-retryable failure are persisted through the M4 exe
   const lead = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Retry Lead",
-    email: "retry-m4@example.com"
+    email: "retry-m4@example.com",
+    phone: "+919876543210"
   });
   const retryAction = await client.post(`/api/leads/${lead.lead.id}/actions`, {
     organization_id: organization.organization.id,
@@ -91,9 +95,13 @@ test("execution retry and non-retryable failure are persisted through the M4 exe
     mock_behavior: "PERMANENT_FAILURE"
   });
 
+  await client.approve(retryAction.action.id);
+  await client.approve(blockedAction.action.id);
+
   const firstRetry = await client.post(`/api/actions/${retryAction.action.id}/execute`, {
     organization_id: organization.organization.id
   });
+  await advanceToNextAttempt(client.services, retryAction.action.id);
   const secondRetry = await client.post(`/api/actions/${retryAction.action.id}/execute`, {
     organization_id: organization.organization.id
   });

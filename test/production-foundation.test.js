@@ -140,7 +140,9 @@ test("configuration selects sqlite locally and postgres whenever DATABASE_URL is
   const staging = loadConfig({
     NODE_ENV: "staging",
     DATABASE_URL: "postgresql://user:secret@db.example.supabase.co:5432/postgres",
-    PORT: "8080"
+    PORT: "8080",
+    PUBLIC_APP_ORIGIN: "https://app.example.test",
+    AUTH_RATE_LIMIT_SECRET: "synthetic-test-only-auth-key-with-at-least-32-bytes"
   });
   assert.equal(staging.database.driver, "postgres");
   assert.equal(staging.database.ssl, true);
@@ -155,13 +157,13 @@ test("configuration selects sqlite locally and postgres whenever DATABASE_URL is
 });
 
 test("production configuration refuses to boot on sqlite or a malformed connection string", () => {
-  const sqliteInProduction = validateConfig(loadConfig({ NODE_ENV: "production" }));
+  const sqliteInProduction = validateConfig(loadConfig({ NODE_ENV: "production", PUBLIC_APP_ORIGIN: "https://app.example.test", AUTH_RATE_LIMIT_SECRET: "synthetic-test-only-auth-key-with-at-least-32-bytes" }));
   assert.equal(sqliteInProduction.length, 1);
   assert.match(sqliteInProduction[0], /DATABASE_URL is required/);
 
-  const badUrl = validateConfig(loadConfig({ NODE_ENV: "production", DATABASE_URL: "mysql://host/db" }));
+  const badUrl = validateConfig(loadConfig({ NODE_ENV: "production", DATABASE_URL: "mysql://host/db", PUBLIC_APP_ORIGIN: "https://app.example.test", AUTH_RATE_LIMIT_SECRET: "synthetic-test-only-auth-key-with-at-least-32-bytes" }));
   assert.equal(badUrl.length, 1);
-  assert.match(badUrl[0], /must be a postgres/);
+  assert.match(badUrl[0], /PostgreSQL|postgres/);
 });
 
 test("the boot configuration summary never contains the database password", () => {
@@ -198,8 +200,10 @@ test("structured logs are single-line JSON carrying event, level and bound field
 
   const failed = JSON.parse(lines[1]);
   assert.equal(failed.request_id, "req_9");
-  assert.equal(failed.error.message, "kaboom");
-  assert.ok(failed.error.stack);
+  assert.equal(failed.error.category, "Error");
+  assert.equal(failed.error.code, "internal_error");
+  assert.equal(JSON.stringify(failed).includes("kaboom"), false);
+  assert.equal("stack" in failed.error, false);
   assert.equal(
     lines.every((line) => !line.includes("\n")),
     true

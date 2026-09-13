@@ -1,0 +1,69 @@
+import { useMe } from "@/hooks/use-auth";
+import { useBusinessProfile, useSaveContext } from "@/hooks/use-business-context";
+import { useWorkspaceStore } from "@/stores/workspace";
+import { ApiError } from "@/lib/api";
+import { ContextEditor, ContextLoadState, contextFieldClass } from "./context-editor";
+import { currencies, type ProfileRevision } from "@/types/business-context";
+import { fitFields, fitFieldLabels, type FitArea, type FitCriteria, type FitField, type FitRequirement, type InterestCriterion, type LocationCriterion, type BudgetCriterion, type TimelineCriterion } from "@/types/business-fit";
+const action = "text-sm text-brand underline disabled:opacity-50";
+const empty = (): FitCriteria => ({ version: 1, interest: null, location: null, budget: null, timeline: null });
+type CriteriaDraft = Pick<ProfileRevision, "profile" | "fit_criteria">;
+function defaultRule(field: FitField, requirement: FitRequirement) {
+  if (field === "interest") return { requirement, accepted_aliases: [], excluded_aliases: [] };
+  if (field === "location") return { requirement, areas: [], excluded_areas: [] };
+  if (field === "budget") return { requirement, currency: "", minimum: "" };
+  return { requirement, earliest_date: null, latest_date: null };
+}
+function cleanCriteria(input: FitCriteria | null) {
+  if (!input) return null;
+  const next = structuredClone(input), clean = (items: string[]) => items.map(value => value.trim()).filter(Boolean);
+  if (!fitFields.some(field => next[field]?.requirement === "REQUIRED")) throw new ApiError(400, { error: "Choose at least one required criterion, or disable configured fit criteria." });
+  if (next.interest) { next.interest.accepted_aliases = clean(next.interest.accepted_aliases); next.interest.excluded_aliases = clean(next.interest.excluded_aliases); }
+  if (next.location) for (const areas of [next.location.areas, next.location.excluded_areas]) for (const area of areas) { area.country_code = area.country_code.trim().toUpperCase(); area.locality = area.locality === null ? null : area.locality.trim(); area.aliases = clean(area.aliases); }
+  return next;
+}
+export function FitCriteriaEditor() {
+  const org = useWorkspaceStore(s => s.currentOrg), { data: me } = useMe(), query = useBusinessProfile(), save = useSaveContext();
+  if (!query.data) return <ContextLoadState error={query.isError ? query.error : undefined} retry={() => void query.refetch()} />;
+  return <ContextEditor<CriteriaDraft, ProfileRevision> key={org?.id} title="Fit criteria"
+    description="Choose the explicit rules used to assess saved enquiries. Descriptive business-profile notes are not converted into rules."
+    current={query.data} value={row => ({ profile: row.profile, fit_criteria: row.fit_criteria || null })}
+    owner={me?.user.role === "OWNER" && me.user.organization_id === org?.id} refreshError={query.isError}
+    refresh={async () => { const result = await query.refetch(); if (result.error || !result.data) throw result.error; return result.data; }}
+    save={(draft, revision, reason) => save<ProfileRevision>({ expected_revision: revision, reason, profile: draft.profile, fit_criteria: cleanCriteria(draft.fit_criteria) })}
+    fields={(draft, change) => <>
+      <label className="flex items-center gap-3 text-sm font-medium"><input type="checkbox" checked={!!draft.fit_criteria} onChange={event => change({ ...draft, fit_criteria: event.target.checked ? empty() : null })} />Enable configured fit criteria</label>
+      {!draft.fit_criteria ? <p className="rounded-lg bg-soft p-3 text-sm text-muted">No configured criteria will be active after saving. Earlier criteria and assessments remain in history. Re-enable and configure rules to assess business fit.</p> : <>
+        <p className="text-sm text-muted">Choose at least one required criterion. Unknown, conflicting, inferred or aged facts cannot establish a match. Preferences affect ordering only when their supporting facts are known; missing preferences remain visible.</p>
+        {fitFields.map(field => { const rule = draft.fit_criteria![field]; const update = (value: FitCriteria[typeof field]) => change({ ...draft, fit_criteria: { ...draft.fit_criteria!, [field]: value } });
+          return <fieldset key={field} className="min-w-0 rounded-xl border border-line p-4 space-y-3"><legend className="px-2 text-sm font-semibold">{fitFieldLabels[field]} criterion</legend>
+            <label className="block text-sm space-y-1">{fitFieldLabels[field]} importance<select aria-label={fitFieldLabels[field] + " importance"} className={contextFieldClass} value={rule?.requirement || "NONE"} onChange={event => update(event.target.value === "NONE" ? null : rule ? { ...rule, requirement: event.target.value as FitRequirement } : defaultRule(field, event.target.value as FitRequirement))}><option value="NONE">Not assessed</option><option value="REQUIRED">Required</option><option value="PREFERRED">Preferred</option></select></label>
+            {rule && field === "interest" && <InterestFields rule={rule as InterestCriterion} change={update} />}
+            {rule && field === "location" && <LocationFields rule={rule as LocationCriterion} change={update} />}
+            {rule && field === "budget" && <BudgetFields rule={rule as BudgetCriterion} change={update} />}
+            {rule && field === "timeline" && <TimelineFields rule={rule as TimelineCriterion} change={update} />}
+          </fieldset>;
+        })}
+      </>}
+      {(draft.profile.required_criteria.length > 0 || draft.profile.exclusions.length > 0) && <p className="rounded-lg border border-warn p-3 text-sm text-warn">Required or exclusion notes in Business profile still require manual review. Configured matches cannot settle those descriptive notes.</p>}
+      {draft.profile.preferred_criteria.length > 0 && <p className="text-sm text-muted">Descriptive preferred notes remain unassessed and make preference coverage incomplete.</p>}
+      <p className="text-xs text-muted">Criteria use the same revision as Business profile. Saving criteria preserves the profile captured with this draft. No analysis or contact runs automatically.</p>
+    </>}
+    summary={row => <CriteriaSummary criteria={row.fit_criteria || null} />} />;
+}
+function TextList({ label, values, change, required = false }: { label: string; values: string[]; change: (values: string[]) => void; required?: boolean }) { return <label className="block text-sm space-y-1">{label}<textarea aria-label={label} className={contextFieldClass} rows={3} maxLength={10019} required={required} value={values.join("\n")} onChange={event => change(event.target.value.split("\n"))} /><span className="block text-xs text-muted">One exact value per line, up to 20. Different phrases are left unresolved; these values are not keywords.</span></label>; }
+function InterestFields({ rule, change }: { rule: InterestCriterion; change: (rule: InterestCriterion) => void }) { return <><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><TextList label="Accepted interest values" values={rule.accepted_aliases} change={values => change({ ...rule, accepted_aliases: values })} required /><TextList label="Excluded interest values" values={rule.excluded_aliases} change={values => change({ ...rule, excluded_aliases: values })} /></div><p className="text-xs text-muted">Whole recorded values are compared after case, space and equivalent Unicode normalization. An explicit excluded value takes precedence. No paraphrase, substring or negation interpretation is inferred.</p></>; }
+function LocationFields({ rule, change }: { rule: LocationCriterion; change: (rule: LocationCriterion) => void }) { return <><Areas label="Accepted areas" values={rule.areas} change={areas => change({ ...rule, areas })} /><Areas label="Excluded areas" values={rule.excluded_areas} change={areas => change({ ...rule, excluded_areas: areas })} /><p className="text-xs text-muted">The enquiry must record its country. Country is never inferred from phone or currency. Avoid overlapping country-wide and locality rules.</p></>; }
+function Areas({ label, values, change }: { label: string; values: FitArea[]; change: (values: FitArea[]) => void }) {
+  function update(index: number, area: FitArea) { change(values.map((current, i) => i === index ? area : current)); }
+  return <section aria-label={label} className="space-y-3"><h4 className="text-sm font-medium">{label}</h4>{values.map((area, index) => <fieldset key={index} className="min-w-0 rounded-lg border border-line p-3 space-y-3"><legend className="px-1 text-xs">{label} {index + 1}</legend><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><label className="text-sm space-y-1">Country code<input aria-label={label + " " + (index + 1) + " country"} className={contextFieldClass} required maxLength={2} pattern="[A-Z]{2}" placeholder="For example, IN" value={area.country_code} onChange={event => update(index, { ...area, country_code: event.target.value.toUpperCase() })} /></label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={area.locality === null} onChange={event => update(index, { ...area, locality: event.target.checked ? null : "", aliases: [] })} />Whole recorded country</label></div>{area.locality !== null && <><label className="block text-sm space-y-1">Locality<input aria-label={label + " " + (index + 1) + " locality"} className={contextFieldClass} required maxLength={200} value={area.locality} onChange={event => update(index, { ...area, locality: event.target.value })} /></label><TextList label={label + " " + (index + 1) + " locality aliases"} values={area.aliases} change={aliases => update(index, { ...area, aliases })} /></>}<button type="button" className={action} onClick={() => change(values.filter((_, i) => i !== index))}>Remove {label.toLowerCase()} {index + 1}</button></fieldset>)}<button type="button" className={action} disabled={values.length >= 20} onClick={() => change([...values, { country_code: "", locality: "", aliases: [] }])}>Add {label.toLowerCase()}</button>{!values.length && <p className="text-xs text-muted">No areas configured.</p>}</section>;
+}
+function BudgetFields({ rule, change }: { rule: BudgetCriterion; change: (rule: BudgetCriterion) => void }) { return <><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><label className="block text-sm space-y-1">Criterion currency<select aria-label="Criterion currency" className={contextFieldClass} required value={rule.currency} onChange={event => change({ ...rule, currency: event.target.value })}><option value="">Choose currency</option>{Object.keys(currencies).map(currency => <option key={currency}>{currency}</option>)}</select></label><label className="block text-sm space-y-1">Minimum budget threshold<input aria-label="Minimum budget threshold" className={contextFieldClass} required inputMode="decimal" pattern="[0-9]+([.][0-9]+)?" maxLength={100} value={rule.minimum} onChange={event => change({ ...rule, minimum: event.target.value })} /></label></div><p className="text-xs text-muted">Use exact plain decimal digits. A range that crosses this minimum remains unknown. Different currencies remain unresolved; no conversion is performed.</p></>; }
+function TimelineFields({ rule, change }: { rule: TimelineCriterion; change: (rule: TimelineCriterion) => void }) { return <><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><label className="block text-sm space-y-1">Earliest target date<input aria-label="Earliest target date" className={contextFieldClass} type="date" required={!rule.latest_date} value={rule.earliest_date || ""} onChange={event => change({ ...rule, earliest_date: event.target.value || null })} /></label><label className="block text-sm space-y-1">Latest target date<input aria-label="Latest target date" className={contextFieldClass} type="date" required={!rule.earliest_date} value={rule.latest_date || ""} onChange={event => change({ ...rule, latest_date: event.target.value || null })} /></label></div><p className="text-xs text-muted">Choose at least one absolute date. Bounds are inclusive. A description such as next month is not an explicit target date.</p></>; }
+export function CriteriaSummary({ criteria }: { criteria: FitCriteria | null }) { return !criteria ? <p className="text-sm text-muted">Configured fit criteria are disabled.</p> : <dl className="space-y-3 text-sm">{fitFields.map(field => <div key={field}><dt className="font-medium">{fitFieldLabels[field]} - {criteria[field]?.requirement === "REQUIRED" ? "Required" : criteria[field] ? "Preferred" : "Not assessed"}</dt><dd className="mt-1 text-muted">{criteria[field] && <CriterionRule field={field} rule={criteria[field]} />}</dd></div>)}</dl>; }
+export function CriterionRule({ field, rule }: { field: FitField; rule: NonNullable<FitCriteria[FitField]> }) {
+  if (field === "interest") { const current = rule as InterestCriterion; return <div className="space-y-1 break-words"><p>Accepted exact values: {current.accepted_aliases.join("; ") || "None"}.</p><p>Excluded exact values: {current.excluded_aliases.join("; ") || "None"}.</p></div>; }
+  if (field === "location") { const current = rule as LocationCriterion; const areaText = (area: FitArea) => area.country_code + ": " + (area.locality === null ? "whole country" : area.locality + (area.aliases.length ? " (aliases: " + area.aliases.join("; ") + ")" : "")); return <div className="space-y-1 break-words"><p>Accepted areas: {current.areas.map(areaText).join("; ") || "None"}.</p><p>Excluded areas: {current.excluded_areas.map(areaText).join("; ") || "None"}.</p></div>; }
+  if (field === "budget") { const current = rule as BudgetCriterion; return <>Minimum {current.currency} {current.minimum}; same currency only.</>; }
+  const current = rule as TimelineCriterion; return <>Target date from {current.earliest_date || "no lower bound"} to {current.latest_date || "no upper bound"}, inclusive.</>;
+}

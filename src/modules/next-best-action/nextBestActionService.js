@@ -1,3 +1,7 @@
+import { currentLeadData } from "../data-foundation/leadDataSafety.js";
+import { captureBusinessContext, withCurrentBusinessContext, withScopedCurrentService, inputAuthority } from "../lead-intelligence/businessContextGuard.js";
+import { NextBestActionRepository } from "./nextBestActionRepository.js";
+import { AuditRepository } from "../events/auditRepository.js";
 import { createHash } from "node:crypto";
 import { ActionPlanner } from "./actionPlanner.js";
 import { PolicyEngine } from "./policyEngine.js";
@@ -13,8 +17,10 @@ export class NextBestActionService {
     intelligenceRecommendationService,
     auditRepository = null,
     actionPlanner = new ActionPlanner(),
-    policyEngine = new PolicyEngine()
+    policyEngine = new PolicyEngine(),
+    now = Date.now
   }) {
+    this.now = now;
     this.nextBestActionRepository = nextBestActionRepository;
     this.intelligenceRecommendationService = intelligenceRecommendationService;
     this.auditRepository = auditRepository;
@@ -23,7 +29,10 @@ export class NextBestActionService {
   }
 
   async planForLead(lead, { simulate_failure_stage = null } = {}) {
+    lead = await currentLeadData(this.nextBestActionRepository.db, lead);
+    const capturedContext = await captureBusinessContext(this.nextBestActionRepository.db, lead, { now: this.now });
     const input = await this.buildInput(lead);
+    const guard = { now: this.now, stage: "nextBestActionService", input_fingerprint: input.input_fingerprint, input_authority: inputAuthority(input) };
     const existing = await this.nextBestActionRepository.findByFingerprint({
       organization_id: lead.organization_id,
       lead_id: lead.id,
@@ -31,7 +40,8 @@ export class NextBestActionService {
       pipeline_version: NEXT_BEST_ACTION_PIPELINE_VERSION
     });
     if (["PLANNED", "BLOCKED"].includes(existing?.status)) {
-      return this.nextBestActionRepository.planDetail(existing);
+      return withCurrentBusinessContext(this.nextBestActionRepository.db, lead, capturedContext, tx =>
+        new NextBestActionRepository(tx).planDetail(existing), guard);
     }
 
     const draft =
@@ -53,6 +63,8 @@ export class NextBestActionService {
       const actionType = input.intelligence_recommendation.recommendation?.step;
       const policyDecision = this.policyEngine.evaluate({ lead, actionType });
       const output = await this.actionPlanner.plan({
+        lead,
+        snapshot: input.snapshot,
         intelligenceRecommendation: input.intelligence_recommendation,
         policyDecision
       });
@@ -67,28 +79,32 @@ export class NextBestActionService {
         output.policy_decision.decision === "BLOCK"
           ? NEXT_BEST_ACTION_PLAN_STATUS.BLOCKED
           : NEXT_BEST_ACTION_PLAN_STATUS.PLANNED;
-      const plan = await this.nextBestActionRepository.markReady(draft.id, {
-        status,
-        ...output
-      });
-      await this.nextBestActionRepository.supersedeReadyPlans({
-        organization_id: lead.organization_id,
-        lead_id: lead.id,
-        except_plan_id: plan.id
-      });
-      await this.auditRepository?.record({
-        organization_id: lead.organization_id,
-        lead_id: lead.id,
-        event_type: "NextBestActionPlanned",
-        message: "Policy-checked next-best-action plan generated.",
-        metadata: {
-          plan_id: plan.id,
-          action_type: plan.action_type,
-          status: plan.status,
-          policy_decision: output.policy_decision.decision
-        }
-      });
-      return this.nextBestActionRepository.planDetail(plan);
+      return await withCurrentBusinessContext(this.nextBestActionRepository.db, lead, capturedContext, async (tx) => {
+        const repository = tx === this.nextBestActionRepository.db ? this.nextBestActionRepository : new NextBestActionRepository(tx);
+        const audit = this.auditRepository ? (tx === this.auditRepository.db ? this.auditRepository : new AuditRepository(tx)) : null;
+        const plan = await repository.markReady(draft.id, {
+          status,
+          ...output
+        });
+        await repository.supersedeReadyPlans({
+          organization_id: lead.organization_id,
+          lead_id: lead.id,
+          except_plan_id: plan.id
+        });
+        await audit?.record({
+          organization_id: lead.organization_id,
+          lead_id: lead.id,
+          event_type: "NextBestActionPlanned",
+          message: "Policy-checked next-best-action plan generated.",
+          metadata: {
+            plan_id: plan.id,
+            action_type: plan.action_type,
+            status: plan.status,
+            policy_decision: output.policy_decision.decision
+          }
+        });
+        return repository.planDetail(plan);
+      }, guard);
     } catch (error) {
       await this.nextBestActionRepository.markFailed(draft.id, error);
       throw error;
@@ -96,6 +112,7 @@ export class NextBestActionService {
   }
 
   async currentForLead(lead) {
+    if (!this.nextBestActionRepository.db.transactionBound) return withScopedCurrentService(this.nextBestActionRepository.db, lead, "nextBestActionService", service => service.currentForLead(lead), { now: this.now });
     const input = await this.tryBuildInput(lead);
     if (!input.ready) {
       return {
@@ -140,9 +157,11 @@ export class NextBestActionService {
         reason: "Run intelligence recommendation before planning the next best action."
       };
     }
+    const planningContext = await this.intelligenceRecommendationService.buildInput(lead);
     return {
       ready: true,
       value: {
+        lead, snapshot: planningContext.snapshot,
         intelligence_recommendation: intelligenceRecommendation,
         input_fingerprint: planFingerprint({ lead, intelligenceRecommendation })
       }

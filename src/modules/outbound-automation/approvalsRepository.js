@@ -118,6 +118,28 @@ export class ApprovalsRepository {
     return await this.getByActionId(actionId, organizationId);
   }
 
+
+  async bindPendingRevision(action, revision, requestedReason = "Review the exact recipient, sender and content.") {
+    await this.createPendingForAction(action, { requested_reason: requestedReason });
+    await this.db.run(`UPDATE action_approvals SET status = 'PENDING', action_revision_id = ?,
+      reviewed_hash = NULL, reviewer_user_id = NULL, reviewer_name = NULL, reviewer_note = NULL,
+      edited_payload_json = NULL, decided_at = NULL, updated_at = ?
+      WHERE organization_id = ? AND action_id = ?`,
+      [revision.id, nowIso(), action.organization_id, action.id]);
+    return this.getByActionId(action.id, action.organization_id);
+  }
+
+  async projectRevisionDecision(action, revision, decision) {
+    const envelope = JSON.parse(revision.envelope_json);
+    await this.db.run(`UPDATE action_approvals SET status = ?, action_revision_id = ?, reviewed_hash = ?,
+      reviewer_user_id = ?, reviewer_name = ?, reviewer_note = ?, edited_payload_json = ?,
+      decided_at = ?, updated_at = ? WHERE organization_id = ? AND action_id = ?`,
+      [decision.decision, revision.id, revision.content_hash, decision.reviewer_user_id,
+        decision.reviewer_name, decision.reviewer_note, stringifyJson({ subject: envelope.subject, body: envelope.body }),
+        decision.decided_at, decision.decided_at, action.organization_id, action.id]);
+    return this.getByActionId(action.id, action.organization_id);
+  }
+
   approvalDetail(row) {
     if (!row) {
       return null;

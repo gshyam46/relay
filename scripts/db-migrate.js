@@ -1,37 +1,35 @@
-// Applies pending database migrations, then exits.
-//
-// Run as a Render pre-deploy command (or manually against staging) so the schema
-// is up to date before new application instances start taking traffic. Booting
-// the app applies migrations too; this exists so a deploy can fail on a bad
-// migration BEFORE the old instances are replaced.
-import { loadConfig, describeConfig, validateConfig } from "../src/config.js";
-import { createDatabase, getMigrationStatus } from "../src/database/database.js";
+// Explicit schema-changing job. Deployed environments require a separate
+// MIGRATION_DATABASE_URL secret; the web process never needs migration rights.
+import { loadMigrationConfig, describeConfig, validateConfig } from "../src/config.js";
+import { createDatabase, describeDatabaseFailure, getMigrationStatus } from "../src/database/database.js";
 import { createLogger } from "../src/shared/logger.js";
 
-const config = loadConfig();
-const logger = createLogger({ level: config.logging.level, json: config.logging.json });
-
-const problems = validateConfig(config);
-if (problems.length > 0) {
-  logger.error("migrate.invalid_configuration", { problems });
-  process.exit(1);
-}
-
-logger.info("migrate.starting", describeConfig(config));
-
 let db;
+let logger = createLogger();
 try {
-  // createDatabase() runs the migrations as part of opening the connection.
-  db = await createDatabase(config.database, { logger });
-  const status = await getMigrationStatus(db);
-  if (status.pending.length > 0) {
-    logger.error("migrate.incomplete", { pending: status.pending });
-    process.exit(1);
+  const config = loadMigrationConfig();
+  logger = createLogger({ level: config.logging.level, json: config.logging.json });
+  const problems = validateConfig(config, { scope: "database" });
+  if (problems.length > 0) {
+    logger.error("migrate.invalid_configuration", { problems });
+    process.exitCode = 1;
+  } else {
+    logger.info("migrate.starting", describeConfig(config));
+    db = await createDatabase(config.database, { logger });
+    const status = await getMigrationStatus(db);
+    if (!status.initialized || !status.compatible || status.pending.length > 0) {
+      logger.error("migrate.incomplete", { initialized: status.initialized, compatible: status.compatible, pending_count: status.pending.length });
+      process.exitCode = 1;
+    } else {
+      logger.info("migrate.complete", { applied_count: status.applied.length, total: status.total });
+    }
   }
-  logger.info("migrate.complete", { applied: status.applied.map((row) => row.id), total: status.total });
 } catch (error) {
-  logger.error("migrate.failed", { error });
-  process.exit(1);
+  logger.error("migrate.failed", describeDatabaseFailure(error));
+  process.exitCode = 1;
 } finally {
-  await db?.close();
+  try { await db?.close(); } catch (error) {
+    logger.error("migrate.close_failed", describeDatabaseFailure(error));
+    process.exitCode = 1;
+  }
 }

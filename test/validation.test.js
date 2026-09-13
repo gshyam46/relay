@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { validateLeadInput } from "../src/modules/data-foundation/leadValidation.js";
 import { validateActionInput } from "../src/modules/outbound-automation/actionContract.js";
 
-test("lead validation accepts an M0-ready lead", () => {
+test("lead validation accepts a named enquiry with supplied contact", () => {
   assert.deepEqual(
     validateLeadInput({
       name: "Ananya Kapoor",
@@ -15,7 +15,7 @@ test("lead validation accepts an M0-ready lead", () => {
   );
 });
 
-test("lead validation rejects missing contact, malformed email, and unsupported source", () => {
+test("lead validation rejects malformed supplied email and unsupported source", () => {
   const errors = validateLeadInput({
     name: "No Contact",
     email: "bad-email",
@@ -24,7 +24,6 @@ test("lead validation rejects missing contact, malformed email, and unsupported 
   });
 
   assert.match(errors.join(" "), /valid email/);
-  assert.match(errors.join(" "), /either email or phone/);
   assert.match(errors.join(" "), /source must be one of/);
 });
 

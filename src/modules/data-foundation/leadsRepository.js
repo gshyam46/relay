@@ -1,3 +1,5 @@
+import { canonicalContact } from "../contact-policy/contactPolicyContract.js";
+import { buildNameCompanyLookupKey } from "./normalization.js";
 import { createId } from "../../shared/ids.js";
 import { nowIso } from "../../shared/time.js";
 import { stringifyJson } from "../../database/database.js";
@@ -53,23 +55,26 @@ export class LeadsRepository {
       name,
       email,
       phone,
-      normalized_email: normalized_email || email?.trim().toLowerCase() || null,
-      normalized_phone: normalized_phone || null,
+      normalized_email: (canonicalContact("EMAIL", normalized_email) || canonicalContact("EMAIL", email))?.value || null,
+      normalized_phone: (canonicalContact("PHONE", normalized_phone) || canonicalContact("PHONE", phone))?.value || null,
       company,
+      normalized_name_company_key: buildNameCompanyLookupKey(name, company),
       source,
       import_batch_id,
       import_row_id,
       source_metadata_json: stringifyJson(source_metadata),
       status: "NEW",
+      data_revision: 0,
+      archived_at: null,
       created_at: timestamp,
       updated_at: timestamp
     };
 
     await this.db.run(
       `INSERT INTO leads
-          (id, organization_id, name, email, phone, normalized_email, normalized_phone, company, source,
+          (id, organization_id, name, email, phone, normalized_email, normalized_phone, company, normalized_name_company_key, source,
            import_batch_id, import_row_id, source_metadata_json, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         lead.id,
         lead.organization_id,
@@ -79,6 +84,7 @@ export class LeadsRepository {
         lead.normalized_email,
         lead.normalized_phone,
         lead.company,
+        lead.normalized_name_company_key,
         lead.source,
         lead.import_batch_id,
         lead.import_row_id,
@@ -95,6 +101,9 @@ export class LeadsRepository {
   async listLeads(organizationId, filters = {}) {
     const clauses = ["organization_id = ?"];
     const params = [organizationId];
+    const archive = filters.archive || "ACTIVE";
+    if (!["ACTIVE", "ARCHIVED", "ALL"].includes(archive)) throw Object.assign(new Error("archive filter must be ACTIVE, ARCHIVED or ALL."), { statusCode: 400 });
+    if (archive !== "ALL") clauses.push("archived_at IS " + (archive === "ACTIVE" ? "NULL" : "NOT NULL"));
 
     if (filters.search) {
       const search = `%${filters.search.trim().toLowerCase()}%`;
@@ -121,7 +130,7 @@ export class LeadsRepository {
 
   async updateLeadStatus(id, status) {
     const updatedAt = nowIso();
-    await this.db.run("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", [status, updatedAt, id]);
+    await this.db.run("UPDATE leads SET status = ?, updated_at = ? WHERE id = ? AND (status NOT IN ('OPTED_OUT', 'SUPPRESSED') OR (status = 'OPTED_OUT' AND ? = 'SUPPRESSED'))", [status, updatedAt, id, status]);
     return await this.getLead(id);
   }
 

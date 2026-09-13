@@ -1,3 +1,6 @@
+import type { RecordedClaim, ReplyInterpretation, SourceEvidence, SynthesisGeneration } from "@/types/intelligence-generation";
+import type { BusinessFit, AttentionPriority } from "@/types/business-fit";
+import { intelligenceRecheckDelay, type IntelligenceCurrentness, type IntelligenceFreshness, type RecommendationComparison } from "@/types/intelligence-currentness";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -50,9 +53,9 @@ export interface SynthesisFinding {
 export interface Synthesis {
   id: string;
   status: string;
-  summary: { text: string; evidence_refs: string[] };
+  summary: { text: string; evidence_refs: string[]; generation?: SynthesisGeneration | null; claims?: RecordedClaim[] };
   findings: SynthesisFinding[];
-  qualification: { outcome: string; reasons: string[]; missing: string[]; evidence_refs: string[] };
+  qualification: { outcome: string; reasons: string[]; missing: string[]; evidence_refs: string[]; review_flags?: string[] };
   recommendation: { type: string; reason: string; evidence_refs: string[] };
   evidence_refs: string[];
 }
@@ -79,6 +82,11 @@ export interface NextBestActionPlan {
 }
 
 export interface LeadIntelligence {
+  business_fit: BusinessFit | null;
+  attention_priority: AttentionPriority | null;
+  currentness: IntelligenceCurrentness;
+  freshness: IntelligenceFreshness;
+  recommendation_comparison: RecommendationComparison;
   lead_id: string;
   organization_id: string;
   lead_status: string;
@@ -92,8 +100,10 @@ export interface LeadIntelligence {
     blocking_reasons: string[];
   };
   snapshot: {
+    id: string;
+    version: number;
     status: string;
-    evidence?: { id: string; claim_field: string; claim_value: string; source_type: string; title?: string }[];
+    evidence?: SourceEvidence[];
     claims?: { id: string; field: string; value: string; confidence: string }[];
     signals?: { id: string; type: string; value: string }[];
   } | null;
@@ -116,6 +126,8 @@ export interface TimelineEntry {
   direction?: "INBOUND" | "OUTBOUND";
   status?: string;
   classification_event_type?: string | null;
+  interpretation?: ReplyInterpretation | null;
+  original_text?: string | null;
   classification_confidence?: "HIGH" | "MEDIUM" | "LOW" | null;
   suggested_next_step?: string | null;
   escalated?: boolean;
@@ -154,6 +166,10 @@ export function useLeadIntelligence(id: string | undefined) {
         `/leads/${id}/intelligence?organization_id=${org!.id}`,
       ),
     enabled: !!id && !!org,
+    refetchInterval: query => intelligenceRecheckDelay([query.state.data?.currentness]),
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: "always",
+    retry: false,
   });
 }
 
@@ -186,7 +202,17 @@ export function useCreateLead() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["lead-directory"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
+  });
+}
+
+export function useLeadResearchEvidence(id: string, synthesisId: string | undefined, enabled: boolean) {
+  const org = useWorkspaceStore((state) => state.currentOrg);
+  return useQuery({
+    queryKey: ["lead-research-evidence", id, org?.id, synthesisId],
+    queryFn: async () => (await api.get<{ evidence_items: SourceEvidence[] }>(`/leads/${id}/research-evidence?organization_id=${org!.id}`)).evidence_items.map(item => ({ ...item, reference: "research_evidence:" + item.id })),
+    enabled: Boolean(org && enabled),
   });
 }

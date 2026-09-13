@@ -1,474 +1,133 @@
 # AI Lead Intelligence & Outbound Automation
 
-Modular monolith for the AI Lead Intelligence & Outbound Automation product.
+A modular SaaS application that turns customer-owned lead data into explainable Lead Intelligence and executes policy-controlled outbound work.
 
-## Deployment
+Lead Intelligence is core. Outbound Automation is the execution layer. Lead Discovery is optional. Existing UI/deployment artifacts use the working brand Relay; this does not change the product identity.
 
-Staging runs on **Supabase** (PostgreSQL) and **Render** (Node), from the
-`mvp` branch. Setting `DATABASE_URL` is the entire switch from SQLite to
-PostgreSQL — no build flag, no code change.
+## Current status
 
-```bash
-npm run verify:deploy      # connectivity, migrations, schema, config
-npm run test:pg            # the whole suite against a real PostgreSQL
-npm run verify:workflows   # 55 end-to-end workflow checks against a running server
-```
+**The single-owner local product candidate now includes the complete enquiry-to-outcome workflow, interactive public landing page and operational controls. It is ready for controlled acceptance work; production and customer launch are not certified.**
 
-Both read `DATABASE_URL` from `.env` (gitignored) and print only the host.
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full runbook, and
-[docs/status.html](docs/status.html) for build status.
+Implemented: reviewed CSV import and correction, source-backed intelligence and priority, durable analysis jobs, exact message composition/edit/approval, distinct first and reply messages, conversation ownership/resolution, scheduled reminders, audited outcomes and export. Email setup and current-configuration verification cover controlled delivery, failure, reply and stop evidence. Account security provides password changes, offline recovery and session revocation.
 
-## Current Milestone
+The public page includes an interactive synthetic example and persisted pilot-interest requests. Settings includes guided setup, sending and AI limits, operational alerts, customer-data export and reviewed erasure. Schema/role checks, backup/restore tools and an isolated workload verifier support release preparation.
 
-M6/M7 foundation slice - channel workflow and inbound response foundation.
+The [completion evidence](docs/verification/COMPLETION.md) records exact local checks and limits. Follow the [release acceptance runbook](docs/RELEASE_ACCEPTANCE.md) for actual PostgreSQL, provider, restore, operator and customer validation. Email and a single owner remain provisional pilot scope; additional live channels, team collaboration and production publication are not enabled by this work.
 
-The current customer-facing product supports the M0 walking skeleton, the M1 Lead Data Foundation flow, the M2.0 AI Lead Intelligence foundation, the M2.1 research evidence adapter boundary, the M2.2 structured synthesis foundation, M2.3 recommendation intelligence, M3 next-best-action planning, M5 human review over prepared outbound actions, and a provider-neutral channel/follow-up/sequence foundation:
+| Document | Purpose |
+| --- | --- |
+| [Completion evidence](docs/verification/COMPLETION.md) | Integrated local candidate verification and outstanding acceptance |
+| [Release acceptance](docs/RELEASE_ACCEPTANCE.md) | Ordered operator checks, stop rules and pilot/public decision record |
+| [Workspace data](docs/L5-04_DATA_LIFECYCLE.md) | Portable customer-data export, exact reviewed erasure and retained restrictions |
+| [Pilot request operations](docs/L5-07_PILOT_INTEREST_OPERATIONS.md) | Review, close and exact expired-record purge commands |
+| [Product](docs/PRODUCT.md) | Customer problem, current capability and intended product |
+| [Review](docs/REVIEW.md) | Evidence-backed gaps and launch blockers |
+| [Roadmap](docs/ROADMAP.md) | L0-L6 phases and release gates |
+| [Tasks](docs/TASKS.md) | Current work, ownership, dependencies and acceptance |
+| [Architecture](docs/ARCHITECTURE.md) | Current implementation and target boundaries |
+| [Domain](docs/DOMAIN.md) | Existing and proposed contracts/state rules |
+| [Decisions](docs/DECISIONS.md) | Architectural choices, alternatives and status |
+| [Landing page](docs/LANDING_PAGE.md) | Interactive public-page specification, visual direction, funnel and delivery phases |
+| [Persistence evidence](docs/verification/L1-03.md) | Transaction, migration and startup changes with verification limits |
+| [Identity contract](docs/L2-03_IDENTITY_RESOLUTION.md) | Reviewed duplicate/shared/repeated enquiry choices and preserved source history |
+| [Data-management contract](docs/L2-04_DATA_MANAGEMENT.md) | Reviewed contact correction, archive/restore, directory and selected export |
+| [Analysis jobs and usage](docs/L3-03_ANALYSIS_JOBS.md) | Saved progress, cancellation/retry, model admission and optional cost estimates |
+| [Channel setup](docs/L4-01_CHANNEL_SETUP.md) | Revisioned email configuration, safe route rotation, reviewed Reply-To and explicit live verification holds |
+| [Feedback and evaluation](docs/L3-04_FEEDBACK_EVALUATION.md) | Saved-result reviews, frozen reply datasets, protected local replay and CI baseline checks |
+| [Intelligence quality](docs/L3-02_INTELLIGENCE_QUALITY.md) | Reply attribution, bounded AI provider and reproducible synthetic evaluation |
+| [Freshness contract](docs/L2-05_FRESHNESS.md) | Evidence age/conflicts, currentness explanations and guarded refresh |
+| [Reviewed dispatch evidence](docs/verification/L1-04-L1-08.md) | Contact policy, exact preview/approval, provider boundary and remaining gates |
+| [Execution recovery evidence](docs/verification/L1-05.md) | Retry limits, due times, exact callback outcomes, recovery UI and remaining gates |
+| [Event recovery evidence](docs/verification/L1-07.md) | Durable receipts, bounded replay, contact-policy holds, owner recovery and remaining gates |
+| [Scheduling evidence](docs/verification/L1-06.md) | Normal scheduler, delivery-gated workflows, bounded lead processing and remaining gates |
+| [Operational evidence](docs/verification/L1-10.md) | Verified TLS/configuration, request/auth bounds, sending controls, safe logs and remaining gates |
+| [Business context evidence](docs/verification/L2-01.md) | Owner setup, typed enquiry facts, precise money, history, stale analysis/review and browser checks |
+| [Reviewed import evidence](docs/verification/L2-02.md) | Column mapping, correction, selected rows, resumable transactions, source linkage and browser checks |
+| [Pilot](docs/PILOT.md) | Customer validation, metrics, economics and launch |
+| [Testing](docs/TESTING.md) | Automated requirements and human QA |
+| [Deployment](docs/DEPLOYMENT.md) | Hosting, safe verification and operations |
+| [Plan verification](docs/PLAN_VERIFICATION.md) | Scope and checks for this docs-only update |
 
-```text
-Customer-owned CSV -> CSV Adapter -> Ingestion Layer
-  -> Lead Data Foundation -> Lead -> Evidence
-  -> Intelligence Snapshot -> Qualification Foundation
-  -> Recommended Next Step
+Earlier M0-M10 records remain in [history](docs/history/MILESTONES.md). The existing docs/status.html is a historical visualization until separately reconciled; the Markdown tracker is authoritative.
 
-Approved research note -> Research Evidence Adapter
-  -> Normalized Research Evidence -> Persisted Evidence Staging
-  -> Structured Lead Intelligence Synthesis
-  -> Qualification Foundation
-  -> Evidence-Grounded Recommendation Intelligence
-  -> Policy-Checked Next Best Action Plan
-  -> Human Review
-  -> Approval Decision
-  -> Outbound Execution Foundation
-  -> Channel Message
-  -> Inbound Event
-  -> Follow-up State
-  -> Sequence Workflow State
-```
+## Local development
 
-The codebase contains a sandbox outbound execution foundation for engineering validation. The current channel/workflow foundation records mock outbound channel activity, normalized mock inbound events, persisted follow-up tasks, campaigns, sequences, sequence steps, and workflow runs. It still does not add real email, WhatsApp, SMS, CRM, voice providers, production n8n workflows, bulk outbound sending, autonomous bots, or real message generation.
+Requires Node.js 24 or newer. Use synthetic data and sandbox providers until the relevant release gates pass.
 
-## Run Locally
+From the repository root:
 
-Requirements:
-
-- Node.js 24 or newer
-
-Install dependencies:
-
-```powershell
+~~~powershell
 npm.cmd ci
-```
+npm.cmd --prefix client ci --include=dev
+npm.cmd run client:build
+npm.cmd run db:migrate
+npm.cmd start
+~~~
 
-Start the app:
+Run db:migrate deliberately against the intended local database before first startup or after a schema update. Normal startup refuses absent, pending or incompatible migration history and applies no schema changes. The validated disposable E2E harness bootstraps only its own memory database.
 
-```powershell
-node src/server.js
-```
+The server serves the built React app at http://localhost:3000. Without DATABASE_URL, the default local database is data/app.db. npm start reads .env when present: inspect the intended environment before starting because DATABASE_URL takes precedence over the SQLite file.
 
-Then open:
+The Windows npm shim can fail on an ampersand-containing project path. To check/build the frontend directly, run from client:
 
-```text
-http://localhost:3000
-```
+~~~powershell
+node node_modules/typescript/bin/tsc -b
+node node_modules/vite/bin/vite.js build
+~~~
 
-The local database is stored at `data/app.db` by default.
+Hot reload instructions: [client README](client/README.md).
 
-Run an isolated API smoke check without touching `data/app.db`:
+## Verification commands and scope
 
-```powershell
-npm.cmd run smoke
-```
+| Command | Behavior / caution |
+| --- | --- |
+| npm.cmd run ci | Syntax/format checks plus isolated SQLite tests; inherited database/provider settings are removed from test children |
+| npm.cmd run smoke | Temporary SQLite API smoke with sanitized environment and sandbox controls |
+| npm.cmd run client:build | React TypeScript check and production build |
+| npm.cmd run verify:analysis-ui -- --playwright-module <absolute-index.mjs-path> | Actual React analysis/usage checks on an owned loopback memory fixture with an injected provider; requires an installed Playwright/browser |
+| npm.cmd run verify:workflows | Requires a loopback isolated-E2E capability before creating synthetic data; refuses ordinary application servers |
+| npm.cmd run verify:completion-ui -- --playwright-module <absolute-index.mjs-path> | Built composer, inbox, reminders, outcomes and recovery journey on isolated fixtures |
+| npm.cmd run verify:landing-ui -- --playwright-module <absolute-index.mjs-path> | Public routes, synthetic example, request form and reduced-motion/mobile checks |
+| npm.cmd run verify:workspace-data-ui -- --playwright-module <absolute-index.mjs-path> | Reviewed erasure, portable export, uncertain-request recovery and operations view |
+| npm.cmd run verify:operations | Isolated 100-enquiry, two-tenant scheduler workload and alert/pause checks |
+| npm.cmd run db:backup -- --source <absolute-file> --destination <new-directory> | Explicit-target local SQLite backup tool; see operational contract for arguments |
+| npm.cmd run pilot:interest -- list --database-file <absolute-file> | Explicit-target operator queue and retention commands |
+| npm.cmd run test:pg | Requires TEST_DATABASE_URL and TEST_DATABASE_DISPOSABLE=1; only its random run namespace is cleaned |
+| npm.cmd run dev:e2e | Fresh in-memory SQLite; refuses inherited DB/provider configuration; automatic worker disabled |
+| npm.cmd run db:status | Read-only migration inspection; missing SQLite files are not created; pending/incompatible schema exits nonzero |
+| npm.cmd run db:migrate | Serialized schema changes; staging/production require dedicated MIGRATION_DATABASE_URL in a separate job |
+| npm.cmd run verify:deploy | Read-only PostgreSQL prerequisite/schema/config verification; never applies migrations |
 
-Reset local development data with an automatic backup:
+Do not run test/workflow verification against production or customer data. See [Testing](docs/TESTING.md) for safe targets and current tooling limits. Resetting/seeding an existing DB is not routine verification.
 
-```powershell
-npm.cmd run dev:reset
-```
+## Database and hosting direction
 
-The reset command moves the existing local database into `data/backups/` and creates a clean `data/app.db`. Stop the local server before resetting so SQLite can release the file.
+Keep PostgreSQL as the production engine; Supabase is the managed host candidate and Render is the existing application blueprint. The standard pg adapter preserves portability. MongoDB migration is not planned.
 
-Seed deliberate M2.0 human-QA data into an empty local database:
+SQLite supports fast local testing. PostgreSQL integration tests are required for production concurrency. Scoped transactions and separate migration/runtime commands are implemented in [L1-03](docs/verification/L1-03.md); a short workspace transaction now commits dispatch ownership before provider I/O. Bounded leases/retries/deadlines and evidence-based recovery are implemented locally; real PostgreSQL/process/recovery acceptance in [Decisions](docs/DECISIONS.md) remains open.
 
-```powershell
-npm.cmd run dev:seed:qa
-```
+Connection mode must fit the persistent Node process and network. The older blanket recommendation of transaction pooling for every web service is superseded by the deployment runbook and [Supabase connection guidance](https://supabase.com/docs/guides/database/connecting-to-postgres).
 
-The QA seed refuses to run against a non-empty database unless `--allow-nonempty` is passed intentionally.
+## Interactive landing page
 
-If port `3000` is already in use:
+Implemented at /: a responsive interactive example with synthetic lead evidence, explained intelligence, editing/review and response states. It includes reduced-motion behavior, useful initial HTML, explicit sign-in/register routes and a saved pilot-interest request flow. The [specification](docs/LANDING_PAGE.md) and [browser evidence](docs/verification/L4-07-ui.md) describe the actual surface. Public publication still requires operational contact/privacy details and L6-04 acceptance.
 
-```powershell
-$env:PORT = "3001"
-node src/server.js
-```
+## Configuration and contributions
 
-## Development Commands
+.env.example documents current names. Secrets belong in an untracked environment file or hosting secret facility, never documentation or command arguments. Channel selection is workspace-scoped; LLM configuration currently comes from process environment. Workspace sending and AI admission quotas are implemented locally; full production operational acceptance remains open.
 
-```powershell
-npm.cmd run lint
-npm.cmd run format:check
-npm.cmd run smoke
-npm.cmd test
-npm.cmd run ci
-npm.cmd run dev:reset
-npm.cmd run dev:seed:qa
-```
+Follow [AGENTS](AGENTS.md), current tasks and ADR status. Implement bounded slices with updated documentation and verification evidence in the same reviewable change. Batch A covers test isolation, tenant/test-control boundaries and bounded AI grounding. L1-03 adds approval units of work and safe migration/runtime boundaries. L1-04/L1-08 add durable restrictions and immutable reviewed dispatch. L1-05 adds bounded execution recovery; L1-07 adds durable webhook and conversation-effect replay; L1-06 adds fair scheduling, bounded lead processing, sequence controls and delivery-gated advancement. L1-10 adds verified database TLS, strict configuration, bounded HTTP/auth/provider work, safe logging and durable sending controls. L2-01 adds versioned business setup and typed enquiry context, exact money/provenance, history and current-analysis/review binding. L2-02 adds reviewed CSV mapping/correction, selected transactional chunks, durable progress, duplicate holds and import-linked enquiry sources under its recorded contract. L2-03 adds reviewed identity/source decisions and shared-contact safeguards. L2-04 adds reviewed contact correction, archive/restore, paged directory and selected export under its [contract](docs/L2-04_DATA_MANAGEMENT.md) and [local evidence](docs/verification/L2-04.md). L2-05 adds deterministic evidence aging, conflict/source explanations, current analysis and guarded model/review finalisation under its [contract](docs/L2-05_FRESHNESS.md) and [verification](docs/verification/L2-05.md). L3-01 now adds configured business fit and paged priority. L3-02 adds interpretation/evaluation and L3-03 adds durable jobs, recovery and bounded AI usage. L3-04 adds exact saved-result reviews, frozen reply datasets and a pinned CI regression gate. L4-01A adds revisioned email setup, explicit signed-route provisioning/rotation and exact Reply-To review. The completion batch adds provider-proof machinery, the common composer/inbox/reminder/outcome workflow and operational tooling. Required PostgreSQL/provider/operator acceptance remains pending.
 
-## Configuration
+Simulation controls default off. ENABLE_TEST_CONTROLS=true permits local development/test controls; staging and production always disable them. The UI reads the authenticated server capability. Normal follow-up completion and reviewed reply composition are implemented independently from simulation controls.
 
-- `PORT`: HTTP server port. Defaults to `3000`.
-- `DATABASE_FILE`: SQLite database file. Defaults to `data/app.db`.
+L3-01 now adds explicit business-fit criteria, saved evidence-based assessments and priority within a bounded Intelligence page. See the [criteria/ranking contract](docs/L3-01_BUSINESS_FIT.md) and [verification](docs/verification/L3-01.md). Readiness and contact permission remain separate; customer-labeled usefulness and launch acceptance are still open.
 
-## M2.0 Scope
+The [L3-04 feedback/evaluation contract](docs/L3-04_FEEDBACK_EVALUATION.md) and [verification](docs/verification/L3-04.md) cover owner review history, explicitly nominated examples, protected local replay and CI baseline comparisons. These checks do not establish customer or hosted-model quality. Use npm run verify:feedback-ui with an installed Playwright module for the isolated browser workflow.
 
-M2.0 establishes the foundation for AI Lead Intelligence without external research, enrichment, or LLM calls.
+## Email setup and current live capability
 
-It supports:
+Owners use Settings > Email to save Sandbox or provisional SendGrid configuration, then explicitly provision webhook URLs. Opening settings creates no route. Save an explanation with each change; stale forms require a fresh review. API secrets remain masked and setup history records safe before/after snapshots. A routing URL rotation preserves earlier signed aliases for late delivery and opt-out events.
 
-- deterministic intelligence generation from existing lead data
-- explicit separation of lead status, intelligence status, data readiness, recommendation, and outbound state
-- versioned intelligence snapshots
-- persisted evidence, claims, signals, qualification foundation, and recommendations
-- data readiness scoring based on stored customer-owned data
-- evidence provenance for manual and CSV-imported leads
-- idempotent intelligence reruns for the same lead data version
-- snapshot history when lead data changes
-- organization-scoped intelligence APIs
-- a minimal Intelligence UI showing customer-provided information, data readiness, evidence, signals, qualification foundation, and recommended next step
+Configuration completeness is not verified delivery. SendGrid dispatch requires current configuration-bound provider checks and processed signed delivery/failure/reply/stop evidence. The [verification contract](docs/L4-01_PROVIDER_VERIFICATION.md) describes the implemented flow; this repository's automated runs use synthetic adapters and have not established a live provider. Unsupported live channels/providers remain held. Sandbox is available. Global/workspace sending switches cannot override this channel hold. Exact draft review includes the configured Reply-To address. See the [contract](docs/L4-01_CHANNEL_SETUP.md) and [local verification](docs/verification/L4-01.md) for implemented bounds and open gates.
 
-The current readiness value is a deterministic data-quality score. Customer-facing UI treats it as `Data readiness`, not as an AI lead score, qualification score, conversion probability, or business-priority score. M2.0 does not verify customer-provided facts externally.
-
-M2.0 recommendations are conservative. Email or phone presence is treated as a data signal, not as enough reason to recommend automatic outreach. Real outbound providers are not implemented; M0 mock executions remain available only through Developer / Test Controls.
-
-M2.0 APIs:
-
-- `GET /api/leads/:id/intelligence?organization_id=...`
-- `POST /api/leads/:id/intelligence/run`
-- `GET /api/leads/:id/intelligence/history?organization_id=...`
-
-M2.0 explicitly does not implement web research, scraping, Google Search, Apollo, CRM enrichment, LLM calls, discovery, real outbound providers, sequencing, or automatic entity resolution.
-
-The intelligence status model is:
-
-- `NOT_RUN`: the lead has not been analyzed yet.
-- `READY_TO_RUN`: the lead has enough data to run intelligence.
-- `GENERATED`: a persisted intelligence snapshot exists.
-- `NEEDS_DATA`: more customer-owned data is needed.
-- `FAILED`: the last intelligence run failed and can be retried.
-
-## M2.1 Scope
-
-M2.1 establishes the research/evidence adapter boundary. It does not call external providers yet.
-
-It supports:
-
-- normalized research evidence contracts
-- an approved local/manual research adapter for contract validation
-- persisted research evidence ingestion records
-- persisted staged research evidence items
-- ingestion idempotency
-- failure and retry state
-- organization-scoped research evidence APIs
-- audit records for successful evidence ingestion
-
-M2.1 evidence is staged separately from intelligence snapshots. Adapters can produce normalized evidence, but they cannot directly mutate snapshots, claims, signals, recommendations, or outbound state.
-
-M2.1 APIs:
-
-- `POST /api/leads/:id/research-evidence`
-- `GET /api/leads/:id/research-evidence?organization_id=...`
-
-M2.1 explicitly does not implement web research, scraping, search APIs, enrichment APIs, LLM calls, discovery, real provider credentials, real outbound providers, or automatic fact synthesis.
-
-## M2.2 Scope
-
-M2.2 establishes a structured, evidence-grounded synthesis and qualification foundation. The current implementation uses a deterministic local synthesis agent to validate the future LLM output contract without introducing external provider calls.
-
-It supports:
-
-- structured synthesis output contracts
-- evidence-grounded findings
-- qualification outcomes based on persisted evidence
-- persisted synthesis runs
-- idempotent synthesis reruns for the same snapshot and staged evidence
-- failure and retry state
-- synthesis history
-- organization-scoped synthesis APIs
-- audit records for successful synthesis generation
-
-M2.2 synthesis requires a current ready Lead Intelligence snapshot. It can also consume approved research evidence staged by M2.1. Every finding, qualification, and recommendation must reference persisted snapshot evidence or staged research evidence.
-
-M2.2 APIs:
-
-- `GET /api/leads/:id/synthesis?organization_id=...`
-- `POST /api/leads/:id/synthesis/run`
-- `GET /api/leads/:id/synthesis/history?organization_id=...`
-
-M2.2 explicitly does not implement real LLM provider calls, web research, scraping, search APIs, enrichment APIs, discovery, real outbound providers, segmentation, personalization, or real next-best-action planning.
-
-## M2.3 Scope
-
-M2.3 turns current synthesis into evidence-grounded recommendation intelligence. It is still part of AI Lead Intelligence, not M3 action planning.
-
-It supports:
-
-- intelligence recommendation output contracts
-- attention priority scoring from actual evidence
-- lightweight lead segmentation from synthesis/readiness/duplicate evidence
-- personalization context from evidence-backed lead facts
-- persisted recommendation runs
-- idempotent recommendation reruns for the same synthesis
-- failure and retry state
-- recommendation history
-- organization-scoped recommendation APIs
-- a minimal Intelligence UI panel for review
-
-M2.3 APIs:
-
-- `GET /api/leads/:id/intelligence-recommendation?organization_id=...`
-- `POST /api/leads/:id/intelligence-recommendation/run`
-- `GET /api/leads/:id/intelligence-recommendation/history?organization_id=...`
-
-M2.3 explicitly does not create actions, execute outbound activity, implement policy approval, send messages, call real providers, or start M3.
-
-## M3 Scope
-
-M3 turns recommendation intelligence into a persisted, policy-checked next-best-action plan.
-
-It supports:
-
-- a NextBestAction plan contract
-- an action planner that consumes current M2.3 recommendation intelligence
-- a policy engine for contact eligibility and approval requirements
-- explicit plan states: `DRAFT`, `PLANNED`, `BLOCKED`, `SUPERSEDED`, `FAILED`
-- decision evidence references
-- idempotent planning for unchanged recommendation inputs
-- retry after failed planning
-- organization-scoped planning APIs
-- a minimal Outbound UI panel showing the recommended action, policy decision, approval requirement, evidence count, and planning boundary
-
-M3 APIs:
-
-- `GET /api/leads/:id/next-best-action?organization_id=...`
-- `POST /api/leads/:id/next-best-action/plan`
-- `GET /api/leads/:id/next-best-action/history?organization_id=...`
-
-M3 explicitly does not execute outbound actions, send messages, create provider work, call n8n, implement approval queues, or start M4/M5. Plans are stored separately from the M0 executable `actions` table so recommendation planning cannot accidentally trigger outbound execution.
-
-## M4 Scope
-
-M4 turns eligible next-best-action plans into persisted outbound actions and executes eligible actions through the mock handler/n8n boundary.
-
-It supports:
-
-- preparing an outbound action from a current M3 next-best-action plan
-- preserving the plan/action link
-- approval-gated action state with `AWAITING_APPROVAL`
-- sandbox execution through the existing mock n8n adapter boundary
-- persisted execution attempts
-- retryable and non-retryable execution failure handling
-- idempotent repeated execution requests for in-progress or completed actions
-- organization-scoped outbound activity APIs
-- scoped callback handling
-- callback idempotency and callback history
-- Activity and Outbound UI visibility for action, approval, execution, and callback state
-
-M4 APIs:
-
-- `GET /api/leads/:id/outbound?organization_id=...`
-- `POST /api/next-best-action-plans/:id/action`
-- `POST /api/actions/:id/execute`
-- `POST /api/actions/:id/callback`
-
-M4 still uses sandbox/mock execution. It does not implement real email, WhatsApp, SMS, CRM providers, production n8n workflows, message generation, approval queues, approve/reject/edit workflow, campaigns, sequences, or follow-up automation.
-
-## M5 Scope
-
-M5 makes human review a first-class persisted workflow before approval-required outbound actions can proceed.
-
-It supports:
-
-- creating a pending approval request for approval-required actions
-- listing organization-scoped approval requests
-- approving an action
-- rejecting an action
-- editing review instructions while approving
-- persisting reviewer note, reviewer name, decision timestamp, and edited payload
-- idempotent repeated approval decisions
-- blocking execution when an approval is rejected
-- allowing sandbox execution after approval
-- showing approval state in the Outbound UI
-
-M5 APIs:
-
-- `GET /api/approvals?organization_id=...`
-- `GET /api/approvals?organization_id=...&status=PENDING`
-- `GET /api/actions/:id/approval?organization_id=...`
-- `POST /api/actions/:id/approval/approve`
-- `POST /api/actions/:id/approval/edit-and-approve`
-- `POST /api/actions/:id/approval/reject`
-
-M5 does not implement authentication, multi-user permissions, approval assignment, real message editing, real provider sending, production n8n workflows, campaigns, sequences, follow-up automation, or bulk outbound.
-
-## M6/M7 Foundation Slice
-
-This slice establishes consistent inbound/outbound channel, follow-up, and sequence state before real connectors are added.
-
-It supports:
-
-- provider-neutral channel vocabulary for email, WhatsApp, SMS, voice, human task, and CRM
-- campaign, sequence, and sequence-step persistence
-- idempotent lead enrollment into a sequence
-- multi-lead sequence enrollment through the API
-- due workflow runner for active/waiting sequence runs
-- wait steps
-- approval-gated sequence steps
-- continuation after approval
-- response-driven stop conditions
-- persisted `ChannelMessage` records for outbound and inbound activity
-- persisted normalized `InboundEvent` records through a mock channel API
-- idempotent inbound event processing by provider event id
-- planned no-response follow-ups after completed outbound email/WhatsApp sandbox activity
-- question/unknown inbound events creating due follow-ups for human review
-- positive, negative, and opt-out inbound events stopping open follow-ups
-- opt-out responses updating lead status to `OPTED_OUT`
-- organization-scoped lead timeline and follow-up APIs
-- UI timeline and follow-up visibility in Overview, Lead detail, Outbound, and Activity
-- Developer / Test Controls for mock inbound events
-- lightweight Outbound UI controls to create a simple follow-up sequence and enroll the selected lead
-
-M6/M7 foundation APIs:
-
-- `GET /api/channels`
-- `POST /api/campaigns`
-- `GET /api/campaigns?organization_id=...`
-- `POST /api/sequences`
-- `GET /api/sequences?organization_id=...`
-- `POST /api/sequences/:id/enroll`
-- `GET /api/workflow-runs?organization_id=...`
-- `POST /api/workflows/run-due`
-- `GET /api/leads/:id/timeline?organization_id=...`
-- `GET /api/follow-ups?organization_id=...`
-- `GET /api/follow-ups?organization_id=...&status=DUE`
-- `POST /api/follow-ups/:id/complete`
-- `POST /api/inbound-events/mock`
-
-This slice deliberately does not implement a full visual sequence builder, production scheduler service, real WhatsApp/email/SMS/voice/CRM providers, production n8n workflows, autonomous bots, bulk outbound sending, AI reply classification, or automatic Lead Intelligence regeneration from responses. Those remain later milestone work.
-
-## M1 Scope
-
-M1 turns customer-owned lead data into a clean, normalized, validated, traceable foundation ready for AI Lead Intelligence.
-
-CSV is the first ingestion adapter. The core import service works from a normalized ingestion row contract so future sources such as Google Sheets, CRM, website forms, and directories can produce the same shape later. Those future connectors are not implemented in M1.
-
-The UI supports:
-
-- importing leads from CSV
-- a focused Upload -> Review -> Complete import flow
-- selecting default phone region: `IN`, `US`, or `INTERNATIONAL_ONLY`
-- previewing parsed rows before commit
-- reviewing human-readable validation issues
-- reviewing consolidated duplicate warnings
-- selecting valid rows
-- committing selected rows idempotently
-- viewing human-readable import history
-- searching leads by name, company, email, or phone
-- filtering leads by source and status
-- seeing source/import provenance on lead detail
-
-Customer-facing UI uses `Workspace` for the tenant context. Backend and database contracts still use `organization_id`.
-
-The import API supports:
-
-- `POST /api/imports/csv/preview`
-- `POST /api/imports/:id/commit`
-- `GET /api/imports?organization_id=...`
-- `GET /api/imports/:id?organization_id=...`
-
-The lead list API supports:
-
-- `GET /api/leads?organization_id=...&search=...&source=...&status=...`
-
-The import state machine is persisted:
-
-```text
-UPLOADED -> PREVIEWED -> READY_TO_COMMIT -> COMMITTING -> COMMITTED
-COMMITTING -> FAILED -> retry safely
-```
-
-Commit is idempotent at the import row level. Repeating a commit for already committed rows does not create duplicate leads.
-
-## M0 Scope
-
-The UI supports:
-
-- creating and selecting organizations
-- preventing duplicate organization names
-- product navigation across Overview, Leads, Intelligence, Outbound, and Activity
-- creating leads
-- listing tenant-scoped leads
-- viewing lead detail
-- viewing simple overview metrics from real application state
-- inspecting the initial Lead Intelligence snapshot
-- inspecting the recommended action
-- reviewing the next recommended step before outbound sending exists
-- seeing loading, empty, success, and error states
-- using Developer / Test Controls for worker execution, retry/failure simulation, and callback simulation
-
-The API supports the same M0 path through:
-
-- `GET /api/health`
-- `POST /api/organizations`
-- `GET /api/organizations`
-- `POST /api/leads`
-- `GET /api/leads?organization_id=...`
-- `GET /api/leads/:id?organization_id=...`
-- `POST /api/leads/:id/actions`
-- `POST /api/worker/run`
-- `POST /api/callbacks/mock`
-
-## PostgreSQL Path
-
-The M0 skeleton uses Node's built-in SQLite module for a zero-dependency local database. The persistence boundary is isolated under `src/database`, so a PostgreSQL-backed adapter can replace it without changing the domain modules.
-
-SQLite remains the default local development database. PostgreSQL is the intended production database path, but it is not implemented yet because adding a production driver, migrations tool, and runtime configuration would add infrastructure before M0 needs it.
-
-The current persistence contract expected by repositories is:
-
-- `exec(sql)`
-- `run(sql, params)`
-- `get(sql, params)`
-- `all(sql, params)`
-- `close()`
-
-Future PostgreSQL work should add a PostgreSQL implementation of that contract under `src/database` and move schema migrations into versioned migration files.
-
-## Human QA Focus
-
-The current channel workflow slice is ready for human channel/follow-up review. The critical product question is:
-
-```text
-Can a user understand the selected lead's recommended step, outbound activity, inbound response, and follow-up state without needing to understand handlers, callbacks, n8n, or provider internals?
-```
-
-The intended product flow is:
-
-```text
-Create/select organization
-  -> See Overview
-  -> Open Leads
-  -> Import customer-owned CSV data or add a lead
-  -> Select a lead
-  -> Understand source, data quality, and duplicate warnings
-  -> Refresh Lead Intelligence
-  -> Add approved local/manual research evidence if needed
-  -> Prepare insights
-  -> Prepare recommendation
-  -> Review the next best action
-  -> Prepare for review
-  -> Approve, edit and approve, or reject
-  -> Use Developer / Test Controls to execute sandbox activity and simulate a response
-  -> Confirm communication activity and follow-up state persist
-```
-
-If seeded QA data such as `M2 QA Workspace`, `Long Lead ...`, or `m2-qa-leads.csv` appears, it came from `npm.cmd run dev:seed:qa`. Use `npm.cmd run dev:reset` after stopping the server to back up `data/app.db` and create a clean local database.
+Run the focused actual React check with node scripts/run-channel-setup-ui.js --playwright-module ABSOLUTE_INSTALLED_INDEX_MJS after building the client. The launcher owns a disposable loopback fixture and uses an already installed browser; it does not install software or contact providers.

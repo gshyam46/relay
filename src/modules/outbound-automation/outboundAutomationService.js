@@ -1,5 +1,11 @@
+import { assertLeadActive } from "../data-foundation/leadDataSafety.js";
 import { actionTypeForPlan, ACTION_STATUS, EXECUTABLE_ACTION_STATUSES } from "./actionContract.js";
 import { composeOutboundMessage } from "./messageComposer.js";
+import { ContactPolicyService, assertWorkspaceTransaction } from "../contact-policy/contactPolicyService.js";
+import { createCurrentIntelligenceServices } from "../lead-intelligence/currentIntelligence.js";
+import { ApprovalsService } from "./approvalsService.js";
+import { ApprovalsRepository } from "./approvalsRepository.js";
+import { AuditRepository } from "../events/auditRepository.js";
 
 export class OutboundAutomationService {
   constructor({
@@ -27,6 +33,22 @@ export class OutboundAutomationService {
   }
 
   async createActionFromPlan({ organization_id, plan_id }) {
+    const db = this.actionsRepository.db;
+    if (!db.transactionBound) return new ContactPolicyService(db).withWorkspacePolicyTransaction(organization_id, tx => {
+      const actionsRepository = new this.actionsRepository.constructor(tx), auditRepository = new AuditRepository(tx);
+      const approvalsRepository = new ApprovalsRepository(tx);
+      const scoped = new OutboundAutomationService({
+        actionsRepository, auditRepository, approvalsRepository,
+        approvalsService: new ApprovalsService({ actionsRepository, auditRepository, approvalsRepository }),
+        executionsRepository: new this.executionsRepository.constructor(tx),
+        callbacksRepository: new this.callbacksRepository.constructor(tx),
+        nextBestActionRepository: new this.nextBestActionRepository.constructor(tx), actionExecutor: this.actionExecutor,
+        leadsRepository: this.leadsRepository ? new this.leadsRepository.constructor(tx) : null,
+        inboundEventsRepository: this.inboundEventsRepository ? new this.inboundEventsRepository.constructor(tx) : null
+      });
+      return scoped.createActionFromPlan({ organization_id, plan_id });
+    });
+    assertWorkspaceTransaction(db, organization_id);
     const plan = this.nextBestActionRepository.planDetail(await this.nextBestActionRepository.getPlan(plan_id), organization_id);
     if (!plan) {
       throw httpError(404, "Next-best-action plan not found.");
@@ -38,6 +60,11 @@ export class OutboundAutomationService {
       throw httpError(409, "Only planned next-best-action records can become outbound actions.");
     }
 
+    const lead = await db.get("SELECT * FROM leads WHERE id = ? AND organization_id = ?", [plan.lead_id, organization_id]);
+    if (!lead) throw httpError(404, "The plan's lead is unavailable.");
+    assertLeadActive(lead);
+    const current = await createCurrentIntelligenceServices(db).nextBestActionService.currentForLead(lead);
+    if (current.next_best_action_plan?.id !== plan.id) throw Object.assign(httpError(409, "Business, enquiry or intelligence context changed. Run current analysis before preparing an action."), { code: "INTELLIGENCE_CONTEXT_CHANGED" });
     const existing = await this.actionsRepository.getByPlanId(plan.id, organization_id);
     if (existing) {
       await this.approvalsService?.requestForAction(existing, { requested_reason: plan.approval?.reason || "Human approval is required." });
@@ -98,7 +125,7 @@ export class OutboundAutomationService {
       throw httpError(404, "Action not found.");
     }
     if (action.status === ACTION_STATUS.AWAITING_APPROVAL) {
-      throw httpError(409, "This action requires approval before execution. M5 will add approval workflow.");
+      throw httpError(409, "Review and approve the current message revision before execution.");
     }
     if (!EXECUTABLE_ACTION_STATUSES.has(action.status)) {
       return {
@@ -131,9 +158,9 @@ export class OutboundAutomationService {
    * Customer-facing copy for a message-bearing action.
    *
    * Human tasks are internal, so they keep `title`/`rationale` and get nothing
-   * here. Composition is grounded in the lead's own record and in their latest
-   * classified reply, so the message answers what they actually said rather than
-   * repeating a generic opener.
+   * here. The interim composer stays neutral: a contact record or reply class
+   * does not establish a prior enquiry, business promise or substantive answer.
+   * The shared reviewed conversation composer remains L4 work.
    */
   async #composeCopyFor(plan, actionType, organizationId) {
     if (!String(actionType).startsWith("SEND_")) {

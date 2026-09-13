@@ -12,8 +12,8 @@ interface HeaderProps {
 
 export function Header({ title, description, actions }: HeaderProps) {
   return (
-    <header className="flex items-center justify-between px-6 h-14 border-b border-line bg-surface shrink-0">
-      <div className="flex items-center gap-4">
+    <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-4 py-3 sm:px-6">
+      <div className="flex min-w-0 items-center gap-4">
         <div>
           <h1 className="text-base font-semibold text-ink leading-tight">
             {title}
@@ -23,7 +23,7 @@ export function Header({ title, description, actions }: HeaderProps) {
           )}
         </div>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
         {actions}
         <WorkspaceMenu />
       </div>

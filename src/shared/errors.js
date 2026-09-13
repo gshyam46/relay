@@ -1,3 +1,5 @@
+import { safeErrorCode } from "./logger.js";
+
 /**
  * Application error taxonomy.
  *
@@ -62,14 +64,16 @@ export function internalError(message, cause) {
  * response.
  */
 export function describeError(error) {
-  const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
-  const expected = error?.expected ?? (statusCode >= 400 && statusCode < 500);
+  const statusCode = Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode <= 599 ? error.statusCode : 500;
+  const busyMessage = statusCode === 503 && ["HTTP_BUSY", "AUTH_BUSY", "AUTH_ADMISSION_UNAVAILABLE"].includes(error?.code)
+    ? "The service is busy. Retry shortly." : null;
+  const expected = (statusCode < 500 && error?.expected !== false) || busyMessage !== null;
   return {
     statusCode,
     expected,
-    code: error?.code || defaultCodeFor(statusCode),
-    message: error?.publicMessage || error?.message || "Unexpected server error.",
-    details: error?.details || null
+    code: error?.code ? safeErrorCode(error.code) : defaultCodeFor(statusCode),
+    message: busyMessage || (expected && typeof (error?.publicMessage || error?.message) === "string" ? (error.publicMessage || error.message).slice(0, 2048) : "Unexpected server error."),
+    details: statusCode < 500 && expected ? error?.details || null : null
   };
 }
 

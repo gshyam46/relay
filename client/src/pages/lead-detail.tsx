@@ -1,3 +1,15 @@
+import {LoadingScreen} from "@/components/loading-screen";
+import {CustomerWorkflow} from "@/components/customer-workflow";
+import {MessageComposer} from "@/components/message-composer";
+import { FeedbackLauncher } from "@/components/intelligence-feedback";
+import { AssessmentMethod, EvidenceSupport } from "@/components/assessment-method";
+import { ReplyInterpretation } from "@/components/reply-interpretation";
+import { BusinessFitPanel } from "@/components/business-fit";
+import { CurrentnessBadge, IntelligenceCurrentnessPanel } from "@/components/intelligence-currentness";
+import { RecommendationChanges } from "@/components/recommendation-changes";
+import { LeadDataManagement } from "@/components/lead-data-management";
+import { LeadImportSources } from "@/components/lead-import-sources";
+import { EnquiryContext } from "@/components/enquiry-context";
 import { useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -28,10 +40,10 @@ import {
   Info,
   User,
   Radio,
-  HelpCircle,
-  Ban,
   History,
 } from "lucide-react";
+import { ApprovalReviewDialog } from "@/components/approval-review-dialog";
+import { DispatchDetailsButton, DispatchOutcome } from "@/components/dispatch-recovery-dialog";
 import { Header } from "@/components/layout/header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
@@ -39,15 +51,15 @@ import {
   useLead,
   useLeadIntelligence,
   useLeadIntelligenceHistory,
+  useLeadResearchEvidence,
   useLeadTimeline,
   type SynthesisFinding,
   type TimelineEntry,
 } from "@/hooks/use-leads";
-import { useRunFullPipeline } from "@/hooks/use-intelligence";
+import { useAnalysisSubmission } from "@/hooks/use-analysis-jobs";
+import { AnalysisSubmissionRecovery, LatestLeadAnalysisJob } from "@/components/analysis-jobs";
 import {
   useLeadOutboundActions,
-  useApproveAction,
-  useRejectAction,
   useExecuteAction,
   type LeadOutboundAction,
 } from "@/hooks/use-outbound";
@@ -59,17 +71,17 @@ import { useQueryClient } from "@tanstack/react-query";
 
 const MESSAGE_CHANNELS = [
   { type: "SEND_EMAIL", label: "Email", icon: Mail },
-  { type: "SEND_WHATSAPP", label: "WhatsApp", icon: MessageSquare },
-  { type: "SEND_SMS", label: "SMS", icon: MessageSquare },
-  { type: "SEND_VOICE_CALL", label: "Voice call", icon: Phone },
 ] as const;
 
-type Tab = "overview" | "intelligence" | "outbound";
+type Tab = "data" | "overview" | "enquiry" | "intelligence" | "outbound" | "customer-workflow";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "overview", label: "Overview" },
+  { key: "data", label: "Lead data" },
+  { key: "enquiry", label: "Enquiry" },
   { key: "intelligence", label: "Intelligence" },
   { key: "outbound", label: "Outbound & Activity" },
+  { key: "customer-workflow", label: "Conversation & Outcomes" },
 ];
 
 export function LeadDetailPage() {
@@ -77,17 +89,18 @@ export function LeadDetailPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const tab: Tab = tabParam === "intelligence" || tabParam === "outbound" ? tabParam : "overview";
+  const tab: Tab = tabParam === "data" || tabParam === "enquiry" || tabParam === "intelligence" || tabParam === "outbound" || tabParam === "customer-workflow" ? tabParam : "overview";
 
   const { data: lead, isLoading, isError, refetch } = useLead(id);
-  const { data: intel } = useLeadIntelligence(id);
+  const { data: intel, isError: intelligenceError, isFetching: checkingIntelligence, refetch: checkIntelligence } = useLeadIntelligence(id);
   const { data: timeline } = useLeadTimeline(id);
   const { data: outboundActions } = useLeadOutboundActions(id);
-  const runPipeline = useRunFullPipeline();
+  const analysisSubmission = useAnalysisSubmission();
   const org = useWorkspaceStore((s) => s.currentOrg);
   const qc = useQueryClient();
   const [runningAction, setRunningAction] = useState<string | null>(null);
   const [messageMenuOpen, setMessageMenuOpen] = useState(false);
+  const [composerOpen,setComposerOpen]=useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   const setTab = (next: Tab) => {
@@ -109,26 +122,20 @@ export function LeadDetailPage() {
   };
 
   const handleAnalyze = async () => {
-    if (!id || runningAction) return;
+    if (!id || runningAction || lead?.archived_at || intelligenceError || !intel?.currentness?.can_refresh) return;
     setRunningAction("analyze");
-    try {
-      await runPipeline.mutateAsync(id);
-      showFeedback("success", "Analysis complete — recommendation and next action ready below.");
-    } catch (err: unknown) {
-      showFeedback("error", err instanceof Error ? err.message : "Analysis failed");
-    } finally {
-      setRunningAction(null);
-    }
+    try { await analysisSubmission.submit([id]); } finally { setRunningAction(null); }
   };
 
   const handleSendMessage = async (type: string, label: string) => {
-    if (!id || !org || runningAction) return;
+    if (!id || !org || runningAction || lead?.archived_at) return;
     setMessageMenuOpen(false);
+    if(type === "SEND_EMAIL"){setComposerOpen(true);return;}
     setRunningAction("message");
     try {
       await api.post(`/leads/${id}/actions`, { organization_id: org.id, type });
       invalidateAfterAction();
-      showFeedback("success", `${label} queued — it will send automatically within a few seconds.`);
+      showFeedback("success", `${label} queued for review. Review the exact recipient and message before approving.`);
       setTab("outbound");
     } catch (err: unknown) {
       showFeedback("error", err instanceof Error ? err.message : "Failed to create action");
@@ -137,35 +144,9 @@ export function LeadDetailPage() {
     }
   };
 
-  const handleScheduleFollowUp = async () => {
-    if (!id || !org || runningAction) return;
-    setRunningAction("followup");
-    try {
-      await api.post(`/leads/${id}/actions`, { organization_id: org.id, type: "CREATE_HUMAN_TASK" });
-      invalidateAfterAction();
-      showFeedback("success", "Follow-up task created.");
-      setTab("outbound");
-    } catch (err: unknown) {
-      showFeedback("error", err instanceof Error ? err.message : "Failed to create follow-up");
-    } finally {
-      setRunningAction(null);
-    }
-  };
+  const handleScheduleFollowUp = async () => { setTab("customer-workflow"); };
 
-  if (isLoading) {
-    return (
-      <>
-        <Header title="Lead" />
-        <div className="p-6 space-y-4">
-          <div className="h-32 bg-surface border border-line rounded-xl animate-pulse" />
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 h-64 bg-surface border border-line rounded-xl animate-pulse" />
-            <div className="h-64 bg-surface border border-line rounded-xl animate-pulse" />
-          </div>
-        </div>
-      </>
-    );
-  }
+  if (isLoading) return <><Header title="Lead" /><LoadingScreen compact title="Loading enquiry details" /></>;
 
   if (isError) {
     return (
@@ -198,7 +179,7 @@ export function LeadDetailPage() {
   }
 
   const analyzeLabel =
-    !intel || intel.intelligence_status === "NOT_RUN" || intel.intelligence_status === "READY_TO_RUN"
+    !intel || intel.currentness?.state === "NEVER_ANALYSED"
       ? "Analyze lead"
       : "Refresh intelligence";
 
@@ -220,7 +201,7 @@ export function LeadDetailPage() {
         }
       />
       {feedback && (
-        <div
+        <div role={feedback.type === "error" ? "alert" : "status"}
           className={cn(
             "mx-6 mt-4 px-4 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2",
             feedback.type === "success" ? "bg-ok-light text-ok" : "bg-danger-light text-danger",
@@ -232,6 +213,7 @@ export function LeadDetailPage() {
             <AlertCircle className="w-4 h-4 shrink-0" />
           )}
           {feedback.message}
+          <button type="button" className="ml-auto text-xs underline" onClick={() => setFeedback(null)}>Dismiss</button>
         </div>
       )}
       <div className="flex-1 overflow-y-auto p-6 space-y-5">
@@ -245,7 +227,8 @@ export function LeadDetailPage() {
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-lg font-semibold text-ink">{lead.name || "Unnamed lead"}</h2>
                 <StatusBadge status={lead.status} />
-                {intel && <IntelStatusBadge status={intel.intelligence_status} />}
+                {lead.archived_at && <span className="rounded bg-soft px-2 py-1 text-xs font-medium">Archived</span>}
+                <CurrentnessBadge currentness={intel?.currentness} />
               </div>
               <div className="flex flex-wrap gap-x-5 gap-y-1.5 mt-2">
                 {lead.company && <InfoChip icon={Building} text={lead.company} />}
@@ -257,7 +240,7 @@ export function LeadDetailPage() {
               <div className="relative">
                 <button
                   onClick={() => setMessageMenuOpen((v) => !v)}
-                  disabled={!!runningAction}
+                  disabled={!!runningAction || !!lead.archived_at}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-line rounded-lg hover:bg-soft transition-colors cursor-pointer disabled:opacity-50"
                 >
                   {runningAction === "message" ? (
@@ -268,7 +251,7 @@ export function LeadDetailPage() {
                   Message
                   <ChevronDown className="w-3 h-3" />
                 </button>
-                {messageMenuOpen && (
+                {messageMenuOpen && !lead.archived_at && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setMessageMenuOpen(false)} />
                     <div className="absolute right-0 top-full mt-1 w-44 bg-surface border border-line rounded-lg shadow-lg z-20 py-1">
@@ -288,7 +271,7 @@ export function LeadDetailPage() {
               </div>
               <button
                 onClick={handleAnalyze}
-                disabled={!!runningAction}
+                disabled={!!runningAction || !!analysisSubmission.pending || !!lead.archived_at || intelligenceError || !intel?.currentness?.can_refresh}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-brand text-white rounded-lg hover:bg-brand-strong transition-colors cursor-pointer disabled:opacity-50"
               >
                 {runningAction === "analyze" ? (
@@ -302,8 +285,12 @@ export function LeadDetailPage() {
           </div>
         </div>
 
+        {lead.archived_at && <p className="rounded-lg border border-line bg-soft p-3 text-sm">This record is archived. Contact restrictions remain in force. Restore it in Lead data before editing, analysing or creating work; restoration restarts no work.</p>}
+        <AnalysisSubmissionRecovery submission={analysisSubmission} />
+        {(composerOpen || searchParams.get("compose_action")) && id && !lead.archived_at && <MessageComposer leadId={id} actionId={searchParams.get("compose_action")} onClose={()=>{setComposerOpen(false);if(searchParams.has("compose_action")){const next=new URLSearchParams(searchParams);next.delete("compose_action");setSearchParams(next);}invalidateAfterAction();}}/>}
+        <LatestLeadAnalysisJob leadId={id!} submittedId={analysisSubmission.job?.items.some(item => item.lead_id === id) ? analysisSubmission.job.id : null} />
         {/* Tabs */}
-        <div className="flex items-center gap-1 border-b border-line -mb-px">
+        <div className="flex items-center gap-1 overflow-x-auto border-b border-line -mb-px">
           {TABS.map((t) => {
             const badge =
               t.key === "outbound" && readyForReviewCount + dueFollowUpCount > 0
@@ -314,7 +301,7 @@ export function LeadDetailPage() {
                 key={t.key}
                 onClick={() => setTab(t.key)}
                 className={cn(
-                  "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors cursor-pointer flex items-center gap-1.5",
+                  "shrink-0 whitespace-nowrap px-4 py-2.5 text-sm font-medium border-b-2 transition-colors cursor-pointer flex items-center gap-1.5",
                   tab === t.key
                     ? "border-brand text-brand"
                     : "border-transparent text-muted hover:text-ink hover:border-line",
@@ -334,6 +321,9 @@ export function LeadDetailPage() {
         {tab === "overview" && (
           <OverviewTab lead={lead} intel={intel} onGoToIntelligence={() => setTab("intelligence")} />
         )}
+        {tab === "customer-workflow" && <CustomerWorkflow leadId={lead.id} archived={!!lead.archived_at}/> }
+        {tab === "data" && <LeadDataManagement leadId={lead.id} />}
+        {tab === "enquiry" && <div className="space-y-6"><EnquiryContext leadId={lead.id} archived={!!lead.archived_at} /><LeadImportSources leadId={lead.id} /></div>}
         {tab === "intelligence" && (
           <IntelligenceTab
             leadId={lead.id}
@@ -341,10 +331,12 @@ export function LeadDetailPage() {
             timeline={timeline || []}
             onReviewInOutbound={() => setTab("outbound")}
             analyzeLabel={analyzeLabel}
+            checking={checkingIntelligence} currentnessError={intelligenceError} onCheck={() => void checkIntelligence()}
           />
         )}
         {tab === "outbound" && (
           <OutboundActivityTab
+            archived={!!lead.archived_at}
             actions={outboundActions || []}
             timeline={timeline || []}
             onScheduleFollowUp={handleScheduleFollowUp}
@@ -424,7 +416,7 @@ function OverviewTab({
               </button>
             </>
           ) : (
-            <p className="text-sm text-muted">Not analyzed yet.</p>
+            <p className="text-sm text-muted">{intel?.currentness?.state === "OUTDATED" ? "Previous analysis is outdated. Open Intelligence to review the changes." : "No current analysis summary is available."}</p>
           )}
         </div>
       </div>
@@ -439,7 +431,7 @@ function IntelligenceTab({
   intel,
   timeline,
   onReviewInOutbound,
-  analyzeLabel,
+  analyzeLabel, checking, currentnessError, onCheck,
 }: {
   leadId: string;
   intel: ReturnType<typeof useLeadIntelligence>["data"];
@@ -447,22 +439,29 @@ function IntelligenceTab({
   onReviewInOutbound: () => void;
   /** The header button's current label, so empty states name the control that
    *  actually exists rather than a fixed string that goes stale. */
-  analyzeLabel: string;
+  analyzeLabel: string; checking: boolean; currentnessError: boolean; onCheck: () => void;
 }) {
   const readiness = intel?.readiness;
   const synthesis = intel?.synthesis;
-  const recommendation = intel?.recommendation;
-  const nba = intel?.next_best_action;
-  const evidence = intel?.snapshot?.evidence || [];
+  const recommendation = intel?.currentness?.state === "CURRENT" ? intel.recommendation : null;
+  const nba = intel?.currentness?.state === "CURRENT" ? intel.next_best_action : null;
+  const snapshotEvidence = intel?.snapshot?.evidence || [];
   const [historyOpen, setHistoryOpen] = useState(false);
   const { data: history } = useLeadIntelligenceHistory(leadId, historyOpen);
   const externalFindings = (synthesis?.findings || []).filter((f: SynthesisFinding) => f.source === "APPROVED_RESEARCH_EVIDENCE");
+  const research = useLeadResearchEvidence(leadId, synthesis?.id, externalFindings.length > 0);
+  const evidence = [...snapshotEvidence, ...(research.data || [])];
   const latestInbound = [...timeline]
     .filter((e) => e.kind === "message" && e.direction === "INBOUND")
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div className="space-y-5">
+      <div aria-label="Saved assessment review actions" className="flex flex-wrap gap-2">{([ ["SNAPSHOT", intel?.snapshot?.id, "Review readiness and fit"], ["SYNTHESIS", intel?.synthesis?.id, "Review source assessment"], ["RECOMMENDATION", intel?.recommendation?.id, "Review recommendation"], ["PLAN", intel?.next_best_action?.id, "Review action plan"] ] as const).map(([kind, targetId, label]) => <FeedbackLauncher key={kind} label={label} target={targetId ? { lead_id: leadId, target_kind: kind, target_id: targetId } : null} />)}</div>
+      <IntelligenceCurrentnessPanel leadId={leadId} currentness={intel?.currentness} freshness={intel?.freshness} checking={checking} error={currentnessError} onCheck={onCheck} />
+      <BusinessFitPanel leadId={leadId} fit={intel?.currentness?.state === "CURRENT" ? intel.business_fit : null} attention={intel?.currentness?.state === "CURRENT" ? intel.attention_priority : null} currentnessError={currentnessError} leadStatus={intel?.lead_status} />
+      {intel?.recommendation_comparison && <RecommendationChanges comparison={intel.recommendation_comparison} />}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <div className="lg:col-span-2 space-y-5">
         {latestInbound && (
           <div className="bg-brand-light/40 border border-brand/20 rounded-xl p-4 flex items-start gap-3">
@@ -470,23 +469,14 @@ function IntelligenceTab({
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-xs font-semibold text-brand uppercase tracking-wide">
-                  Latest customer signal &middot; {formatLabel(latestInbound.channel || "")}
+                  Latest recorded inbound message &middot; {formatLabel(latestInbound.channel || "")}
                 </p>
-                {latestInbound.classification_event_type && (
-                  <ReplyClassificationBadge
-                    eventType={latestInbound.classification_event_type}
-                    confidence={latestInbound.classification_confidence ?? null}
-                  />
-                )}
+
               </div>
-              <p className="text-sm text-ink mt-0.5">{latestInbound.message}</p>
+              <p className="text-xs font-medium text-muted mt-2">Original message</p>
+              <p className="text-sm text-ink mt-0.5 whitespace-pre-wrap break-words">{latestInbound.original_text ?? "Original message text is unavailable."}</p>
               <p className="text-[11px] text-muted mt-0.5">{new Date(latestInbound.timestamp).toLocaleString()}</p>
-              {latestInbound.suggested_next_step && (
-                <p className="text-xs text-ink mt-2 pt-2 border-t border-brand/20">
-                  <span className="font-semibold">Suggested next step: </span>
-                  {latestInbound.suggested_next_step}
-                </p>
-              )}
+              <FeedbackLauncher label="Review this reply interpretation" target={{ lead_id: leadId, target_kind: "REPLY", target_id: latestInbound.id }} /><ReplyInterpretation interpretation={latestInbound.interpretation} original={latestInbound.original_text || ""} eventType={latestInbound.classification_event_type} confidence={latestInbound.classification_confidence} />
             </div>
           </div>
         )}
@@ -540,7 +530,8 @@ function IntelligenceTab({
           )}
         </Section>
 
-        <Section icon={Info} title="Qualification Assessment">
+        <Section icon={Info} title="Source assessment">
+          {synthesis && <div className="mb-3"><AssessmentMethod generation={synthesis.summary.generation} claims={synthesis.summary.claims} evidence={evidence} leadId={leadId} reviewFlags={synthesis.qualification?.review_flags} /></div>}
           {synthesis?.qualification ? (
             <div className="p-3 bg-brand-light/30 rounded-lg border border-brand/20">
               <p className="text-xs font-semibold text-brand uppercase tracking-wide mb-1">
@@ -556,8 +547,8 @@ function IntelligenceTab({
             <EmptySection
               message={
                 intel?.synthesis_status === "NOT_READY"
-                  ? "Not enough data yet to qualify this lead."
-                  : `No qualification yet. Use “${analyzeLabel}” above.`
+                  ? "Not enough data yet for this source assessment."
+                  : `No source assessment yet. Use “${analyzeLabel}” above.`
               }
             />
           )}
@@ -565,13 +556,17 @@ function IntelligenceTab({
 
         {externalFindings.length > 0 && (
           <Section icon={FileText} title="External Research Findings">
+            {research.isError && <p role="alert" className="text-sm text-warn">Supporting research could not be loaded. <button type="button" className="underline" onClick={() => research.refetch()}>Check saved research</button></p>}
+            <p className="text-xs text-muted mb-3">These are recorded source claims. Source confidence is not a measured probability of truth; review supporting records and source freshness before using them.</p>
             <div className="space-y-2">
               {externalFindings.map((f, i) => (
                 <div key={i} className="flex gap-3 p-3 bg-page rounded-lg border border-line">
-                  <ConfidenceDot confidence={f.confidence} />
+
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-semibold text-muted uppercase tracking-wide">{formatLabel(f.field)}</p>
-                    <p className="text-sm text-ink mt-0.5">{f.value}</p>
+                    <p className="text-sm text-ink mt-0.5 whitespace-pre-wrap break-words">{f.value}</p>
+                    <p className="text-xs text-muted mt-2">Recorded source confidence: {formatLabel(f.confidence)}</p>
+                    <details className="mt-2"><summary className="cursor-pointer text-xs text-brand">Supporting source records</summary><div className="mt-2"><EvidenceSupport references={f.evidence_refs} evidence={evidence} field={f.field} value={f.value} /></div></details>
                   </div>
                 </div>
               ))}
@@ -583,7 +578,7 @@ function IntelligenceTab({
           {recommendation ? (
             <div className="space-y-3">
               <div className="flex items-center gap-3 flex-wrap">
-                <PriorityBadge label={recommendation.priority.label} score={recommendation.priority.score} />
+                <details className="text-xs text-muted"><summary className="cursor-pointer">Legacy processing attention</summary><div className="mt-2 space-y-1"><PriorityBadge label={recommendation.priority.label} score={recommendation.priority.score} /><p>{recommendation.priority.reason}</p><p>This historical processing measure is separate from configured business fit and queue order.</p></div></details>
                 <span className="text-xs text-muted">{recommendation.segment.label}</span>
               </div>
               <div className="flex items-start gap-3 p-3 bg-page rounded-lg border border-line">
@@ -618,6 +613,7 @@ function IntelligenceTab({
                   {nba.status === "PLANNED" && (
                     <button
                       onClick={onReviewInOutbound}
+                      disabled={currentnessError}
                       className="flex items-center gap-1 mt-2 text-xs font-medium text-brand hover:text-brand-strong cursor-pointer"
                     >
                       Review outbound
@@ -637,7 +633,7 @@ function IntelligenceTab({
             <EmptySection
               message={
                 intel?.recommendation_status === "NOT_READY"
-                  ? "Analyze this lead to generate a recommendation."
+                  ? intel?.currentness?.state === "OUTDATED" ? "Previous recommendations are outdated. Review the source changes above and refresh when appropriate." : "Analyze this lead to generate a recommendation."
                   : `No recommendation yet. Use “${analyzeLabel}” above.`
               }
             />
@@ -670,9 +666,9 @@ function IntelligenceTab({
                 <span
                   key={e.id}
                   className="text-[10px] px-2 py-1 rounded-md bg-page border border-line text-muted"
-                  title={e.claim_value}
+                  title={e.claim_value || e.title || undefined}
                 >
-                  {formatLabel(e.source_type)} &middot; {formatLabel(e.claim_field)}
+                  {formatLabel(e.source_type)} &middot; {e.claim_field ? formatLabel(e.claim_field) : "Source review"}
                 </span>
               ))}
             </div>
@@ -706,7 +702,7 @@ function IntelligenceTab({
                         <span className="text-[10px] text-muted">score {snap.readiness_score}</span>
                         <span className="text-[10px] text-subtle">{new Date(snap.created_at).toLocaleString()}</span>
                       </div>
-                      <p className="text-[11px] text-muted mt-0.5 line-clamp-2">{snap.summary}</p>
+                      <p className="text-[11px] text-muted mt-0.5 line-clamp-2">{snap.summary}</p><FeedbackLauncher label={"Review saved snapshot v" + snap.version} target={{ lead_id: leadId, target_kind: "SNAPSHOT", target_id: snap.id }} />
                     </div>
                   </div>
                 ))
@@ -715,6 +711,7 @@ function IntelligenceTab({
           )}
         </div>
       </div>
+      </div>
     </div>
   );
 }
@@ -722,22 +719,23 @@ function IntelligenceTab({
 // ---------- Outbound & Activity ----------
 
 function OutboundActivityTab({
+  archived,
   actions,
   timeline,
   onScheduleFollowUp,
   runningAction,
 }: {
+  archived: boolean;
   actions: LeadOutboundAction[];
   timeline: TimelineEntry[];
   onScheduleFollowUp: () => void;
   runningAction: string | null;
 }) {
-  const approve = useApproveAction();
-  const reject = useRejectAction();
   const execute = useExecuteAction();
   const completeFollowUp = useCompleteFollowUp();
   const cancelFollowUp = useCancelFollowUp();
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [reviewIds, setReviewIds] = useState<string[] | null>(null);
 
   // A conversation is what was said to and by the lead. Internal human tasks
   // share the same channel_messages table so they appear on the activity
@@ -765,6 +763,7 @@ function OutboundActivityTab({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      {reviewIds && !archived && <ApprovalReviewDialog actionIds={reviewIds} onClose={() => setReviewIds(null)} />}
       <div className="lg:col-span-2 space-y-5">
         <Section icon={Send} title="Outbound Actions">
           {actions.length > 0 ? (
@@ -773,15 +772,16 @@ function OutboundActivityTab({
                 <OutboundActionRow
                   key={a.id}
                   action={a}
+                  archived={archived}
                   busy={busyIds.has(a.id)}
-                  onApprove={withBusy(a.id, () => approve.mutateAsync(a.id))}
-                  onReject={withBusy(a.id, () => reject.mutateAsync(a.id))}
+                  onApprove={() => setReviewIds([a.id])}
+                  onReject={() => setReviewIds([a.id])}
                   onExecute={withBusy(a.id, () => execute.mutateAsync(a.id))}
                 />
               ))}
             </div>
           ) : (
-            <EmptySection message="No outbound actions yet. Analyze this lead to get a recommendation, or send a message above." />
+            <EmptySection message={archived ? "No outbound actions. Restore this record before creating work." : "No outbound actions yet. Analyze this lead to get a recommendation, or send a message above."} />
           )}
         </Section>
 
@@ -803,7 +803,7 @@ function OutboundActivityTab({
             </h3>
             <button
               onClick={onScheduleFollowUp}
-              disabled={!!runningAction}
+              disabled={!!runningAction || archived}
               className="text-xs font-medium text-brand hover:text-brand-strong cursor-pointer disabled:opacity-50"
             >
               + Schedule
@@ -830,20 +830,23 @@ function OutboundActivityTab({
 }
 
 function OutboundActionRow({
+  archived,
   action,
   busy,
   onApprove,
   onReject,
   onExecute,
 }: {
+  archived: boolean;
   action: LeadOutboundAction;
   busy: boolean;
   onApprove: () => void;
   onReject: () => void;
   onExecute: () => void;
 }) {
-  const needsApproval = action.approval?.status === "PENDING";
-  const canExecute = action.status === "APPROVED" || action.status === "PLANNED";
+  const needsApproval = action.status === "AWAITING_APPROVAL" || (action.status === "PLANNED" && action.type.startsWith("SEND_"));
+  const canReview = !archived && ["PLANNED", "AWAITING_APPROVAL", "APPROVED", "RETRYING"].includes(action.status);
+  const canExecute = !archived && (["APPROVED", "RETRYING"].includes(action.status) || (action.status === "PLANNED" && !action.type.startsWith("SEND_")));
 
   return (
     <div className="flex items-center justify-between gap-3 p-3 bg-page rounded-lg border border-line flex-wrap">
@@ -851,13 +854,16 @@ function OutboundActionRow({
         <div className="flex items-center gap-2 flex-wrap">
           <TypeBadge type={action.type} />
           <ActionStatusBadge status={action.status} />
+          <DispatchOutcome outcome={action.executions.at(-1)?.outcome_class} />
         </div>
-        {/* Show the message that will actually be sent, not just the internal
+        {/* Show original draft context. Exact reviewed content is loaded in the dialog.
+            Show the message draft, not just the internal
             plan title — this is an approval decision, and it cannot be made
             without seeing the content. Human tasks have no customer-facing copy
             and fall back to their title. */}
         {typeof action.payload?.message === "string" && action.type.startsWith("SEND_") ? (
           <div className="mt-1.5">
+            <p className="text-[10px] text-muted">Draft context / Open Review for the current message</p>
             {typeof action.payload?.subject === "string" && (
               <p className="text-xs font-medium text-ink truncate">{action.payload.subject as string}</p>
             )}
@@ -875,21 +881,22 @@ function OutboundActionRow({
         <Loader2 className="w-4 h-4 animate-spin text-brand shrink-0" />
       ) : (
         <div className="flex items-center gap-1 shrink-0">
-          {needsApproval && (
+          <DispatchDetailsButton actionId={action.id} />
+          {canReview && (
             <>
               <button
                 onClick={onApprove}
                 className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-ok bg-ok-light rounded-md hover:bg-green-200 transition-colors cursor-pointer"
               >
                 <ThumbsUp className="w-3.5 h-3.5" />
-                Approve
+                Review
               </button>
               <button
                 onClick={onReject}
                 className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-danger bg-danger-light rounded-md hover:bg-red-200 transition-colors cursor-pointer"
               >
                 <ThumbsDown className="w-3.5 h-3.5" />
-                Reject
+                Review to reject
               </button>
             </>
           )}
@@ -909,6 +916,7 @@ function OutboundActionRow({
 }
 
 function ConversationThread({ messages }: { messages: TimelineEntry[] }) {
+  const { id: leadId } = useParams();
   const sorted = [...messages].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
   return (
     <div className="space-y-3">
@@ -932,7 +940,9 @@ function ConversationThread({ messages }: { messages: TimelineEntry[] }) {
                 <span className="text-[10px] text-subtle">{new Date(m.timestamp).toLocaleString()}</span>
                 {m.status && <StatusDot status={m.status} />}
               </div>
-              <p className="text-sm text-ink">{m.message}</p>
+              {inbound && <p className="text-xs font-medium text-muted mb-1">Original message</p>}
+              <p className="text-sm text-ink whitespace-pre-wrap break-words">{inbound ? m.original_text ?? "Original message text is unavailable." : m.message}</p>
+              {inbound && <FeedbackLauncher label="Review this reply interpretation" target={{ lead_id: leadId!, target_kind: "REPLY", target_id: m.id }} />}{inbound && <ReplyInterpretation interpretation={m.interpretation} original={m.original_text || ""} eventType={m.classification_event_type} confidence={m.classification_confidence} />}
             </div>
           </div>
         );
@@ -1028,18 +1038,6 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function IntelStatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string }> = {
-    NOT_RUN: { label: "Not analyzed", className: "bg-soft text-muted" },
-    READY_TO_RUN: { label: "Ready to analyze", className: "bg-soft text-muted" },
-    NEEDS_DATA: { label: "Needs data", className: "bg-warn-light text-warn" },
-    GENERATED: { label: "Analyzed", className: "bg-ok-light text-ok" },
-    FAILED: { label: "Analysis failed", className: "bg-danger-light text-danger" },
-  };
-  const entry = map[status] ?? { label: formatLabel(status), className: "bg-soft text-muted" };
-  return <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", entry.className)}>{entry.label}</span>;
-}
-
 function NbaStatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; className: string }> = {
     PLANNED: { label: "Ready for review", className: "bg-warn-light text-warn" },
@@ -1065,43 +1063,6 @@ function PipelineRow({ label, status }: { label: string; status: string }) {
       </span>
     </div>
   );
-}
-
-const REPLY_CLASSIFICATION_STYLES: Record<string, { label: string; icon: typeof ThumbsUp; className: string }> = {
-  POSITIVE_REPLY: { label: "Positive", icon: ThumbsUp, className: "bg-ok-light text-ok" },
-  NEGATIVE_REPLY: { label: "Negative", icon: ThumbsDown, className: "bg-danger-light text-danger" },
-  QUESTION: { label: "Question", icon: HelpCircle, className: "bg-brand-light text-brand" },
-  OPT_OUT: { label: "Opted out", icon: Ban, className: "bg-danger-light text-danger" },
-  UNKNOWN: { label: "Unclear", icon: AlertCircle, className: "bg-warn-light text-warn" },
-};
-
-function ReplyClassificationBadge({
-  eventType,
-  confidence,
-}: {
-  eventType: string;
-  confidence: "HIGH" | "MEDIUM" | "LOW" | null;
-}) {
-  const escalated = confidence === "LOW";
-  const entry = REPLY_CLASSIFICATION_STYLES[eventType] ?? REPLY_CLASSIFICATION_STYLES.UNKNOWN;
-  const Icon = escalated ? AlertCircle : entry.icon;
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap",
-        escalated ? "bg-warn-light text-warn" : entry.className,
-      )}
-      title={confidence ? `${confidence.toLowerCase()} confidence` : undefined}
-    >
-      <Icon className="w-2.5 h-2.5" />
-      {escalated ? "Needs review" : entry.label}
-    </span>
-  );
-}
-
-function ConfidenceDot({ confidence }: { confidence: string }) {
-  const color = confidence === "HIGH" ? "bg-green-500" : confidence === "MEDIUM" ? "bg-amber-500" : "bg-red-400";
-  return <div className={cn("w-2.5 h-2.5 rounded-full shrink-0 mt-1", color)} title={confidence} />;
 }
 
 function StatusDot({ status }: { status: string }) {

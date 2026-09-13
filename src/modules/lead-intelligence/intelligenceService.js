@@ -1,4 +1,16 @@
+import { evaluateBusinessFit } from "./businessFit.js";
+import { evaluateFreshness } from "./freshnessService.js";
+import { FreshnessRepository } from "./freshnessRepository.js";
+import { freshnessFingerprintPart, freshnessChanges, parseFreshnessAssessment } from "./freshnessContract.js";
+import { currentLeadData, leadDataRevision } from "../data-foundation/leadDataSafety.js";
+import { loadLeadDataContext } from "../data-foundation/leadDataContext.js";
 import { createHash } from "node:crypto";
+import { IntelligenceRepository } from "./intelligenceRepository.js";
+import { AuditRepository } from "../events/auditRepository.js";
+import { InboundEventsRepository } from "../channels/inboundEventsRepository.js";
+import { ContactPolicyService } from "../contact-policy/contactPolicyService.js";
+import { loadLeadBusinessContext } from "../business-context/businessContextRepository.js";
+import { addEnquiryEvidence, contextFingerprintPart, contextWarnings } from "./businessContextEvidence.js";
 import { parseJson } from "../../database/database.js";
 import {
   CLAIM_FIELDS,
@@ -16,8 +28,9 @@ import {
 } from "./readiness.js";
 
 export class IntelligenceService {
-  constructor({ intelligenceRepository, auditRepository = null, inboundEventsRepository = null }) {
+  constructor({ intelligenceRepository, auditRepository = null, inboundEventsRepository = null, now = Date.now }) {
     this.intelligenceRepository = intelligenceRepository;
+    this.now = now;
     this.auditRepository = auditRepository;
     this.inboundEventsRepository = inboundEventsRepository;
   }
@@ -27,10 +40,27 @@ export class IntelligenceService {
   }
 
   async runForLead(lead, { simulate_failure_stage = null } = {}) {
+    const db = this.intelligenceRepository.db;
+    if (!db.transactionBound) {
+      // Deterministic snapshot work has no model/network I/O; serialize it with context writes.
+      const outcome = await new ContactPolicyService(db).withWorkspacePolicyTransaction(lead.organization_id, async tx => {
+        const scoped = new IntelligenceService({ intelligenceRepository: new IntelligenceRepository(tx), now: this.now,
+          auditRepository: this.auditRepository ? new AuditRepository(tx) : null,
+          inboundEventsRepository: this.inboundEventsRepository ? new InboundEventsRepository(tx) : null });
+        try { return { value: await scoped.runForLead(lead, { simulate_failure_stage }) }; }
+        catch (error) { return { error }; } // Preserve recorded FAILED snapshot semantics.
+      });
+      if (outcome.error) throw outcome.error;
+      return outcome.value;
+    }
+    lead = await currentLeadData(db, lead);
+    const businessContext = await loadLeadBusinessContext(db, { organization_id: lead.organization_id, lead_id: lead.id });
+    const freshness = await evaluateFreshness(db, lead, { now: this.now });
     const hydratedLead = hydrateLeadForIntelligence(lead);
+    hydratedLead.field_provenance = (await loadLeadDataContext(db, { organization_id: lead.organization_id, lead_id: lead.id })).field_provenance;
     const replies = (await this.inboundEventsRepository?.listForLead(hydratedLead.organization_id, hydratedLead.id)) || [];
     const latestReply = replies[0] || null;
-    const inputFingerprint = inputFingerprintForLead(hydratedLead, latestReply);
+    const inputFingerprint = inputFingerprintForLead(hydratedLead, latestReply, businessContext, freshness);
     const existing = await this.intelligenceRepository.findSnapshotByFingerprint({
       organization_id: hydratedLead.organization_id,
       lead_id: hydratedLead.id,
@@ -49,7 +79,9 @@ export class IntelligenceService {
         lead_id: hydratedLead.id,
         version: await this.intelligenceRepository.nextVersionForLead(hydratedLead.id),
         pipeline_version: PIPELINE_VERSION,
-        input_fingerprint: inputFingerprint
+        input_fingerprint: inputFingerprint,
+        freshness,
+        business_fit: evaluateBusinessFit({ businessContext, freshness })
       });
 
     try {
@@ -69,6 +101,9 @@ export class IntelligenceService {
         throw new Error("Simulated intelligence failure after evidence.");
       }
 
+      const leadEvidenceIds = evidenceRecords.map(record => record.id);
+      const contextEvidence = await addEnquiryEvidence(this.intelligenceRepository, hydratedLead, snapshot.id, businessContext, freshness);
+      evidenceRecords.push(...contextEvidence.records);
       const evidenceByField = new Map(evidenceRecords.map((record) => [record.claim_field, record.id]));
       const claims = await createClaimsForLead({
         lead: hydratedLead,
@@ -76,12 +111,13 @@ export class IntelligenceService {
         evidenceByField,
         repository: this.intelligenceRepository
       });
+      claims.push(...contextEvidence.claims);
       const signals = await createSignalsForLead({
         lead: hydratedLead,
         snapshotId: snapshot.id,
         readiness,
         latestReply,
-        evidenceIds: evidenceRecords.map((record) => record.id),
+        evidenceIds: leadEvidenceIds,
         repository: this.intelligenceRepository
       });
       const qualification = buildQualificationFoundation(
@@ -147,23 +183,25 @@ export class IntelligenceService {
   }
 
   async assessLead(lead) {
-    const hydratedLead = hydrateLeadForIntelligence(lead);
-    const readiness = analyzeReadiness(hydratedLead);
+    const db = this.intelligenceRepository.db;
+    if (!db.transactionBound) return new ContactPolicyService(db).withWorkspacePolicyTransaction(lead.organization_id, tx => new IntelligenceService({ intelligenceRepository: new IntelligenceRepository(tx), inboundEventsRepository: this.inboundEventsRepository ? new InboundEventsRepository(tx) : null, now: this.now }).assessLead(lead));
+    lead = await currentLeadData(db, lead, { allowArchived: true, checkRevision: false });
+    const businessContext = await loadLeadBusinessContext(db, { organization_id: lead.organization_id, lead_id: lead.id });
+    const freshness = await evaluateFreshness(db, lead, { now: this.now });
+    const hydratedLead = hydrateLeadForIntelligence(lead), readiness = analyzeReadiness(hydratedLead);
     const replies = (await this.inboundEventsRepository?.listForLead(hydratedLead.organization_id, hydratedLead.id)) || [];
     const latestReply = replies[0] || null;
-    const latestSnapshot = await this.intelligenceRepository.findSnapshotByFingerprint({
-      organization_id: hydratedLead.organization_id,
-      lead_id: hydratedLead.id,
-      input_fingerprint: inputFingerprintForLead(hydratedLead, latestReply),
-      pipeline_version: PIPELINE_VERSION
-    });
-    const snapshot = latestSnapshot ? await this.intelligenceRepository.snapshotDetail(latestSnapshot) : null;
+    const matching = await this.intelligenceRepository.findSnapshotByFingerprint({ organization_id: lead.organization_id, lead_id: lead.id, input_fingerprint: inputFingerprintForLead(hydratedLead, latestReply, businessContext, freshness), pipeline_version: PIPELINE_VERSION });
+    const latest = await new FreshnessRepository(db).latestSnapshot(lead.organization_id, lead.id), previous = parseFreshnessAssessment(latest?.freshness_json);
+    const snapshot = !lead.archived_at && matching ? await this.intelligenceRepository.snapshotDetail(matching) : null;
+    const state = lead.archived_at ? "ARCHIVED" : !latest ? "NEVER_ANALYSED" : snapshot?.status === "READY" ? "CURRENT" : "OUTDATED";
+    const reasons = state === "CURRENT" || state === "NEVER_ANALYSED" ? [] : freshnessChanges(previous, freshness);
+    if (state === "ARCHIVED") reasons.unshift({ code: "LEAD_ARCHIVED", scope: "LEAD", fields: [] });
+    if (state === "OUTDATED" && !reasons.length) reasons.push({ code: latest?.status === "FAILED" ? "ANALYSIS_FAILED" : "INPUTS_CHANGED", scope: "ANALYSIS", fields: [] });
     return {
-      lead_status: hydratedLead.status,
-      intelligence_status: intelligenceStatusFor({ snapshot, readiness }),
-      readiness: serializeReadiness(readiness),
-      snapshot,
-      recommendation: snapshot?.recommendation || null
+      data_revision: leadDataRevision(lead), archived_at: lead.archived_at || null, business_context: businessContext, context_warnings: contextWarnings(businessContext, freshness),
+      freshness, currentness: { state, assessed_at: freshness.evaluated_at, analysed_at: latest?.created_at || null, next_check_at: freshness.next_transition_at, can_refresh: !lead.archived_at, reasons, evaluated_revisions: previous?.current_revisions || null, current_revisions: freshness.current_revisions },
+      lead_status: hydratedLead.status, intelligence_status: intelligenceStatusFor({ snapshot, readiness }), readiness: serializeReadiness(readiness), snapshot, recommendation: snapshot?.recommendation || null
     };
   }
 
@@ -232,16 +270,22 @@ async function createEvidenceForLead({ lead, snapshotId, repository }) {
       row_number: lead.source_metadata?.row_number || null
     }
   };
+  const fieldSource = field => {
+    const origin = lead.field_provenance?.[field];
+    return origin ? { ...common, source_type: EVIDENCE_SOURCE_TYPES.MANUAL, source_reference: "lead-data-change:" + origin.change_id,
+      raw_content_reference: "lead-data-change:" + origin.change_id + ":" + field,
+      metadata: { ...common.metadata, field_provenance: origin, field, created_at: origin.created_at } } : common;
+  };
   const contactEmail = contactEmailForLead(lead);
   const contactPhone = contactPhoneForLead(lead);
   const evidence = [];
-  await pushEvidence(evidence, repository, common, CLAIM_FIELDS.LEAD_NAME, lead.name, "Customer-provided lead name");
-  await pushEvidence(evidence, repository, common, CLAIM_FIELDS.COMPANY_NAME, lead.company, "Customer-provided company");
-  await pushEvidence(evidence, repository, common, CLAIM_FIELDS.CONTACT_EMAIL, contactEmail, "Customer-provided email");
+  await pushEvidence(evidence, repository, fieldSource("name"), CLAIM_FIELDS.LEAD_NAME, lead.name, "Customer-provided lead name");
+  await pushEvidence(evidence, repository, fieldSource("company"), CLAIM_FIELDS.COMPANY_NAME, lead.company, "Customer-provided company");
+  await pushEvidence(evidence, repository, fieldSource("email"), CLAIM_FIELDS.CONTACT_EMAIL, contactEmail, "Customer-provided email");
   await pushEvidence(
     evidence,
     repository,
-    common,
+    fieldSource("phone"),
     CLAIM_FIELDS.CONTACT_PHONE,
     contactPhone,
     "Customer-provided phone"
@@ -265,7 +309,7 @@ async function pushEvidence(evidence, repository, common, claimField, claimValue
   evidence.push(
     await repository.createEvidence({
       ...common,
-      title,
+      title: common.metadata.field_provenance ? "Owner-corrected " + common.metadata.field : title,
       claim_field: claimField,
       claim_value: String(claimValue),
       evidence_timestamp: common.metadata.import_row_id ? null : common.metadata.created_at || null
@@ -356,10 +400,13 @@ function contactPhoneForLead(lead) {
   return typeof value === "string" && /^\+[1-9]\d{7,14}$/.test(value.trim()) ? value.trim() : null;
 }
 
-function inputFingerprintForLead(lead, latestReply = null) {
+function inputFingerprintForLead(lead, latestReply = null, businessContext = null, freshness = null) {
   return createHash("sha256")
     .update(
       JSON.stringify({
+        ...freshnessFingerprintPart(freshness),
+        ...(leadDataRevision(lead) ? { data_revision: leadDataRevision(lead) } : {}),
+        ...(businessContext ? contextFingerprintPart(businessContext) : {}),
         id: lead.id,
         organization_id: lead.organization_id,
         name: lead.name,

@@ -1,3 +1,4 @@
+import { freshnessError } from "./freshnessContract.js";
 import { parseJson, stringifyJson } from "../../database/database.js";
 import { createId } from "../../shared/ids.js";
 import { nowIso } from "../../shared/time.js";
@@ -157,10 +158,12 @@ export class ResearchEvidenceRepository {
   }
 
   async evidenceItemsForLead(leadId, organizationId) {
-    return await this.db.all(
-      "SELECT * FROM research_evidence_items WHERE lead_id = ? AND organization_id = ? ORDER BY created_at ASC",
-      [leadId, organizationId]
-    );
+    const columns = ["id", "ingestion_id", "organization_id", "lead_id", "source_type", "source_reference", "source_url", "title", "raw_content_reference", "claim_field", "claim_value", "evidence_timestamp", "retrieved_at", "confidence", "metadata_json", "created_at"];
+    const bytes = column => "coalesce(" + (this.db.kind === "postgres" ? "octet_length(" + column + ")" : "length(CAST(" + column + " AS BLOB))") + ",0)";
+    const limits = { id: 256, ingestion_id: 256, source_reference: 500, source_url: 2048, title: 500, raw_content_reference: 500, claim_field: 100, claim_value: 500, evidence_timestamp: 500, retrieved_at: 500, created_at: 500 };
+    const bounds = await this.db.get("SELECT count(*) n,coalesce(sum(" + columns.map(bytes).join("+") + "),0) AS bytes,coalesce(sum(CASE WHEN " + Object.entries(limits).map(([key, max]) => "length(" + key + ")>" + max).join(" OR ") + " THEN 1 ELSE 0 END),0) AS oversized FROM research_evidence_items WHERE lead_id=? AND organization_id=?", [leadId, organizationId]);
+    if (Number(bounds.n) > 100 || Number(bounds.bytes) > 524288 || Number(bounds.oversized)) throw freshnessError("FRESHNESS_INPUT_LIMIT", "Research sources exceed the supported 100-record or bounded input limit. Review source history.", 409);
+    return this.db.all("SELECT " + columns.map(column => "e." + column).join(",") + ",i.state AS ingestion_state FROM research_evidence_items e LEFT JOIN research_evidence_ingestions i ON i.id=e.ingestion_id AND i.organization_id=e.organization_id AND i.lead_id=e.lead_id WHERE e.lead_id=? AND e.organization_id=? ORDER BY e.created_at ASC,e.id ASC", [leadId, organizationId]);
   }
 
   async ingestionDetail(ingestion) {

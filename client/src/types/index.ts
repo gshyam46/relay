@@ -5,6 +5,9 @@ export interface Organization {
 }
 
 export interface Lead {
+  truncated_fields?: string[];
+  data_revision: number;
+  archived_at: string | null;
   id: string;
   organization_id: string;
   name: string | null;

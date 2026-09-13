@@ -1,4 +1,4 @@
-import { parseCsv } from "./csvParser.js";
+import { parseCsv, csvError } from "./csvParser.js";
 
 const HEADER_ALIASES = {
   name: new Set(["name", "fullname", "contactperson", "customername"]),
@@ -9,6 +9,7 @@ const HEADER_ALIASES = {
 
 export function parseCsvLeadRows(csvText) {
   const parsed = parseCsv(csvText);
+  if (parsed.issues.some(issue => issue.severity === "ERROR")) throw csvError("CSV_MALFORMED", "CSV cannot be previewed until file errors are corrected.");
   const headerMap = mapHeaders(parsed.headers);
   const rows = parsed.records.map((record) => {
     const mappedValues = {
@@ -29,6 +30,7 @@ export function parseCsvLeadRows(csvText) {
     return {
       rowNumber: record.rowNumber,
       rawRow: record.rawRow,
+      rawCells: record.rawCells,
       mappedValues
     };
   });

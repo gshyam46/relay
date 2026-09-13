@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { createApp } from "../src/api/app.js";
 import { createDatabase } from "../src/database/database.js";
+import { loadConfig } from "../src/config.js";
+import { safeTestEnvironment } from "./helpers/testSafety.js";
 
 // End-to-end smoke check against a real server on an isolated temporary
 // database: register -> import a CSV -> intelligence -> synthesis ->
@@ -14,10 +16,15 @@ import { createDatabase } from "../src/database/database.js";
 // registers a workspace first and carries the session cookie on every
 // subsequent request.
 
+// Clear inherited providers before any service is constructed or invoked.
+const safeEnv = safeTestEnvironment();
+for (const key of Object.keys(process.env)) delete process.env[key];
+Object.assign(process.env, safeEnv);
+
 const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-lead-smoke-"));
 const databaseFile = path.join(tempDir, "smoke.db");
 const db = await createDatabase(databaseFile);
-const server = createApp({ db });
+const server = createApp({ db, config: loadConfig(safeEnv) });
 
 let sessionCookie = null;
 
@@ -77,6 +84,10 @@ try {
     organization_id: organizationId,
     type: "SEND_EMAIL",
     mock_behavior: "SUCCESS"
+  });
+  const review = await get(baseUrl + "/api/actions/" + manualAction.action.id + "/approval?organization_id=" + organizationId);
+  await post(baseUrl + "/api/actions/" + manualAction.action.id + "/approval/approve", {
+    organization_id: organizationId, expected_revision_id: review.prepared_revision.id
   });
   const execution = await post(`${baseUrl}/api/actions/${manualAction.action.id}/execute`, {
     organization_id: organizationId

@@ -1,22 +1,18 @@
-// Functional verification of every major workflow against a RUNNING server.
-//
-//   npm run dev:e2e            # in one terminal (port 3100, its own database)
-//   npm run verify:workflows   # in another
-//
-// Or point it anywhere, including staging:
-//   VERIFY_BASE_URL=https://relay-staging.onrender.com npm run verify:workflows
-//
-// This drives the product over HTTP exactly as the browser does, through the
-// session auth gate, and covers what unit tests cannot: that the whole chain
-// works together against a real server and a real database. It creates its own
-// workspace with a timestamped email, so it is safe to run repeatedly against
-// the same database and never touches existing data.
-//
-// It complements `npm test` rather than replacing it: a few intermediate states
-// (a recommendation being momentarily stale before the worker rebuilds it) are
-// only deterministic with the background worker disabled, and are asserted in
-// the unit suite instead.
-const BASE = process.env.VERIFY_BASE_URL || "http://127.0.0.1:3100";
+// Exercises product HTTP workflows only on the disposable local E2E harness.
+// Start npm run dev:e2e, then npm run verify:workflows. A separate loopback port
+// may be supplied through VERIFY_BASE_URL; staging/customer targets are refused.
+import { verifyE2eHandshake, workflowVerificationTarget } from "./helpers/testSafety.js";
+
+let BASE;
+try {
+  BASE = workflowVerificationTarget(process.env.VERIFY_BASE_URL);
+  await verifyE2eHandshake(BASE);
+  console.log("Verified target: isolated E2E, in-memory SQLite, providers disabled.");
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
+
 const results = [];
 let cookie = null;
 let failures = 0;
@@ -32,7 +28,7 @@ async function req(path, opts = {}, session = true) {
     "content-type": "application/json",
     ...(session && cookie ? { cookie: `relay_session=${cookie}` } : {})
   };
-  const r = await fetch(BASE + path, { ...opts, headers });
+  const r = await fetch(BASE + path, { ...opts, headers, redirect: "error", signal: AbortSignal.timeout(15000) });
   const set = r.headers.get("set-cookie");
   if (set) {
     const m = /relay_session=([^;]+)/.exec(set);
@@ -182,14 +178,19 @@ check(
 );
 
 const rejectTarget = pending[pending.length - 1];
+const reviewedRevisions = [];
+for (const item of pending) {
+  const review = await get("/api/actions/" + item.action_id + "/approval?organization_id=" + org);
+  reviewedRevisions.push({ action_id: item.action_id, expected_revision_id: review.json.prepared_revision.id });
+}
 check(
   "an action can be rejected",
-  (await post("/api/actions/bulk-reject", { organization_id: org, action_ids: [rejectTarget.action_id] })).json.rejected === 1
+  (await post("/api/actions/bulk-reject", { organization_id: org, revisions: reviewedRevisions.filter((r) => r.action_id === rejectTarget.action_id) })).json.rejected === 1
 );
 const approveIds = pending.filter((a) => a.action_id !== rejectTarget.action_id).map((a) => a.action_id);
 check(
   "bulk approve moves a batch through",
-  (await post("/api/actions/bulk-approve", { organization_id: org, action_ids: approveIds })).json.approved === approveIds.length
+  (await post("/api/actions/bulk-approve", { organization_id: org, revisions: reviewedRevisions.filter((r) => r.action_id !== rejectTarget.action_id) })).json.approved === approveIds.length
 );
 check(
   "bulk execute sends the approved batch",
@@ -197,17 +198,20 @@ check(
 );
 await post("/api/worker/run", { organization_id: org });
 
-// Sandbox channels have no real provider to send a delivery webhook, so the
-// server simulates one on its background interval — deliberately NOT inside
-// POST /api/worker/run, which keeps a narrower meaning for every other caller.
-// So this waits for that tick rather than assuming it has already happened;
-// asserting immediately made this fail on PostgreSQL and pass on SQLite purely
-// because of timing.
-let afterSend = await get(`/api/outbound/summary?organization_id=${org}`);
-for (let attempt = 0; attempt < 8 && !(afterSend.json.totals.by_status.COMPLETED > 0); attempt += 1) {
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-  afterSend = await get(`/api/outbound/summary?organization_id=${org}`);
+// The isolated harness disables the automatic worker. Complete only this
+// workspace's explicitly executed sandbox actions using the protected fixture
+// callback route, then verify the persisted terminal state over the normal API.
+let callbacksAccepted = 0;
+for (const actionId of approveIds) {
+  const callback = await post("/api/actions/" + actionId + "/callback", {
+    organization_id: org,
+    provider_event_id: "verify-completed-" + suffix + "-" + actionId,
+    status: "COMPLETED"
+  });
+  if (callback.status === 202 && callback.json?.action?.status === "COMPLETED") callbacksAccepted += 1;
 }
+check("sandbox callbacks complete every executed action", callbacksAccepted === approveIds.length);
+const afterSend = await get("/api/outbound/summary?organization_id=" + org);
 check(
   "sent actions reach a terminal completed state",
   (afterSend.json.totals.by_status.COMPLETED || 0) > 0,
@@ -219,16 +223,26 @@ check(
   "email channel defaults to sandbox",
   (await get(`/api/settings/channels/test?organization_id=${org}&channel=email`)).json.status === "sandbox"
 );
-await put("/api/settings", {
+const liveProviderConfig = await put("/api/settings", {
   organization_id: org,
   category: "channel_email",
   values: { provider: "resend", api_key: "re_verify_secret", from_email: "hello@verify.test" }
 });
+check("isolated harness refuses live provider configuration", liveProviderConfig.status === 403);
+async function saveSandboxEmail(apiKey, requestKey) {
+  const endpoint = "/api/settings/channels/email/connection", current = (await get(endpoint)).json;
+  return put(endpoint, { expected_revision: current.revision, review_token: current.review_token,
+    request_key: requestKey, reason: "Review synthetic Sandbox configuration", values: {
+      provider: "sandbox", api_key: apiKey, from_email: "hello@verify.test", reply_to: "",
+      sendgrid_events_public_key: "", sendgrid_inbound_public_key: ""
+    } });
+}
+check("versioned Sandbox configuration saves", (await saveSandboxEmail("re_verify_secret", "workflow-sandbox-save")).status === 200);
 const settings = await get(`/api/settings?organization_id=${org}`);
 check("provider credentials are masked on read", settings.json.settings.channel_email.api_key === "********");
 check("credentials never appear anywhere in the response", !settings.body.includes("re_verify_secret"));
 check("the UI can still tell the key is set", settings.json.settings.channel_email.api_key_configured === true);
-await put("/api/settings", { organization_id: org, category: "channel_email", values: { provider: "sandbox", api_key: "" } });
+check("versioned Sandbox credential clear saves", (await saveSandboxEmail("", "workflow-sandbox-clear")).status === 200);
 check(
   "resetting to sandbox works",
   (await get(`/api/settings/channels/test?organization_id=${org}&channel=email`)).json.status === "sandbox"
@@ -278,13 +292,15 @@ check(
 );
 check("our own classification is still available separately", /Classified as/.test(inboundMsg.summary || ""));
 
-// This server runs the interval worker, so LeadReplyReceived may already have
-// been processed by the time we look — the intermediate "stale" state is
-// deterministic only with the worker disabled, and is asserted in
-// test/reply-intelligence.test.js. Here we assert the end state, which is what a
-// user sees: the recommendation reflects the reply.
-await post("/api/worker/run", { organization_id: org });
-const afterRec = (await get(`/api/leads/${q.id}/intelligence?organization_id=${org}`)).json;
+// Each bounded visit handles at most one event. Drain this synthetic workspace
+// until the reply intelligence is current; preserve a finite failure bound.
+let afterRec;
+for (let visit = 0; visit < 16; visit += 1) {
+  await post("/api/worker/run", { organization_id: org });
+  afterRec = (await get(`/api/leads/${q.id}/intelligence?organization_id=${org}`)).json;
+  if (afterRec.recommendation_status === "READY"
+    && (afterRec.intelligence?.signals || []).some((signal) => signal.type === "LEAD_ASKED_QUESTION")) break;
+}
 check("the recommendation is current again after a reply", afterRec.recommendation_status === "READY");
 check(
   "the reply is folded into the lead's intelligence as a signal",
@@ -349,7 +365,7 @@ check(
 );
 check(
   "a different tenant cannot approve another workspace's action",
-  (await post("/api/actions/bulk-approve", { organization_id: otherOrg, action_ids: [rejectTarget.action_id] })).json.failed === 1
+  (await post("/api/actions/bulk-approve", { organization_id: otherOrg, revisions: [{ action_id: rejectTarget.action_id, expected_revision_id: "foreign-revision" }] })).json.failed === 1
 );
 
 console.log(`\n${results.length - failures}/${results.length} checks passed`);

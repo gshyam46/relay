@@ -1,34 +1,19 @@
-import { useState, useMemo, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Search,
-  Upload,
-  Plus,
-  ChevronRight,
-  Building2,
-  Users,
-  ChevronLeft,
-  Mail,
-  Phone,
-  X,
-  Loader2,
-} from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { ApiError } from "@/lib/api";
+import { Upload, Plus, Building2, X, Loader2 } from "lucide-react";
+import { LeadDirectory } from "@/components/lead-directory";
 import { Header } from "@/components/layout/header";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ErrorState } from "@/components/ui/error-state";
-import { useLeads, useCreateLead } from "@/hooks/use-leads";
+import { useCreateLead } from "@/hooks/use-leads";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { api } from "@/lib/api";
-import { useQueryClient } from "@tanstack/react-query";
-import { cn } from "@/lib/utils";
-import type { Lead } from "@/types";
 
-const PAGE_SIZE = 20;
 
 export function LeadsPage() {
   const org = useWorkspaceStore((s) => s.currentOrg);
   const [showAddLead, setShowAddLead] = useState(false);
-  const [showImport, setShowImport] = useState(false);
+  const navigate = useNavigate();
 
   if (!org) {
     return (
@@ -51,7 +36,7 @@ export function LeadsPage() {
         actions={
           <div className="flex gap-2">
             <button
-              onClick={() => setShowImport(true)}
+              onClick={() => navigate("/imports")}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-line rounded-lg hover:bg-soft transition-colors cursor-pointer"
             >
               <Upload className="w-3.5 h-3.5" />
@@ -67,25 +52,29 @@ export function LeadsPage() {
           </div>
         }
       />
-      <LeadsContent />
+      <LeadDirectory />
       {showAddLead && <AddLeadDialog onClose={() => setShowAddLead(false)} />}
-      {showImport && <ImportDialog onClose={() => setShowImport(false)} />}
     </>
   );
 }
 
 function AddLeadDialog({ onClose }: { onClose: () => void }) {
-  const createLead = useCreateLead();
+  const createLead = useCreateLead(), cache = useQueryClient();
+  const submission = useRef(false), [outcomeUnknown, setOutcomeUnknown] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { const node = dialog.current, prior = document.activeElement as HTMLElement | null; node?.showModal(); node?.querySelector<HTMLInputElement>("input")?.focus(); return () => { node?.close(); if (prior?.isConnected) prior.focus(); }; }, []);
+  function keepFocus(event: React.KeyboardEvent<HTMLDialogElement>) { if (event.key !== "Tab") return; const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), [tabindex='0']")).filter(element => element.getClientRects().length); const first = controls[0], last = controls.at(-1); if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); } }
   const [form, setForm] = useState({ name: "", email: "", phone: "", company: "" });
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submission.current || outcomeUnknown) return;
     if (!form.name.trim()) {
       setError("Name is required");
       return;
     }
-    setError(null);
+    setError(null); submission.current = true;
     try {
       await createLead.mutateAsync({
         name: form.name.trim(),
@@ -95,32 +84,37 @@ function AddLeadDialog({ onClose }: { onClose: () => void }) {
       });
       onClose();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to create lead");
-    }
+      const rejected = err instanceof ApiError && [400, 403, 404, 409, 413, 422, 429].includes(err.status);
+      setOutcomeUnknown(!rejected);
+      const response = err instanceof ApiError ? err.body as { error?: string } : null;
+      setError(rejected ? (typeof response?.error === "string" ? response.error.slice(0, 500) : "The lead was rejected. Check the name and supplied contact fields before trying again.") : "The creation result is unknown. This enquiry may already be saved. Creating it again could make a duplicate. Inspect the directory before deciding what to do next.");
+    } finally { submission.current = false; }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-surface rounded-xl border border-line shadow-xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+    <dialog ref={dialog} aria-labelledby="add-lead-title" aria-describedby="add-lead-help" onKeyDown={keepFocus} onCancel={event => { event.preventDefault(); if (!createLead.isPending) onClose(); }} className="m-auto w-[calc(100%_-_2rem)] max-w-md max-h-[calc(100dvh_-_2rem)] overflow-y-auto rounded-xl border border-line bg-surface p-0 text-ink shadow-xl backdrop:bg-black/40">
         <div className="flex items-center justify-between p-5 border-b border-line">
-          <h2 className="text-base font-semibold text-ink">Add Lead</h2>
-          <button onClick={onClose} className="p-1 rounded-md hover:bg-soft cursor-pointer">
+          <h2 id="add-lead-title" className="text-base font-semibold text-ink">Add Lead</h2>
+          <button type="button" aria-label="Close add lead" disabled={createLead.isPending} onClick={onClose} className="p-1 rounded-md hover:bg-soft cursor-pointer disabled:opacity-50">
             <X className="w-4 h-4 text-muted" />
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-3">
-          <Field label="Name *" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="John Doe" />
-          <Field label="Email" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} placeholder="john@example.com" type="email" />
-          <Field label="Phone" value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} placeholder="+1234567890" />
-          <Field label="Company" value={form.company} onChange={(v) => setForm((f) => ({ ...f, company: v }))} placeholder="Acme Inc" />
-          {error && <p className="text-xs text-danger">{error}</p>}
+          <p id="add-lead-help" className="text-sm text-muted">Start with the enquiry you know. Email and phone are optional: you can record context and review intelligence before a contact address is available. Outbound messages require a usable contact and separate review.</p>
+          <Field disabled={createLead.isPending || outcomeUnknown} maxLength={200} required autoFocus label="Name *" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="John Doe" />
+          <Field disabled={createLead.isPending || outcomeUnknown} maxLength={320} label="Email" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} placeholder="john@example.com" type="email" />
+          <Field disabled={createLead.isPending || outcomeUnknown} maxLength={80} label="Phone" value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} placeholder="+1234567890" />
+          <p className="text-xs text-muted">If supplied, use one international phone number beginning with + and its country calling code. Add or correct contact details later through the recorded correction flow.</p>
+          <Field disabled={createLead.isPending || outcomeUnknown} maxLength={200} label="Company" value={form.company} onChange={(v) => setForm((f) => ({ ...f, company: v }))} placeholder="Acme Inc" />
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+          {outcomeUnknown && <section aria-label="Unconfirmed lead creation" className="space-y-2 rounded-lg border border-line bg-soft p-3"><p className="text-xs text-muted">There is no request-reference recovery for manual capture. This draft is held against resubmission. Closing it does not cancel a request already received by the server. Similar records in the directory are not proof of which request created them.</p><button type="button" className="rounded-lg border border-line px-3 py-2 text-sm font-medium" onClick={() => { for (const key of ["leads", "lead-directory", "dashboard", "setup-journey"]) void cache.invalidateQueries({ queryKey: [key] }); onClose(); }}>Inspect lead directory</button></section>}
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium border border-line rounded-lg hover:bg-soft cursor-pointer">
-              Cancel
+            <button type="button" disabled={createLead.isPending} onClick={onClose} className="px-4 py-2 text-sm font-medium border border-line rounded-lg hover:bg-soft cursor-pointer">
+              {outcomeUnknown ? "Close draft" : "Cancel"}
             </button>
             <button
               type="submit"
-              disabled={createLead.isPending}
+              disabled={createLead.isPending || outcomeUnknown}
               className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-brand text-white rounded-lg hover:bg-brand-strong transition-colors cursor-pointer disabled:opacity-50"
             >
               {createLead.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -128,17 +122,20 @@ function AddLeadDialog({ onClose }: { onClose: () => void }) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </dialog>
   );
 }
 
-function Field({ label, value, onChange, placeholder, type = "text" }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) {
+function Field({ label, value, onChange, placeholder, type = "text", maxLength, required = false, autoFocus = false, disabled = false }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string; maxLength: number; required?: boolean; autoFocus?: boolean; disabled?: boolean }) {
   return (
     <label className="block">
       <span className="text-xs font-medium text-muted">{label}</span>
       <input
         type={type}
+        disabled={disabled}
+        maxLength={maxLength}
+        required={required}
+        autoFocus={autoFocus}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -146,413 +143,4 @@ function Field({ label, value, onChange, placeholder, type = "text" }: { label: 
       />
     </label>
   );
-}
-
-function ImportDialog({ onClose }: { onClose: () => void }) {
-  const org = useWorkspaceStore((s) => s.currentOrg)!;
-  const qc = useQueryClient();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [status, setStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
-  const [result, setResult] = useState<{ imported: number; issues: number } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleFile = async (file: File) => {
-    setStatus("uploading");
-    setError(null);
-    try {
-      const text = await file.text();
-      const previewRes = await api.post<{
-        import_id: string;
-        summary: { total_rows: number; valid_rows: number };
-        rows: { id: string; validation_state: string }[];
-      }>("/imports/csv/preview", {
-        organization_id: org.id,
-        filename: file.name,
-        csv_text: text,
-        default_phone_region: "INTERNATIONAL_ONLY",
-      });
-      const validRowIds = previewRes.rows
-        .filter((r) => r.validation_state === "VALID")
-        .map((r) => r.id);
-      if (validRowIds.length === 0) {
-        setError("No valid rows found in CSV. Check column headers (name, email, phone, company).");
-        setStatus("error");
-        return;
-      }
-      const commitRes = await api.post<{
-        summary: { committed_rows: number; invalid_rows: number };
-        issues: unknown[];
-      }>(`/imports/${previewRes.import_id}/commit`, {
-        organization_id: org.id,
-        selected_row_ids: validRowIds,
-      });
-      setResult({
-        imported: commitRes.summary?.committed_rows ?? 0,
-        issues: commitRes.issues?.length ?? 0,
-      });
-      setStatus("done");
-      qc.invalidateQueries({ queryKey: ["leads"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Import failed");
-      setStatus("error");
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-surface rounded-xl border border-line shadow-xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-line">
-          <h2 className="text-base font-semibold text-ink">Import CSV</h2>
-          <button onClick={onClose} className="p-1 rounded-md hover:bg-soft cursor-pointer">
-            <X className="w-4 h-4 text-muted" />
-          </button>
-        </div>
-        <div className="p-5">
-          {status === "idle" && (
-            <div
-              onClick={() => fileRef.current?.click()}
-              className="border-2 border-dashed border-line rounded-xl p-8 text-center cursor-pointer hover:border-brand hover:bg-brand-light/30 transition-colors"
-            >
-              <Upload className="w-8 h-8 text-muted mx-auto mb-2" />
-              <p className="text-sm font-medium text-ink">Click to select a CSV file</p>
-              <p className="text-xs text-muted mt-1">CSV with name, email, phone, company columns</p>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".csv"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleFile(f);
-                }}
-              />
-            </div>
-          )}
-          {status === "uploading" && (
-            <div className="flex flex-col items-center py-8">
-              <Loader2 className="w-8 h-8 text-brand animate-spin mb-3" />
-              <p className="text-sm text-ink">Importing...</p>
-            </div>
-          )}
-          {status === "done" && result && (
-            <div className="text-center py-6">
-              <div className="w-12 h-12 rounded-full bg-ok-light flex items-center justify-center mx-auto mb-3">
-                <Upload className="w-6 h-6 text-ok" />
-              </div>
-              <p className="text-sm font-medium text-ink">Import complete</p>
-              <p className="text-xs text-muted mt-1">{result.imported} leads imported{result.issues > 0 ? `, ${result.issues} issues` : ""}</p>
-              <button onClick={onClose} className="mt-4 px-4 py-2 text-sm font-medium bg-brand text-white rounded-lg hover:bg-brand-strong cursor-pointer">
-                Done
-              </button>
-            </div>
-          )}
-          {status === "error" && (
-            <div className="text-center py-6">
-              <p className="text-sm text-danger font-medium">Import failed</p>
-              <p className="text-xs text-muted mt-1">{error}</p>
-              <button onClick={() => setStatus("idle")} className="mt-4 px-4 py-2 text-sm font-medium border border-line rounded-lg hover:bg-soft cursor-pointer">
-                Try again
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function LeadsContent() {
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(0);
-  const [sortKey, setSortKey] = useState<"name" | "company" | "source" | "status" | "created_at">("created_at");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const { data: leads, isLoading, isError, refetch } = useLeads({ search });
-  const navigate = useNavigate();
-
-  const sorted = useMemo(() => {
-    if (!leads) return [];
-    return [...leads].sort((a, b) => {
-      const aVal = (a[sortKey] ?? "").toString().toLowerCase();
-      const bVal = (b[sortKey] ?? "").toString().toLowerCase();
-      const cmp = aVal.localeCompare(bVal);
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-  }, [leads, sortKey, sortDir]);
-
-  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
-  const paged = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-
-  const handleSort = (key: string) => {
-    const typedKey = key as typeof sortKey;
-    if (sortKey === typedKey) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(typedKey);
-      setSortDir("asc");
-    }
-    setPage(0);
-  };
-
-  return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Search & Summary */}
-      <div className="px-6 py-3 border-b border-line bg-surface flex items-center gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(0);
-            }}
-            placeholder="Search leads..."
-            className="w-full pl-9 pr-4 py-2 text-sm border border-line rounded-lg bg-surface focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
-          />
-        </div>
-        {leads && (
-          <span className="text-xs text-muted shrink-0">
-            {leads.length} lead{leads.length !== 1 ? "s" : ""}
-          </span>
-        )}
-      </div>
-
-      {/* Lead Table */}
-      {isError ? (
-        <ErrorState title="Couldn't load leads" onRetry={() => refetch()} />
-      ) : isLoading ? (
-        <div className="p-6 space-y-2 flex-1">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-14 bg-surface border border-line rounded-lg animate-pulse"
-            />
-          ))}
-        </div>
-      ) : paged.length > 0 ? (
-        <div className="flex-1 overflow-y-auto">
-          <table className="w-full text-left">
-            <thead className="sticky top-0 z-10">
-              <tr className="bg-soft border-b border-line">
-                <SortHeader label="Name" field="name" current={sortKey} dir={sortDir} onSort={handleSort} className="pl-6" />
-                <SortHeader label="Company" field="company" current={sortKey} dir={sortDir} onSort={handleSort} />
-                <th className="py-2.5 px-4 text-[11px] font-semibold text-muted uppercase tracking-wider">Contact</th>
-                <SortHeader label="Source" field="source" current={sortKey} dir={sortDir} onSort={handleSort} />
-                <SortHeader label="Status" field="status" current={sortKey} dir={sortDir} onSort={handleSort} />
-                <th className="w-10" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {paged.map((lead) => (
-                <LeadRow
-                  key={lead.id}
-                  lead={lead}
-                  onClick={() => navigate(`/leads/${lead.id}`)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <EmptyState
-          icon={Users}
-          title="No leads found"
-          description={
-            search
-              ? "Try a different search term."
-              : "Import a CSV or add leads manually to get started."
-          }
-        />
-      )}
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between px-6 py-2.5 border-t border-line bg-surface shrink-0">
-          <span className="text-xs text-muted">
-            Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={page === 0}
-              className="p-1.5 rounded-lg hover:bg-soft disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-            >
-              <ChevronLeft className="w-4 h-4 text-ink" />
-            </button>
-            {Array.from({ length: Math.min(totalPages, 5) }).map((_, i) => {
-              const pageNum = totalPages <= 5 ? i : Math.max(0, Math.min(page - 2, totalPages - 5)) + i;
-              return (
-                <button
-                  key={pageNum}
-                  onClick={() => setPage(pageNum)}
-                  className={cn(
-                    "w-8 h-8 text-xs rounded-lg font-medium cursor-pointer",
-                    pageNum === page
-                      ? "bg-brand text-white"
-                      : "hover:bg-soft text-ink",
-                  )}
-                >
-                  {pageNum + 1}
-                </button>
-              );
-            })}
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-              disabled={page >= totalPages - 1}
-              className="p-1.5 rounded-lg hover:bg-soft disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-            >
-              <ChevronRight className="w-4 h-4 text-ink" />
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SortHeader({
-  label,
-  field,
-  current,
-  dir,
-  onSort,
-  className,
-}: {
-  label: string;
-  field: string;
-  current: string;
-  dir: string;
-  onSort: (key: string) => void;
-  className?: string;
-}) {
-  const active = current === field;
-  return (
-    <th
-      className={cn(
-        "py-2.5 px-4 text-[11px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-ink transition-colors",
-        active ? "text-ink" : "text-muted",
-        className,
-      )}
-      onClick={() => onSort(field)}
-    >
-      <span className="inline-flex items-center gap-1">
-        {label}
-        {active && (
-          <span className="text-brand text-[9px]">
-            {dir === "asc" ? "▲" : "▼"}
-          </span>
-        )}
-      </span>
-    </th>
-  );
-}
-
-function LeadRow({
-  lead,
-  onClick,
-}: {
-  lead: Lead;
-  onClick: () => void;
-}) {
-  return (
-    <tr
-      onClick={onClick}
-      className="hover:bg-soft transition-colors cursor-pointer group"
-    >
-      <td className="py-3 px-4 pl-6">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-brand-light text-brand flex items-center justify-center text-xs font-bold shrink-0">
-            {(lead.name?.[0] ?? "?").toUpperCase()}
-          </div>
-          <span className="text-sm font-medium text-ink truncate max-w-[180px]">
-            {lead.name || "Unnamed"}
-          </span>
-        </div>
-      </td>
-      <td className="py-3 px-4">
-        <span className="text-sm text-muted truncate block max-w-[180px]">
-          {lead.company || "—"}
-        </span>
-      </td>
-      <td className="py-3 px-4">
-        <div className="flex flex-col gap-0.5">
-          {lead.email && (
-            <span className="flex items-center gap-1 text-xs text-muted truncate max-w-[200px]">
-              <Mail className="w-3 h-3 shrink-0" />
-              {lead.email}
-            </span>
-          )}
-          {lead.phone && (
-            <span className="flex items-center gap-1 text-xs text-muted truncate max-w-[200px]">
-              <Phone className="w-3 h-3 shrink-0" />
-              {lead.phone}
-            </span>
-          )}
-          {!lead.email && !lead.phone && (
-            <span className="text-xs text-subtle">—</span>
-          )}
-        </div>
-      </td>
-      <td className="py-3 px-4">
-        <SourceBadge source={lead.source} />
-      </td>
-      <td className="py-3 px-4">
-        <StatusBadge status={lead.status} />
-      </td>
-      <td className="py-3 pr-6">
-        <ChevronRight className="w-4 h-4 text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
-      </td>
-    </tr>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    NEW: "bg-brand-light text-brand",
-    NORMALIZED: "bg-blue-50 text-blue-700",
-    ACTIVE: "bg-ok-light text-ok",
-    CONTACTED: "bg-blue-50 text-blue-700",
-    CONVERTED: "bg-ok-light text-ok",
-    OPTED_OUT: "bg-danger-light text-danger",
-    FAILED: "bg-danger-light text-danger",
-  };
-  return (
-    <span
-      className={cn(
-        "text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full whitespace-nowrap",
-        styles[status] ?? "bg-soft text-muted",
-      )}
-    >
-      {formatLabel(status)}
-    </span>
-  );
-}
-
-function SourceBadge({ source }: { source: string }) {
-  const styles: Record<string, string> = {
-    CSV: "bg-purple-50 text-purple-700",
-    MANUAL: "bg-blue-50 text-blue-700",
-    API: "bg-amber-50 text-amber-700",
-    WHATSAPP: "bg-green-50 text-green-700",
-    EMAIL: "bg-red-50 text-red-700",
-    WEB: "bg-cyan-50 text-cyan-700",
-  };
-  return (
-    <span
-      className={cn(
-        "text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full whitespace-nowrap",
-        styles[source] ?? "bg-soft text-muted",
-      )}
-    >
-      {formatLabel(source)}
-    </span>
-  );
-}
-
-function formatLabel(s: string) {
-  return s
-    .replace(/_/g, " ")
-    .toLowerCase()
-    .replace(/^\w/, (c) => c.toUpperCase());
 }

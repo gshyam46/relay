@@ -1,19 +1,27 @@
-// Reports which migrations a database has applied and which are still pending,
-// without changing anything. Safe to run against production.
-import { loadConfig, describeConfig } from "../src/config.js";
-import { getMigrationStatus, openDatabaseClient } from "../src/database/database.js";
-
-const config = loadConfig();
+// Inspect history without DDL. Missing SQLite files are never created.
+// PostgreSQL needs only SELECT/catalog privileges for this command.
+import { loadConfig, describeConfig, validateConfig } from "../src/config.js";
+import { describeDatabaseFailure, getMigrationStatus, openDatabaseClient } from "../src/database/database.js";
 
 let db;
 try {
-  db = await openDatabaseClient(config.database);
-  const status = await getMigrationStatus(db);
-  console.log(JSON.stringify({ config: describeConfig(config), migrations: status }, null, 2));
-  process.exit(status.pending.length === 0 ? 0 : 1);
+  const config = loadConfig();
+  const problems = validateConfig(config, { scope: "database" });
+  if (problems.length > 0) {
+    console.error(JSON.stringify({ event: "database.status_invalid_configuration", problems }));
+    process.exitCode = 1;
+  } else {
+    db = await openDatabaseClient(config.database, { readOnly: true, requireExisting: true });
+    const status = await getMigrationStatus(db);
+    console.log(JSON.stringify({ config: describeConfig(config), migrations: status }, null, 2));
+    process.exitCode = status.initialized && status.compatible && status.pending.length === 0 ? 0 : 1;
+  }
 } catch (error) {
-  console.error(`Database status check failed: ${error.message}`);
-  process.exit(1);
+  console.error(JSON.stringify({ event: "database.status_failed", ...describeDatabaseFailure(error) }));
+  process.exitCode = 1;
 } finally {
-  await db?.close();
+  try { await db?.close(); } catch (error) {
+    console.error(JSON.stringify({ event: "database.status_close_failed", ...describeDatabaseFailure(error) }));
+    process.exitCode = 1;
+  }
 }

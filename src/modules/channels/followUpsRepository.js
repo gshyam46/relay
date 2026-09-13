@@ -1,3 +1,4 @@
+import { assertWorkspaceTransaction } from "../contact-policy/contactPolicyService.js";
 import { createId } from "../../shared/ids.js";
 import { nowIso } from "../../shared/time.js";
 
@@ -101,20 +102,33 @@ export class FollowUpsRepository {
     );
   }
 
-  async complete(id, organizationId) {
-    await this.db.run(
-      "UPDATE follow_up_tasks SET status = 'COMPLETED', completed_at = ?, updated_at = ? WHERE id = ? AND organization_id = ?",
-      [nowIso(), nowIso(), id, organizationId]
-    );
-    return await this.getForOrganization(id, organizationId);
+  complete(id, organizationId) {
+    return this.#transition(id, organizationId, "COMPLETED", ["PLANNED", "DUE"]);
   }
 
-  async cancel(id, organizationId) {
-    await this.db.run(
-      "UPDATE follow_up_tasks SET status = 'CANCELLED', updated_at = ? WHERE id = ? AND organization_id = ?",
-      [nowIso(), id, organizationId]
+  cancel(id, organizationId) {
+    return this.#transition(id, organizationId, "CANCELLED", ["PLANNED", "DUE", "BLOCKED"]);
+  }
+
+  async #transition(id, organizationId, target, allowed) {
+    assertWorkspaceTransaction(this.db, organizationId);
+    const current = await this.getForOrganization(id, organizationId);
+    if (!current || current.status === target) return current;
+    if (!allowed.includes(current.status)) {
+      throw Object.assign(new Error("Follow-up state changed or does not allow this operation."),
+        { statusCode: 409, code: "FOLLOW_UP_STATE_CONFLICT" });
+    }
+    const timestamp = nowIso();
+    const completion = target === "COMPLETED" ? ", completed_at = ?" : "";
+    const result = await this.db.run(
+      "UPDATE follow_up_tasks SET status = ?, updated_at = ?" + completion + " WHERE id = ? AND organization_id = ? AND status = ?",
+      [target, timestamp, ...(target === "COMPLETED" ? [timestamp] : []), id, organizationId, current.status]
     );
-    return await this.getForOrganization(id, organizationId);
+    if (!result.changes) {
+      throw Object.assign(new Error("Follow-up state changed or does not allow this operation."),
+        { statusCode: 409, code: "FOLLOW_UP_STATE_CONFLICT" });
+    }
+    return this.getForOrganization(id, organizationId);
   }
 
   async cancelOpenForLead(organizationId, leadId, { action_id = null } = {}) {

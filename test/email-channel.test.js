@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createDatabase } from "../src/database/database.js";
 import { createServices } from "../src/api/app.js";
 import { startClient } from "./helpers/testClient.js";
+import { approveStoredAction, advanceToNextAttempt } from "./helpers/review.js";
 import { MASKED_SECRET } from "../src/modules/settings/secretSettings.js";
 
 // The real (non-sandbox) email path. `fetch` is stubbed throughout, so these
@@ -31,13 +32,7 @@ function stubFetch(handler) {
 }
 
 function jsonResponse(status, body, headers = {}) {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    headers: { get: (name) => headers[name.toLowerCase()] ?? null },
-    json: async () => body,
-    text: async () => JSON.stringify(body)
-  };
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 }
 
 async function withServices(run) {
@@ -75,6 +70,7 @@ test("sandbox is the default: an unconfigured workspace never reaches a provider
         idempotency_key: `sandbox-default:${lead.id}`,
         payload: { message: "Hello there" }
       });
+      const reviewed = await approveStoredAction(services, action);
       const result = await services.actionExecutor.execute(action);
       assert.equal(result.status, "EXECUTING");
       assert.equal(stub.calls.length, 0, "sandbox must not call any provider");
@@ -103,6 +99,7 @@ test("configuring Resend routes a real send with a proper subject, text part and
         idempotency_key: `resend-send:${lead.id}`,
         payload: { message: "Thanks for your enquiry.\nShall we talk Thursday?" }
       });
+      const reviewed = await approveStoredAction(services, action);
       const result = await services.actionExecutor.execute(action);
 
       assert.equal(stub.calls.length, 1, "exactly one provider call");
@@ -110,16 +107,20 @@ test("configuring Resend routes a real send with a proper subject, text part and
       assert.equal(call.url, "https://api.resend.com/emails");
       assert.equal(call.headers.Authorization, "Bearer re_test_key");
 
-      // Retrying an attempt that actually succeeded must not send twice.
-      assert.equal(call.headers["Idempotency-Key"], `relay-action-${action.id}`);
+      // The provider key binds retries to the exact approved revision.
+      assert.equal(call.headers["Idempotency-Key"], `relay-action-${action.id}-revision-${reviewed.prepared_revision.id}`);
 
+      assert.equal(call.body.from, reviewed.prepared_revision.envelope.sender.from);
       assert.equal(call.body.from, "hello@relay.test");
+      assert.deepEqual(call.body.to, [reviewed.prepared_revision.envelope.recipient]);
       assert.deepEqual(call.body.to, ["priya@example.com"], "sends to the normalized address");
 
       // The subject used to be the entire message body.
-      assert.equal(call.body.subject, "Following up with Sharma Interiors");
+      assert.equal(call.body.subject, reviewed.prepared_revision.envelope.subject);
+      assert.equal(call.body.subject, "A quick question");
       assert.notEqual(call.body.subject, call.body.text);
 
+      assert.equal(call.body.text, reviewed.prepared_revision.envelope.body);
       assert.equal(call.body.text, "Thanks for your enquiry.\nShall we talk Thursday?");
       assert.equal(call.body.html, "Thanks for your enquiry.<br />Shall we talk Thursday?");
 
@@ -135,7 +136,7 @@ test("configuring Resend routes a real send with a proper subject, text part and
 
 test("an explicit subject on the action payload wins over the generated one", async () => {
   await withServices(async ({ services, organization, lead }) => {
-    await configureEmail(services, organization.id, { provider: "resend", api_key: "re_test_key" });
+    await configureEmail(services, organization.id, { provider: "resend", api_key: "re_test_key", from_email: "hello@relay.test" });
     const stub = stubFetch(() => jsonResponse(200, { id: "resend-message-2" }));
     try {
       const action = await services.actionsRepository.createAction({
@@ -145,6 +146,7 @@ test("an explicit subject on the action payload wins over the generated one", as
         idempotency_key: `resend-subject:${lead.id}`,
         payload: { subject: "Your teak dining table quote", message: "Attached." }
       });
+      const reviewed = await approveStoredAction(services, action);
       await services.actionExecutor.execute(action);
       assert.equal(stub.calls[0].body.subject, "Your teak dining table quote");
     } finally {
@@ -155,7 +157,7 @@ test("an explicit subject on the action payload wins over the generated one", as
 
 test("lead data cannot inject markup into the HTML part", async () => {
   await withServices(async ({ services, organization, lead }) => {
-    await configureEmail(services, organization.id, { provider: "resend", api_key: "re_test_key" });
+    await configureEmail(services, organization.id, { provider: "resend", api_key: "re_test_key", from_email: "hello@relay.test" });
     const stub = stubFetch(() => jsonResponse(200, { id: "resend-message-3" }));
     try {
       const action = await services.actionsRepository.createAction({
@@ -165,6 +167,7 @@ test("lead data cannot inject markup into the HTML part", async () => {
         idempotency_key: `resend-escape:${lead.id}`,
         payload: { message: '<script>alert("x")</script> & more' }
       });
+      const reviewed = await approveStoredAction(services, action);
       await services.actionExecutor.execute(action);
       const html = stub.calls[0].body.html;
       assert.equal(html.includes("<script>"), false, "markup must be escaped");
@@ -176,35 +179,64 @@ test("lead data cannot inject markup into the HTML part", async () => {
   });
 });
 
-test("a 5xx from the provider is retryable and the action returns to the queue", async () => {
+test("a 5xx leaves an uncertain started attempt held without a second provider call", async () => {
   await withServices(async ({ services, organization, lead }) => {
-    await configureEmail(services, organization.id, { provider: "resend", api_key: "re_test_key" });
-
-    let attempts = 0;
-    const stub = stubFetch(() => {
-      attempts += 1;
-      // Fail once with a 503, then succeed — the classic transient provider blip.
-      return attempts === 1
-        ? jsonResponse(503, { message: "service unavailable" })
-        : jsonResponse(200, { id: "resend-after-retry" });
+    await configureEmail(services, organization.id, {
+      provider: "resend", api_key: "re_test_key", from_email: "hello@relay.test"
     });
+    const stub = stubFetch(() => jsonResponse(503, { message: "service unavailable" }));
     try {
       const action = await services.actionsRepository.createAction({
-        organization_id: organization.id,
-        lead_id: lead.id,
-        type: "SEND_EMAIL",
-        idempotency_key: `resend-retry:${lead.id}`,
-        payload: { message: "Retry me" }
+        organization_id: organization.id, lead_id: lead.id, type: "SEND_EMAIL",
+        idempotency_key: `resend-uncertain:${lead.id}`, payload: { message: "Send only once" }
       });
-
+      await approveStoredAction(services, action);
       const first = await services.actionExecutor.execute(action);
-      assert.equal(first.status, "RETRYING", "a 5xx must not burn the action");
+      assert.equal(first.status, "EXECUTING");
+      assert.equal(first.uncertain, true, "a 5xx cannot establish whether the provider accepted the message");
+      const execution = await services.executionsRepository.latestForAction(action.id);
+      assert.equal(execution.status, "STARTED");
+      assert.equal(execution.provider_reference, null);
+      assert.match(execution.error, /uncertain/i);
+      const repeated = await services.actionExecutor.execute(await services.actionsRepository.getAction(action.id));
+      assert.equal(repeated.status, "EXECUTING");
+      assert.equal(repeated.executable, false);
+      assert.equal(stub.calls.length, 1, "uncertain outcomes require reconciliation before any retry");
+      assert.equal((await services.executionsRepository.latestForAction(action.id)).id, execution.id);
+    } finally {
+      stub.restore();
+    }
+  });
+});
 
+test("a known 429 rejection retries the same approved revision and provider idempotency key", async () => {
+  await withServices(async ({ services, organization, lead }) => {
+    await configureEmail(services, organization.id, {
+      provider: "resend", api_key: "re_test_key", from_email: "hello@relay.test"
+    });
+    let attempts = 0;
+    const stub = stubFetch(() => ++attempts === 1
+      ? jsonResponse(429, { message: "rate limited" })
+      : jsonResponse(200, { id: "resend-after-retry" }));
+    try {
+      const action = await services.actionsRepository.createAction({
+        organization_id: organization.id, lead_id: lead.id, type: "SEND_EMAIL",
+        idempotency_key: `resend-rate-limit:${lead.id}`, payload: { message: "Retry me" }
+      });
+      const reviewed = await approveStoredAction(services, action);
+      const first = await services.actionExecutor.execute(action);
+      assert.equal(first.status, "RETRYING");
+      const rejected = await services.executionsRepository.latestForAction(action.id);
+      assert.equal(rejected.status, "FAILED");
+      await advanceToNextAttempt(services, action.id);
       const retried = await services.actionExecutor.execute(await services.actionsRepository.getAction(action.id));
       assert.equal(retried.status, "EXECUTING");
-      assert.equal(attempts, 2);
-
+      assert.equal(stub.calls.length, 2);
+      const key = `relay-action-${action.id}-revision-${reviewed.prepared_revision.id}`;
+      assert.deepEqual(stub.calls.map((call) => call.headers["Idempotency-Key"]), [key, key]);
+      assert.deepEqual(stub.calls[0].body, stub.calls[1].body, "retry must reuse exactly the reviewed content");
       const execution = await services.executionsRepository.latestForAction(action.id);
+      assert.equal(execution.attempt, 2);
       assert.equal(execution.provider_reference, "resend-after-retry");
     } finally {
       stub.restore();
@@ -214,7 +246,7 @@ test("a 5xx from the provider is retryable and the action returns to the queue",
 
 test("a 4xx from the provider is permanent and blocks the action instead of retrying forever", async () => {
   await withServices(async ({ services, organization, lead }) => {
-    await configureEmail(services, organization.id, { provider: "resend", api_key: "re_bad_key" });
+    await configureEmail(services, organization.id, { provider: "resend", api_key: "re_bad_key", from_email: "hello@relay.test" });
     const stub = stubFetch(() => jsonResponse(401, { message: "invalid api key" }));
     try {
       const action = await services.actionsRepository.createAction({
@@ -224,6 +256,7 @@ test("a 4xx from the provider is permanent and blocks the action instead of retr
         idempotency_key: `resend-permanent:${lead.id}`,
         payload: { message: "Will not send" }
       });
+      const reviewed = await approveStoredAction(services, action);
       const result = await services.actionExecutor.execute(action);
       assert.equal(result.status, "BLOCKED", "a bad API key is not worth retrying");
       const stored = await services.actionsRepository.getAction(action.id);
@@ -234,9 +267,9 @@ test("a 4xx from the provider is permanent and blocks the action instead of retr
   });
 });
 
-test("a missing API key fails before any HTTP call is attempted", async () => {
+test("a missing API key fails preview before any HTTP call or execution attempt", async () => {
   await withServices(async ({ services, organization, lead }) => {
-    await configureEmail(services, organization.id, { provider: "resend" });
+    await configureEmail(services, organization.id, { provider: "resend", from_email: "hello@relay.test" });
     const stub = stubFetch(() => {
       throw new Error("must not reach the network without a key");
     });
@@ -248,8 +281,12 @@ test("a missing API key fails before any HTTP call is attempted", async () => {
         idempotency_key: `resend-nokey:${lead.id}`,
         payload: { message: "No key" }
       });
-      const result = await services.actionExecutor.execute(action);
-      assert.equal(result.status, "BLOCKED");
+      await assert.rejects(() => services.approvalsService.currentForAction({
+        organization_id: organization.id, action_id: action.id
+      }), { code: "SENDER_UNAVAILABLE" });
+      assert.equal((await services.executionsRepository.listForAction(action.id)).length, 0);
+      const stored = await services.actionsRepository.getAction(action.id);
+      assert.equal(stored.current_revision_id, null, "incomplete sender configuration must not create a reviewable revision");
       assert.equal(stub.calls.length, 0);
     } finally {
       stub.restore();
@@ -259,7 +296,7 @@ test("a missing API key fails before any HTTP call is attempted", async () => {
 
 test("a lead with no email address is blocked rather than sent into the void", async () => {
   await withServices(async ({ services, organization }) => {
-    await configureEmail(services, organization.id, { provider: "resend", api_key: "re_test_key" });
+    await configureEmail(services, organization.id, { provider: "resend", api_key: "re_test_key", from_email: "hello@relay.test" });
     const phoneOnly = await services.leadsRepository.createLead({
       organization_id: organization.id,
       name: "No Email",
@@ -300,6 +337,7 @@ test("SendGrid sends both parts and the custom args the event webhook needs", as
         idempotency_key: `sendgrid-send:${lead.id}`,
         payload: { message: "Hello from SendGrid" }
       });
+      const reviewed = await approveStoredAction(services, action);
       await services.actionExecutor.execute(action);
 
       const call = stub.calls[0];
@@ -312,6 +350,11 @@ test("SendGrid sends both parts and the custom args the event webhook needs", as
       // the right action and tenant without trusting the caller.
       assert.equal(call.body.custom_args.relay_org_id, organization.id);
       assert.equal(call.body.custom_args.relay_action_id, action.id);
+      assert.equal(call.body.custom_args.relay_revision_id, reviewed.prepared_revision.id);
+      assert.equal(call.body.from.email, reviewed.prepared_revision.envelope.sender.from);
+      assert.equal(call.body.personalizations[0].to[0].email, reviewed.prepared_revision.envelope.recipient);
+      assert.equal(call.body.subject, reviewed.prepared_revision.envelope.subject);
+      assert.equal(call.body.content[0].value, reviewed.prepared_revision.envelope.body);
 
       const execution = await services.executionsRepository.latestForAction(action.id);
       assert.equal(execution.provider_reference, "sg-message-1");

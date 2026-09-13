@@ -1,3 +1,4 @@
+import { publicReplyInterpretation } from "./replyInterpretationView.js";
 import { createId } from "../../shared/ids.js";
 import { nowIso } from "../../shared/time.js";
 import { parseJson, stringifyJson } from "../../database/database.js";
@@ -147,10 +148,8 @@ export class ChannelMessagesRepository {
   }
 
   messageDetail(row) {
-    return {
-      ...row,
-      payload: parseJson(row.payload_json) || {}
-    };
+    const message = { ...row, payload: parseJson(row.payload_json) || {} };
+    return { ...message, interpretation: publicReplyInterpretation(message) };
   }
 }
 

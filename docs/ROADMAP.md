@@ -1,468 +1,182 @@
-# Roadmap
-
-## Development Strategy
-
-Build vertically.
-
-Each milestone should produce a working, demonstrable capability.
+# Launch Roadmap
 
-Do not build the entire platform before validating the previous layer.
+Updated: 2026-09-13. Product: **AI Lead Intelligence & Outbound Automation**.
 
-The development order deliberately establishes:
+## Delivery decision
 
-**Data → Lead Intelligence → Action Planning → Outbound Automation → Feedback → Discovery**
+Keep the modular monolith and PostgreSQL, with Supabase as the managed hosting candidate. Complete one useful customer workflow before expanding channels or discovery. Lead Intelligence remains the core; Outbound Automation executes its decisions.
 
----
+L0-L6 are the active launch phases. They replace M0-M10 as the work sequence, without erasing earlier implementation. See [historical roadmap](history/ROADMAP_M0_M10.md), [historical milestones](history/MILESTONES.md), [review evidence](REVIEW.md), and [current tasks](TASKS.md).
 
-# M0 — Architecture + Walking Skeleton
+The docs-first baseline has progressed through local L1-L4 implementation and L5 operational tooling. [Completion evidence](verification/COMPLETION.md) and [TASKS](TASKS.md) distinguish the current candidate from proposed contracts and remaining acceptance. Local completion does not authorize production exposure or certify customer readiness.
 
-## Goal
+The interactive marketing page is an explicit implementation deliverable; see [LANDING_PAGE](LANDING_PAGE.md). L4-07 now implements the prototype and public/auth routing; L5-07 implements saved pilot interest and operator handling. Verified publication details and L6-04 still gate release. These acquisition tasks do not replace or delay the operational pilot safety gates.
 
-Prove the major technical boundaries.
+## Phase overview
 
-```text
-UI
- ↓
-API
- ↓
-Database
- ↓
-Domain
- ↓
-Event
- ↓
-Worker
- ↓
-Action
- ↓
-Handler
- ↓
-n8n/mock execution
- ↓
-Callback
- ↓
-Database
- ↓
-UI
-```
+| Phase | Customer/engineering outcome | Entry dependencies | Exit gate |
+| --- | --- | --- | --- |
+| L0 - Reconciled plan | One current product, architecture, evidence register, and delivery plan | Repository review | Documents agree, decisions and assumptions are explicit, next tasks are executable |
+| L1 - Trust and execution | Tenant boundaries, contact restrictions, approved content, and dispatch behavior hold under failures | L0 | Reproduced blockers have behavioral regressions; PostgreSQL concurrency and failure gates pass |
+| L2 - Business context and usable data | A business can import, correct, and interpret relevant enquiry data | L1 safety foundation; customer discovery can start earlier | Realistic messy data is reviewed, reconciled, and usable with provenance and contact restrictions preserved |
+| L3 - Useful Lead Intelligence | Recommendations explain business relevance and uncertainty | L2 business/evidence contracts; L1 AI safety | Evaluated priorities and grounded recommendations beat an agreed simple baseline on representative examples |
+| L4 - Complete customer workflow | Review, send, receive, reply, follow up, and record an outcome through one channel | L1 send safety; L2 context; L3 recommendation contract; channel decision | One verified provider and the React UI complete the full operator journey |
+| L5 - Supervised pilot readiness | Customer data and controlled sends are operationally supportable | L1-L4 exit gates | Restore, incident response, access, quotas, performance, and live-channel human QA demonstrated |
+| L6 - Pilot evidence and launch decision | Customers repeatedly obtain a useful outcome | L5; agreed pilot protocol | Product value, operational safety, unit economics, and support capacity justify release scope |
 
-## Deliverables
+Dependencies are gates, not a command to work serially on everything. Customer discovery, provider/account feasibility, observability design, and operational preparation start alongside L1. Integration waits for the relevant contracts and safety gates.
 
-- repository structure
-- application skeleton
-- database
-- tenant model
-- lead model
-- basic API
-- basic UI
-- event mechanism
-- worker mechanism
-- action abstraction
-- handler abstraction
-- n8n/mock adapter
-- callback mechanism
-- basic observability
-- automated tests
+No calendar estimates are committed before the first implementation batch is sized. Each batch must have a demonstrable result; estimates are updated from actual progress.
 
-## Exit Criteria
+## L0 - Reconcile before implementation
 
-A test lead can be created, an action generated, executed through the handler boundary, receive a simulated callback, and display its final state.
+Deliver:
 
----
+- Current-state evidence separated from target product behavior.
+- Database, execution, policy, AI grounding, and channel decisions with alternatives and tradeoffs.
+- A task tracker with owners, dependencies, automated checks, and human QA.
+- Pilot hypotheses, decision owners, and launch gates.
+- Documentation ownership and update rules.
 
-# M1 — Lead Data Foundation
+Exit: Markdown links and consistency checks pass; no runtime fixes are claimed; first implementation batch and unresolved external decisions are visible.
 
-## Goal
+## L1 - Establish trust and execution correctness
 
-Make customer-owned lead data usable.
+Scope:
 
-## Deliverables
+- Make test tooling unambiguously disposable before expanding tests.
+- Close cross-tenant mutation and production test-control routes.
+- Introduce transaction-scoped repository composition and safe migration adoption.
+- Apply contact eligibility at dispatch, across duplicate contact identities and all send paths.
+- Bind approval to the exact content, recipient, channel, and relevant policy revision.
+- Persist dispatch intent, atomically claim due work, and correlate provider attempts.
+- Recover interrupted callback processing; handle duplicate and out-of-order events.
+- Use bounded retries, deadlines, uncertain-outcome reconciliation, and queue fairness.
+- Prevent unsupported generated assertions from acquiring misleading evidence citations.
+- Establish minimum operational controls: verified database TLS, request/auth limits, redacted logs, and test-environment isolation.
 
-- CSV import
-- CSV adapter boundary
-- normalized ingestion-row contract
-- lead ingestion
-- normalization
-- phone normalization
-- email normalization
-- duplicate candidate detection
-- identity resolution foundation metadata
-- source tracking
-- import state machine
-- idempotent commit
-- import history
-- lead list
-- lead detail
-- search/filter
+Human demonstration: a rejected, opted-out, future-scheduled, edited-after-approval, or duplicate-in-flight action cannot be sent through another entry point. Ambiguous provider outcomes become reviewable work rather than blind resend.
 
-## Exit Criteria
+L1 is not a live-customer launch. It is the foundation required to build and validate L2-L4 safely.
 
-A messy real-world dataset can be imported and converted into usable lead records.
+L1-04/L1-08 locally implement contact restrictions, exact review and signed SendGrid ingress. L1-05 adds fenced leases, frozen retry budgets/deadlines, action due-time checks, exact callback/core transactions, evidence-based operator recovery and graceful shutdown. L1-07 adds durable receipts, bounded callback/inbound effect replay, pending-policy dispatch holds and owner Event recovery. L1-06 adds normal fair scheduling, bounded staged lead processing, delivery-gated workflow advancement and owner schedule/pause/resume/stop controls. [L1-06 evidence](verification/L1-06.md) records local scheduling checks, including normal-server restart without developer controls. L1-10 now implements verified database TLS/configuration, bounded HTTP/auth/provider work, safe logs and durable owner pause/attempt controls; see [operational evidence](verification/L1-10.md). Business calendars/full task workflow, unresolved policy remediation and external PostgreSQL/provider/human acceptance remain open; the L1 milestone stays in progress. L2-01 now implements the bounded business-context slice below without declaring the L1 or pilot acceptance gate complete.
 
-M1 implementation note: CSV is the first ingestion adapter. Future customer-owned sources should enter through the same normalized ingestion-row contract; Google Sheets, CRM, website forms, directories, and discovery sources are not implemented in M1.
+## L2 - Make customer data useful
 
----
+Deliver:
 
-# M2 — AI Lead Intelligence
+- A versioned business profile: offering, service geography, supported language, qualification criteria, contact policies, operating hours, and responsible operator.
+- Typed enquiry attributes with source, capture time, confidence, and an explicit unknown value.
+- CSV mapping and preview, selectable rows, phone-region choice, actionable row errors, partial-failure recovery, and import history.
+- Correct/edit/archive/export workflows and reviewed duplicate decisions.
+- Normalized contact identity and suppression inheritance across imports and duplicate records.
+- Safe handling of repeated enquiries, shared addresses, stale information, and conflicting evidence.
 
-## Goal
+L2-01 locally implements one active versioned enquiry snapshot per lead, owner business setup, per-fact manual provenance, unknown/conflicting/inferred distinctions, exact monetary strings and immutable history. Snapshot/review bindings reject old context; direct generation finalization and action materialization check current authority under the workspace gate. [Evidence](verification/L2-01.md) separates local checks from operator/PostgreSQL acceptance. Criteria capture does not yet establish business-fit scoring.
 
-Turn lead data into useful intelligence through staged, evidence-grounded milestones.
+L2-02 now implements reviewed CSV mapping, explicit date/currency/phone interpretation, row correction, selected bounded transactional commits, restart/resume progress and import-linked facts under the [recorded contract](L2-02_REVIEWED_IMPORT.md). [Verification](verification/L2-02.md) tracks local results and open human/PostgreSQL gates. Initial duplicate rows are ineligible; newly appearing matches remain visibly held. L2-03 now adds reviewed source-only linking or separate repeated/shared enquiry creation under its [contract](L2-03_IDENTITY_RESOLUTION.md), with [local evidence](verification/L2-03.md). Shared-contact ambiguity stops existing directly matched automation and remains unassigned for review. L2-04 is implemented and verified locally under its [data-management contract](L2-04_DATA_MANAGEMENT.md), covering contact correction, archive/restore, paged directory and explicit selected export; [evidence](verification/L2-04.md) separates local completion from operator/external gates. Identity decisions never merge opportunities or grant consent.
 
-## M2.0 - AI Lead Intelligence Foundation
+Exit: an operator imports and corrects a representative messy dataset without database edits or developer intervention. Imported budgets, interests, enquiry dates, and timelines actually influence stored evidence.
 
-### Goal
+## L3 - Deliver opportunity intelligence
 
-Create the contracts, persistence, deterministic readiness pipeline, evidence model, claim model, signal model, qualification foundation, and recommendation boundary that future AI/research providers will use.
+Deliver:
 
-### Deliverables
+- Separate data readiness, business qualification/fit, attention priority, and contact eligibility.
+- Explain each recommendation using relevant evidence, freshness, and criteria versions.
+- Treat missing evidence as uncertainty; support abstention and human review.
+- Include reply context without allowing lead text or provider content to override policy.
+- Persist model/provider/prompt/schema versions, fallback use, latency, usage, and cost attribution.
+- Invalidate recommendations when business criteria, evidence, contact restrictions, or relevant context changes.
+- A representative evaluation set with human labels and a simple recency/rule baseline.
 
-- intelligence domain contracts
-- evidence model
-- claim model
-- confidence model
-- deterministic data readiness
-- deterministic signals from current Lead Data Foundation data
-- qualification foundation
-- recommendation boundary
-- versioned intelligence snapshots
-- idempotent intelligence reruns
-- intelligence APIs
-- minimal Intelligence UI
-- tenant isolation tests
+Exit: human reviewers can explain why top-priority leads are relevant to this business. No conversion-probability claims without calibration evidence. Factual support, opt-out handling, and misleading implied relationships are release gates, not only schema tests.
 
-### Exit Criteria
+## L4 - Finish one channel and the daily workflow
 
-A lead can produce a persisted, versioned intelligence snapshot that explains which customer-provided data is available, where it came from, what deterministic signals exist, what is missing, and what next step is recommended without external research or fabricated facts.
+Deliver:
 
-M2.0 does not implement web research, scraping, LLM calls, enrichment APIs, discovery, outbound providers, entity resolution, external fact verification, or a genuine business qualification score. It also does not send outbound messages.
+- Guided channel setup with actual capability/connection verification and explicit sandbox/live separation.
+- One provider's outbound, delivery, inbound, authentication, and failure behavior verified end to end.
+- A common message composer and policy path for recommended, manual, bulk, reply, and sequence actions.
+- Recipient and content preview, edit/review, revocation, explicit scheduling, and clear approval-versus-dispatch behavior.
+- A conversation reply composer, thread correlation, assignment, unread/resolved states, escalation, and response deadlines.
+- Working scheduled follow-ups, due notifications, stop/pause/resume, and reviewable failure recovery.
+- Lightweight outcomes such as qualified conversation, meeting booked, quote requested, won/lost, or export to the existing customer system.
+- Parallel L4-07: a modern interactive landing prototype showing synthetic source evidence, intelligence, review and response; mobile/reduced-motion support and explicit public/protected routes.
 
-## M2.1 - Research / Evidence Adapters
+L4-01A now implements versioned owner email setup, explicit routing commands, exact Reply-To capture and truthful live capability holds under the [contract](L4-01_CHANNEL_SETUP.md). [Local evidence](verification/L4-01.md) does not close L4-01: remote provider evidence, precise reply correlation and the operator workflow remain open. Global sending switches cannot unlock unverified SendGrid dispatch.
 
-### Goal
+Email is an engineering candidate because adapters exist; the first channel remains a customer/pilot decision. If WhatsApp is essential, replace the channel-specific task bundle after checking its provider requirements; do not add both by default.
 
-Allow approved future research providers to produce normalized evidence without directly mutating intelligence state.
+Exit: a customer can complete import -> priority -> reviewed outreach -> real reply -> follow-up -> recorded outcome in the shipped React UI. A provider HTTP acceptance is not presented as delivery, and delivery is not presented as a sale.
 
-### Deliverables
+## L5 - Prove operational readiness
 
-- research evidence provider contract
-- approved local/manual evidence adapter
-- normalized research evidence validation
-- persisted research evidence ingestion state
-- persisted research evidence staging
-- idempotent evidence ingestion
-- provider failure/retry handling
-- organization-scoped evidence APIs
+Operational work begins earlier; this phase proves it together.
 
-### Exit Criteria
+Deliver:
 
-An approved adapter can submit normalized evidence for a lead, persist it with provenance and idempotency, survive retries/restarts, and keep intelligence snapshots unchanged until a later intelligence processing stage consumes the evidence.
+- Separate staging/production, migration and runtime roles, verified TLS, monitored backups and a restore rehearsal.
+- Auth recovery, team permissions needed by the pilot, credential rotation, audited administrative actions.
+- Per-workspace message and AI budgets, spend alerts, usage attribution, and a kill switch.
+- Monitoring for queue delay, failed/uncertain sends, callback backlog, provider health, and support incidents.
+- Agreed availability/recovery targets and a load test shaped around tenant count, events, retained history, and actual queries.
+- Data inventory, permitted processing, retention/export/deletion behavior including derived data and backups.
+- Onboarding instructions, support owner, incident/runbook drills, and a rollback plan that cannot resend historical actions.
+- Accessibility and supported-device human QA of the primary workflow.
+- Separate public-acquisition L5-07: static/indexable landing content, real qualified signup/pilot/contact path, verified copy, accessibility and performance evidence. A privately staged landing candidate is not a public launch.
 
-M2.1 does not implement real external research providers, web research, scraping, search APIs, enrichment APIs, LLM synthesis, discovery, or outbound execution.
+Exit: all supervised-pilot checks in [TESTING](TESTING.md), [DEPLOYMENT](DEPLOYMENT.md), and [PILOT](PILOT.md) have named evidence and owners. External credentials/accounts and human QA are not marked complete by mocks.
 
-## M2.2 - Structured Synthesis + Qualification
+## L6 - Establish customer value and decide release scope
 
-### Goal
+Deliver:
 
-Use evidence-grounded structured outputs for synthesis and qualification.
+- A supervised pilot under the protocol in [PILOT](PILOT.md).
+- Measure adoption, time saved, priority usefulness, qualified conversations/outcomes, total serving cost, and support time.
+- Compare to the customer's existing process using an agreed baseline and comparable cohorts.
+- Record product changes from observed workflow failures; re-run affected gates.
+- Decide pricing/limits, sustainable support expectations, onboarding model, and permitted public claims.
+- Include L5-07 acceptance in L6-04 before publishing the landing page and its supported onboarding/commercial promise.
 
-### Deliverables
+Possible decisions: launch the proven narrow workflow, extend the pilot, change the customer/channel hypothesis, or stop an unhelpful capability. Do not call activity counts or a positive conversation product-market fit.
 
-- structured synthesis output contract
-- evidence-grounded findings
-- local deterministic synthesis agent for contract validation
-- qualification outcomes from persisted evidence
-- persisted synthesis run state
-- idempotent synthesis reruns
-- failure/retry handling
-- organization-scoped synthesis APIs
-- synthesis evaluation tests
+Exit: a dated launch decision records cohort/window, safety incidents, economics, remaining limitations, accountable owner, and evidence. A narrow pilot's success does not validate every listed vertical or channel.
 
-### Exit Criteria
+## Work that can proceed in parallel
 
-A lead with a current ready intelligence snapshot can produce a persisted synthesis run whose findings, qualification, and recommendation reference persisted evidence. Re-running synthesis for the same evidence is idempotent. Adding staged evidence creates a new version and preserves history.
+| Stream | Can start | Boundary and integration rule |
+| --- | --- | --- |
+| Customer research and pilot recruitment | L1 | No real sends or sensitive-data import until pilot gates permit them |
+| Backend safety and persistence | L1 | One owner for shared action contracts, migrations, and API wiring |
+| AI safety/evaluation design | L1 | Synthetic/de-identified examples first; integrates business context in L3 |
+| Data foundation and UX design | During L1 | Implement against agreed L2 contracts after required foundations land |
+| Provider feasibility and operations preparation | During L1 | Read/configure sandbox feasibility; live account verification is a separate gate |
+| React workflow implementation | L2-L4 | Uses published contracts; no independent send-policy implementation in UI |
 
-M2.2 does not implement real LLM provider calls, web research, scraping, search APIs, enrichment APIs, discovery, segmentation, personalization, real next-best-action planning, or outbound execution.
+See [TASKS](TASKS.md) for concrete implementation batches, file ownership, and update requirements.
 
-## M2.3 - Real Next Best Action Intelligence
+## Deliberately deferred
 
-### Goal
+- Additional channels before one channel solves the pilot workflow.
+- Lead Discovery, mass prospecting databases, and broad enrichment catalogues.
+- A full CRM, complex campaign builder, autonomous selling, or generalized multi-agent platform.
+- MongoDB migration, microservices, sharding, read replicas, or new queues without measured need.
+- Self-service billing automation before pricing and usage economics are understood; a supervised pilot may use manual commercial administration.
 
-Use richer intelligence and policy to improve next-step recommendations before outbound execution.
+Revisit deferrals with observed customer evidence or a measured system limit, and record the decision.
 
-### Deliverables
+## L2-05 local continuation
 
-- recommendation intelligence output contract
-- attention priority model based on actual evidence
-- segmentation model based on synthesis/readiness/duplicate evidence
-- personalization context from evidence-backed facts
-- persisted recommendation run state
-- idempotent recommendation reruns
-- failure/retry handling
-- organization-scoped recommendation APIs
-- minimal recommendation review UI
-- recommendation evaluation tests
+[Freshness implementation](L2-05_FRESHNESS.md) now distinguishes current analysis from source quality, versions evidence authority, guards expiry and changed inputs, and explains refreshed recommendations. [Verification](verification/L2-05.md) records local tests separately from the provisional policy's customer acceptance and actual PostgreSQL/provider gates. L3-01 now has local implementation evidence; L2 is not launch-certified merely because its local code exists.
 
-### Exit Criteria
+## L3-01 local continuation
 
-A lead with a current synthesis can produce a persisted recommendation intelligence run that explains attention priority, segment, personalization context, and recommended next step from evidence. Re-running recommendation generation for unchanged synthesis is idempotent. New synthesis creates a new recommendation version and preserves history.
+[Configured business fit](L3-01_BUSINESS_FIT.md) is integrated across owner setup, saved analysis, criteria explanations and a bounded queue. Independent synthetic ranking fixtures compare explicit business rules against readiness and recency. Customer-reviewed held-out examples, broader semantic coverage, hosted PostgreSQL and the full usable customer loop remain required. The next launch task is L3-02 factuality, relevance and multilingual/adversarial evaluation; this does not close L1/L2 external gates or the remaining L3 work.
 
-M2.3 does not implement the M3 action planner, policy engine, approval workflow, executable action contract changes, outbound sending, real providers, discovery, or autonomous execution.
+L3-02 now provides locally implemented reply-policy/evidence, interpretation visibility, bounded AI transport and reproducible synthetic quality evaluation under its [contract](L3-02_INTELLIGENCE_QUALITY.md). [Evidence](verification/L3-02.md) distinguishes safety checks from unmeasured customer/hosted-model quality. L3-03 now adds durable analysis jobs, recovery and scoped model admission/usage with optional exact-rate estimates under its [contract](L3-03_ANALYSIS_JOBS.md) and [local evidence](verification/L3-03.md). L3-04 now adds exact saved-result feedback, selected frozen reply datasets and a pinned synthetic regression gate under its [contract](L3-04_FEEDBACK_EVALUATION.md) and [local evidence](verification/L3-04.md). L4 channel and daily-workflow implementation follows; all external acceptance gates remain open.
 
----
+## Active completion continuation - 2026-09-13
 
-# M3 — Next Best Action
-
-## Goal
-
-Convert recommendation intelligence into a persisted, policy-checked next-best-action plan.
-
-## Deliverables
-
-- NextBestAction plan contract
-- ActionPlanner consuming M2.3 recommendation intelligence
-- policy engine
-- non-executable action plan contract
-- approval requirements
-- decision evidence
-- idempotent planning
-- failure/retry handling
-- organization-scoped planning APIs
-- minimal Outbound planning UI
-
-## Exit Criteria
-
-The system can determine an appropriate next action from lead intelligence, persist the policy and approval decision, preserve decision evidence, and avoid directly executing outbound work.
-
-M3 does not implement outbound execution, n8n calls, real providers, approval queues, message generation, sequencing, or M4/M5 behavior.
-
----
-
-# M3.1 — Product UX / Information Architecture Consistency
-
-## Goal
-
-Make the existing M0-M3 product understandable, compact, and customer-facing before expanding outbound execution.
-
-## Deliverables
-
-- Overview dashboard based on real workspace state
-- compact Leads workspace with visible import/add actions
-- customer-facing Lead detail view
-- simplified Lead Intelligence page
-- Outbound review page that does not imply messages were sent
-- isolated Developer / Test Controls
-- UI-state and layout regression tests
-- clean local reset/QA seed documentation
-
-## Exit Criteria
-
-A first-time user can understand customer data -> Lead Data Foundation -> Lead Intelligence -> Next Best Action -> Human review -> outbound later without being told about workers, handlers, callbacks, sandbox execution, pipeline versions, or raw evidence identifiers.
-
-M3.1 does not implement new providers, LLM calls, discovery, CRM/Sheets connectors, campaigns, sequences, approval queues, or real outbound sending.
-
----
-
-# M4 — Outbound Automation Foundation
-
-## Goal
-
-Build the reliable outbound execution foundation using sandbox/mock execution.
-
-## Deliverables
-
-- ActionExecution
-- handler interface
-- mock channel
-- n8n adapter
-- execution state
-- retries
-- idempotency
-- webhook/callback
-- execution history
-- plan-to-action conversion
-
-## Exit Criteria
-
-A planned action can be prepared from a next-best-action plan, respect approval gating, execute through the sandbox handler boundary when eligible, receive an idempotent callback, and persist execution history.
-
-M4 does not implement real providers, production n8n workflows, approval queues, approve/reject/edit workflow, campaigns, sequences, follow-up automation, or real message generation.
-
----
-
-# M5 — Human-in-the-Loop
-
-## Goal
-
-Allow users to review AI-generated actions before execution.
-
-## Deliverables
-
-- approval model
-- approval queue
-- approve
-- reject
-- edit and approve
-- audit history
-- approval UI
-
-## Exit Criteria
-
-A user can review an AI-recommended outbound action, modify it if necessary, approve it, and observe execution.
-
----
-
-# M6 — Sequences + Follow-Up
-
-## Goal
-
-Automate multi-step outbound processes.
-
-## Current Foundation Slice
-
-The current implementation adds provider-neutral channel activity, persisted follow-up tasks, campaigns, sequences, sequence steps, workflow runs, idempotent enrollment, wait states, approval-gated sequence actions, an explicit due-step runner, and basic response-driven stop conditions. It is not the full campaign/sequence milestone yet.
-
-## Deliverables
-
-- channel workflow foundation
-- persisted channel messages
-- persisted follow-up tasks
-- follow-up queue API
-- lead timeline API
-- campaigns
-- sequences
-- sequence steps
-- explicit due-step runner
-- wait states
-- approval-gated sequence actions
-- idempotent multi-lead enrollment
-- conditions
-- stop conditions
-- follow-up logic
-
-## Exit Criteria
-
-A lead can progress through a multi-step outbound sequence based on time and events.
-
----
-
-# M7 — Response / Event Intelligence
-
-## Goal
-
-Use outbound outcomes to improve Lead Intelligence and determine subsequent actions.
-
-## Current Foundation Slice
-
-The current implementation adds mock inbound event intake and normalized inbound channel messages. It proves idempotent inbound processing, basic reply outcome handling, opt-out handling, and follow-up changes before real provider webhooks or AI reply classification are added.
-
-## Deliverables
-
-- mock inbound event intake
-- persisted inbound events
-- inbound message model
-- inbound events
-- ReplyClassifier
-- response states
-- positive/negative/question/opt-out handling
-- human escalation
-- intelligence updates
-
-## Exit Criteria
-
-An inbound response changes the appropriate lead/workflow state and can generate a new next-best-action recommendation.
-
----
-
-# M8 — Additional Outbound Channels
-
-## Goal
-
-Expand execution capabilities based on validated customer demand.
-
-Potential channels:
-
-- WhatsApp
-- email
-- SMS
-- human tasks
-- CRM actions
-- other channels
-
-Only add channels that fit the product and customer requirements.
-
----
-
-# M9 — Lead Discovery Plugins
-
-## Goal
-
-Allow customers to obtain additional lead candidates when their existing data is insufficient.
-
-Potential providers:
-
-- Google Maps/Places
-- business directories
-- public company websites
-- permitted public web data
-- public registries
-- external lead databases
-- other providers
-
-Architecture:
-
-```text
-Discovery Provider
- ↓
-LeadCandidate
- ↓
-Normalization
- ↓
-Lead Intelligence
- ↓
-Outbound Automation
-```
-
-No discovery provider becomes a core dependency.
-
----
-
-# M10 — Production Hardening
-
-## Goal
-
-Prepare for real customer usage.
-
-Focus on:
-
-- tenant isolation
-- authentication
-- authorization
-- secrets
-- webhook verification
-- rate limits
-- observability
-- cost controls
-- backups
-- security
-- performance
-- data retention
-- operational tooling
-
----
-
-# Milestone Rule
-
-A milestone is not complete because code compiles.
-
-It requires:
-
-- implementation
-- automated tests
-- integration tests where relevant
-- failure testing where relevant
-- human QA
-- acceptance criteria
-- working demonstration
-- task tracker updated
-- documentation updated
+The owner authorized completing remaining feasible implementation. L4 composer, inbox/reminders/outcomes, controlled email verification, public landing and guided setup are integrated alongside L5 security, data lifecycle, schema/restore tools and operational metrics. The next stage is recorded candidate acceptance under [RELEASE_ACCEPTANCE](RELEASE_ACCEPTANCE.md). [COMPLETION_PLAN](COMPLETION_PLAN.md) records sequence and ownership; [TASKS](TASKS.md) remains authoritative. Implementation does not automatically close human/provider/PostgreSQL checks or founder decisions. L6 pricing, cohort results and public-launch go/no-go require real evidence and cannot be inferred from local tests.

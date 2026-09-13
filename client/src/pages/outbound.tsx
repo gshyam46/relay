@@ -23,32 +23,33 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import { ApprovalReviewDialog } from "@/components/approval-review-dialog";
+import { DispatchDetailsButton, DispatchOutcome } from "@/components/dispatch-recovery-dialog";
 import { Header } from "@/components/layout/header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { useWorkspaceStore } from "@/stores/workspace";
 import {
   useOutboundSummary,
-  useApproveAction,
-  useRejectAction,
   useExecuteAction,
-  useBulkApproveActions,
-  useBulkRejectActions,
   useBulkExecuteActions,
   type OutboundAction,
 } from "@/hooks/use-outbound";
 import { useFollowUpSummary, useCompleteFollowUp, useCancelFollowUp, type FollowUp } from "@/hooks/use-follow-ups";
 import { useChannelMessages, type ChannelMessage } from "@/hooks/use-channels";
+import { useTestControlsEnabled } from "@/hooks/use-auth";
 import { downloadCsv } from "@/lib/csv";
 import { cn } from "@/lib/utils";
 
 const CHART_COLORS = ["#0f766e", "#0ea5e9", "#8b5cf6", "#f59e0b", "#ef4444", "#10b981"];
 
-type Tab = "READY" | "APPROVED" | "SCHEDULED" | "SENT" | "REPLIES" | "FOLLOW_UPS" | "FAILED";
+type Tab = "IN_PROGRESS" | "RECOVERY" | "READY" | "APPROVED" | "SCHEDULED" | "SENT" | "REPLIES" | "FOLLOW_UPS" | "FAILED";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "READY", label: "Ready for review" },
   { key: "APPROVED", label: "Approved" },
+  { key: "IN_PROGRESS", label: "Sending & accepted" },
+  { key: "RECOVERY", label: "Needs attention" },
   { key: "SCHEDULED", label: "Scheduled" },
   { key: "SENT", label: "Sent" },
   { key: "REPLIES", label: "Replies" },
@@ -77,14 +78,11 @@ export function OutboundPage() {
 
 function OutboundWithOrg() {
   const org = useWorkspaceStore((s) => s.currentOrg)!;
+  const testControlsEnabled = useTestControlsEnabled();
   const { data, isLoading, isError, refetch } = useOutboundSummary();
   const { data: followUpData } = useFollowUpSummary();
   const { data: replies } = useChannelMessages({ direction: "INBOUND" });
-  const approve = useApproveAction();
-  const reject = useRejectAction();
   const execute = useExecuteAction();
-  const bulkApprove = useBulkApproveActions();
-  const bulkReject = useBulkRejectActions();
   const bulkExecute = useBulkExecuteActions();
   const completeFollowUp = useCompleteFollowUp();
   const cancelFollowUp = useCancelFollowUp();
@@ -92,9 +90,8 @@ function OutboundWithOrg() {
   const [search, setSearch] = useState("");
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  // Which row is expanded to show the message that will actually be sent.
-  // Approving without being able to read the message is the one thing an
-  // approval queue must not ask of a reviewer.
+  // Expanded rows show draft context. The review dialog loads the exact current revision.
+  const [reviewIds, setReviewIds] = useState<string[] | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const navigate = useNavigate();
@@ -104,8 +101,10 @@ function OutboundWithOrg() {
 
   const filteredActions = useMemo(() => {
     let rows = actions;
-    if (tab === "READY") rows = rows.filter((r) => r.status === "AWAITING_APPROVAL");
-    else if (tab === "APPROVED") rows = rows.filter((r) => r.status === "APPROVED");
+    if (tab === "READY") rows = rows.filter((r) => ["PLANNED", "AWAITING_APPROVAL"].includes(r.status));
+    else if (tab === "APPROVED") rows = rows.filter((r) => ["APPROVED", "RETRYING"].includes(r.status));
+    else if (tab === "IN_PROGRESS") rows = rows.filter((r) => r.status === "EXECUTING");
+    else if (tab === "RECOVERY") rows = rows.filter((r) => !!r.execution_hold_reason || r.execution_outcome === "UNCERTAIN");
     else if (tab === "SENT") rows = rows.filter((r) => r.status === "COMPLETED");
     else if (tab === "FAILED") rows = rows.filter((r) => r.status === "FAILED" || r.status === "BLOCKED");
     else return [];
@@ -132,15 +131,17 @@ function OutboundWithOrg() {
   }, [replies, tab, search]);
 
   const totals = data?.totals;
-  const readyCount = actions.filter((a) => a.status === "AWAITING_APPROVAL").length;
+  const readyCount = actions.filter((a) => ["PLANNED", "AWAITING_APPROVAL"].includes(a.status)).length;
   const scheduledCount = followUps.filter((f) => f.status === "PLANNED").length;
   const dueCount = followUps.filter((f) => f.status === "DUE").length;
   const repliesCount = replies?.length || 0;
 
   const countFor = (key: Tab) => {
     if (key === "READY") return readyCount;
-    if (key === "APPROVED") return actions.filter((a) => a.status === "APPROVED").length;
+    if (key === "APPROVED") return actions.filter((a) => ["APPROVED", "RETRYING"].includes(a.status)).length;
     if (key === "SCHEDULED") return scheduledCount;
+    if (key === "IN_PROGRESS") return actions.filter((a) => a.status === "EXECUTING").length;
+    if (key === "RECOVERY") return actions.filter((a) => !!a.execution_hold_reason || a.execution_outcome === "UNCERTAIN").length;
     if (key === "SENT") return actions.filter((a) => a.status === "COMPLETED").length;
     if (key === "REPLIES") return repliesCount;
     if (key === "FOLLOW_UPS") return dueCount;
@@ -184,27 +185,13 @@ function OutboundWithOrg() {
     }
   };
 
-  const handleBulkReject = async () => {
-    if (selected.size === 0 || bulkBusy) return;
-    setBulkBusy(true);
-    try {
-      await runInChunks(Array.from(selected), (chunk) => bulkReject.mutateAsync(chunk));
-      setSelected(new Set());
-    } finally {
-      setBulkBusy(false);
-    }
+  const handleBulkReject = () => {
+    if (selected.size > 0 && !bulkBusy) setReviewIds(Array.from(selected));
   };
 
-  const handleApproveAllReady = async () => {
+  const handleApproveAllReady = () => {
     const ids = selected.size > 0 ? Array.from(selected) : filteredActions.map((a) => a.action_id);
-    if (ids.length === 0 || bulkBusy) return;
-    setBulkBusy(true);
-    try {
-      await runInChunks(ids, (chunk) => bulkApprove.mutateAsync(chunk));
-      setSelected(new Set());
-    } finally {
-      setBulkBusy(false);
-    }
+    if (ids.length > 0 && !bulkBusy) setReviewIds(ids);
   };
 
   const handleExecuteAllApproved = async () => {
@@ -227,6 +214,7 @@ function OutboundWithOrg() {
 
   return (
     <>
+      {reviewIds && <ApprovalReviewDialog actionIds={reviewIds} onClose={() => { setReviewIds(null); setSelected(new Set()); }} />}
       <Header title="Outbound" description={org.name} actions={<ExportCsvButton actions={actions} />} />
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Summary Row */}
@@ -238,7 +226,7 @@ function OutboundWithOrg() {
             <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3 flex-1 min-w-[280px]">
               <SummaryCard label="Total actions" value={totals.total} />
               <SummaryCard label="Ready for review" value={readyCount} color="text-warn" highlight={readyCount > 0} />
-              <SummaryCard label="Approved" value={actions.filter((a) => a.status === "APPROVED").length} />
+              <SummaryCard label="Approved" value={actions.filter((a) => ["APPROVED", "RETRYING"].includes(a.status)).length} />
               <SummaryCard label="Scheduled" value={scheduledCount} icon={CalendarClock} />
               <SummaryCard label="Sent" value={actions.filter((a) => a.status === "COMPLETED").length} color="text-ok" />
               <SummaryCard label="Replies" value={repliesCount} icon={Inbox} />
@@ -320,7 +308,7 @@ function OutboundWithOrg() {
                   className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-white bg-brand rounded-md hover:bg-brand-strong transition-colors cursor-pointer disabled:opacity-50"
                 >
                   {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ThumbsUp className="w-3.5 h-3.5" />}
-                  {selected.size > 0 ? "Approve selected" : `Approve all (${filteredActions.length})`}
+                  {selected.size > 0 ? "Review selected" : `Review queue (${filteredActions.length})`}
                 </button>
                 {selected.size > 0 && (
                   <button
@@ -329,7 +317,7 @@ function OutboundWithOrg() {
                     className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-danger bg-danger-light rounded-md hover:bg-red-200 transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ThumbsDown className="w-3.5 h-3.5" />}
-                    Reject selected
+                    Review to reject
                   </button>
                 )}
               </>
@@ -406,7 +394,13 @@ function OutboundWithOrg() {
               ))}
             </div>
           ) : (
-            <EmptyState icon={Inbox} title="No replies yet" description="Inbound replies from leads will show up here. Use Conversations to simulate one for free." />
+            <EmptyState
+              icon={Inbox}
+              title="No replies yet"
+              description={testControlsEnabled
+                ? "Inbound replies from leads will appear here. Use Conversations to simulate a reply in the local sandbox."
+                : "Inbound replies from leads will appear here."}
+            />
           )
         ) : filteredActions.length > 0 ? (
           <div className="flex-1 overflow-y-auto">
@@ -445,8 +439,8 @@ function OutboundWithOrg() {
                         checked={selected.has(action.action_id)}
                         expanded={expanded}
                         onToggle={() => toggleSelected(action.action_id)}
-                        onApprove={withBusy(action.action_id, () => approve.mutateAsync(action.action_id))}
-                        onReject={withBusy(action.action_id, () => reject.mutateAsync(action.action_id))}
+                        onApprove={(event) => { event.stopPropagation(); setReviewIds([action.action_id]); }}
+                        onReject={(event) => { event.stopPropagation(); setReviewIds([action.action_id]); }}
                         onExecute={withBusy(action.action_id, () => execute.mutateAsync(action.action_id))}
                         onClick={() => setExpandedId(expanded ? null : action.action_id)}
                       />
@@ -510,7 +504,7 @@ function FollowUpRow({
           <span className="truncate">{followUp.reason}</span>
         </div>
       </td>
-      <td className="py-3 px-4 text-xs text-muted">{formatDate(followUp.due_at)}</td>
+      <td className="py-3 px-4 text-xs text-muted">{followUp.due_at && Number.isFinite(Date.parse(followUp.due_at)) ? formatDate(followUp.due_at) : "Schedule needs review"}</td>
       <td className="py-3 px-4">
         <div className="flex items-center gap-1">
           <button
@@ -574,13 +568,18 @@ function ActionRow({
   onExecute: (e: React.MouseEvent) => void;
   onClick: () => void;
 }) {
-  const needsApproval = action.approval?.status === "PENDING";
-  const canExecute = action.status === "APPROVED" || action.status === "PLANNED";
+  const needsApproval = action.status === "AWAITING_APPROVAL" || (action.status === "PLANNED" && action.type.startsWith("SEND_"));
+  const canReview = ["PLANNED", "AWAITING_APPROVAL", "APPROVED", "RETRYING"].includes(action.status);
+  const dueDates = [action.scheduled_at, action.next_attempt_at].filter((value): value is string => !!value);
+  const invalidDue = dueDates.some((value) => !Number.isFinite(Date.parse(value)));
+  const earliestAttempt = dueDates.length && !invalidDue ? new Date(Math.max(...dueDates.map(Date.parse))).toISOString() : null;
+  const canExecute = !action.execution_hold_reason && !invalidDue && (!earliestAttempt || Date.parse(earliestAttempt) <= Date.now())
+    && (["APPROVED", "RETRYING"].includes(action.status) || (action.status === "PLANNED" && !action.type.startsWith("SEND_")));
 
   return (
     <tr
       onClick={onClick}
-      title={expanded ? "Hide the message" : "Show the message that will be sent"}
+      title={expanded ? "Hide draft context" : "Show draft context"}
       className={cn("hover:bg-soft transition-colors cursor-pointer group", expanded && "bg-soft/60")}
     >
       {showCheckbox && (
@@ -604,7 +603,9 @@ function ActionRow({
         </div>
       </td>
       <td className="py-3 px-4"><TypeBadge type={action.type} /></td>
-      <td className="py-3 px-4"><ActionStatusBadge status={action.status} /></td>
+      <td className="py-3 px-4"><ActionStatusBadge status={action.status} /><DispatchOutcome outcome={action.execution_outcome} />
+        {earliestAttempt && <p className="mt-1 text-xs text-muted">Earliest attempt: {formatDate(earliestAttempt)}</p>}
+      </td>
       <td className="py-3 px-4"><ApprovalCell action={action} /></td>
       <td className="py-3 px-4">
         <span className="text-xs text-muted">{formatDate(action.created_at)}</span>
@@ -614,18 +615,19 @@ function ActionRow({
           <Loader2 className="w-4 h-4 animate-spin text-brand" />
         ) : (
           <div className="flex items-center gap-1">
-            {needsApproval && (
+            <DispatchDetailsButton actionId={action.action_id} />
+            {canReview && (
               <>
                 <button
                   onClick={onApprove}
-                  title="Approve"
+                  title="Review exact message"
                   className="p-1.5 rounded-md bg-ok-light text-ok hover:bg-green-200 transition-colors cursor-pointer"
                 >
-                  <ThumbsUp className="w-3.5 h-3.5" />
+                  <span className="flex items-center gap-1 text-xs"><ThumbsUp className="w-3.5 h-3.5" />Review</span>
                 </button>
                 <button
                   onClick={onReject}
-                  title="Reject"
+                  title="Open review before rejecting"
                   className="p-1.5 rounded-md bg-danger-light text-danger hover:bg-red-200 transition-colors cursor-pointer"
                 >
                   <ThumbsDown className="w-3.5 h-3.5" />
@@ -650,7 +652,7 @@ function ActionRow({
 }
 
 /**
- * What will actually be sent, readable without leaving the queue.
+ * Draft context only. The review dialog loads the exact revision used for approval.
  *
  * The subject and message come from the action's payload, which is composed
  * server-side from the lead's own record. `rationale` is shown separately and
@@ -670,6 +672,7 @@ function MessagePreview({ action, onOpenLead }: { action: OutboundAction; onOpen
 
   return (
     <div className="space-y-3">
+      <p className="text-xs text-muted">Original draft context. Open Review to see the exact recipient, sender and current message revision.</p>
       {isMessageChannel ? (
         message ? (
           <div className="rounded-lg border border-line bg-surface overflow-hidden">
@@ -759,7 +762,7 @@ function ActionStatusBadge({ status }: { status: string }) {
 }
 
 function ApprovalCell({ action }: { action: OutboundAction }) {
-  if (action.approval_requirement === "NOT_REQUIRED") {
+  if (action.approval_requirement === "NOT_REQUIRED" && !action.type.startsWith("SEND_")) {
     return <span className="text-xs text-muted">N/A</span>;
   }
   if (!action.approval) {

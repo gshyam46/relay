@@ -87,7 +87,9 @@ test("research evidence ingestion persists normalized evidence without mutating 
   assert.equal(ingested.ingestion.evidence_items[0].snapshot_id, undefined);
   assert.equal(listed.evidence_items.length, 1);
   assert.equal(listed.evidence_items[0].claim_field, "COMPANY_NAME");
-  assert.equal(after.intelligence.id, snapshot.intelligence.id);
+  assert.equal(after.intelligence, null, "new source authority requires explicit refresh");
+  assert.equal(after.currentness.state, "OUTDATED");
+  assert.equal((await client.db.get("SELECT id FROM intelligence_snapshots WHERE id = ?", [snapshot.intelligence.id])).id, snapshot.intelligence.id, "original snapshot history remains immutable");
   assert.equal((await client.db.all("SELECT * FROM intelligence_evidence WHERE lead_id = ?", [leadResponse.lead.id])).length > 0, true);
   assert.equal((await client.db.all("SELECT * FROM research_evidence_items WHERE lead_id = ?", [leadResponse.lead.id])).length, 1);
 });

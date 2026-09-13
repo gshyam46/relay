@@ -1,0 +1,349 @@
+{
+  "version": "l5.03-local-100-v1",
+  "generated_at": "2026-09-12T20:20:46.928Z",
+  "status": "PASS",
+  "scope": {
+    "database": "OWNED_TEMPORARY_SQLITE",
+    "enquiries": 100,
+    "tenant_sizes": [
+      90,
+      10
+    ],
+    "intelligence": "DETERMINISTIC",
+    "network": "FORBIDDEN",
+    "application_http": false,
+    "production_capacity_claim": false
+  },
+  "node_version": "v24.20.0",
+  "thresholds": {
+    "total_ms": 120000,
+    "read_p95_ms": 1000,
+    "tick_p95_ms": 5000,
+    "max_ticks": 400
+  },
+  "timing": {
+    "import": {
+      "count": 7,
+      "p50_ms": 97.67,
+      "p95_ms": 149.11,
+      "max_ms": 149.11
+    },
+    "tick": {
+      "count": 180,
+      "p50_ms": 108.35,
+      "p95_ms": 171.79,
+      "max_ms": 246.99
+    },
+    "read": {
+      "count": 100,
+      "p50_ms": 3.9,
+      "p95_ms": 7.24,
+      "max_ms": 9.62
+    },
+    "total_ms": 20324.75
+  },
+  "ticks": 180,
+  "checks": {
+    "exact_import_and_analysis": true,
+    "main_backlog_drained": true,
+    "bounded_duration": true,
+    "bounded_reads": true,
+    "bounded_ticks": true,
+    "tenant_fairness": true,
+    "internal_workflows_and_due_tasks": true,
+    "no_external_work": true,
+    "controls_held": true,
+    "alerts_detected": true
+  },
+  "row_counts": {
+    "leads": 100,
+    "snapshots": 100,
+    "syntheses": 100,
+    "recommendations": 100,
+    "plans": 100,
+    "analysis_items": 100,
+    "workflow_runs": 10,
+    "workflow_actions": 10,
+    "due_manual_reminders": 10,
+    "ai_attempts": 0,
+    "send_attempts": 0,
+    "human_task_executions": 110
+  },
+  "jobs": {
+    "completed": 100,
+    "failed": 0,
+    "reused_items": 0
+  },
+  "current_reads": 100,
+  "backlog": [
+    {
+      "tick": 10,
+      "pending_events": 180
+    },
+    {
+      "tick": 20,
+      "pending_events": 160
+    },
+    {
+      "tick": 30,
+      "pending_events": 150
+    },
+    {
+      "tick": 40,
+      "pending_events": 140
+    },
+    {
+      "tick": 50,
+      "pending_events": 130
+    },
+    {
+      "tick": 60,
+      "pending_events": 120
+    },
+    {
+      "tick": 70,
+      "pending_events": 110
+    },
+    {
+      "tick": 80,
+      "pending_events": 100
+    },
+    {
+      "tick": 90,
+      "pending_events": 90
+    },
+    {
+      "tick": 100,
+      "pending_events": 80
+    },
+    {
+      "tick": 110,
+      "pending_events": 70
+    },
+    {
+      "tick": 120,
+      "pending_events": 60
+    },
+    {
+      "tick": 130,
+      "pending_events": 50
+    },
+    {
+      "tick": 140,
+      "pending_events": 40
+    },
+    {
+      "tick": 150,
+      "pending_events": 30
+    },
+    {
+      "tick": 160,
+      "pending_events": 20
+    },
+    {
+      "tick": 170,
+      "pending_events": 10
+    },
+    {
+      "tick": 180,
+      "pending_events": 0
+    }
+  ],
+  "tenants": [
+    {
+      "label": "NOISY",
+      "rows": 90,
+      "first_visit_tick": 1,
+      "completed_tick": 180,
+      "initial_backlog": 90,
+      "final_backlog": 0,
+      "ai": {
+        "budget_day": "2026-09-12",
+        "next_reset_at": "2026-09-13T00:00:00.000Z",
+        "admitted_attempts": 0,
+        "in_flight": 0,
+        "limits": {
+          "paused": false,
+          "max_daily_attempts": 100,
+          "max_in_flight": 2
+        },
+        "can_invoke": true,
+        "hold_code": null,
+        "provider_reported_attempts": 0,
+        "unknown_usage_attempts": 0,
+        "input_tokens_known_total": null,
+        "output_tokens_known_total": null,
+        "total_tokens_known_total": null,
+        "cost": {
+          "currency": "USD",
+          "estimated_microusd": null,
+          "estimated_usd": null,
+          "estimated_attempts": 0,
+          "unknown_attempts": 0,
+          "basis": "OWNER_RATES_PROVIDER_REPORTED_TOKENS",
+          "is_invoice": false,
+          "is_monetary_cap": false
+        }
+      },
+      "sending": {
+        "controls": {
+          "schema_version": 1,
+          "revision": 0,
+          "paused": false,
+          "daily_attempt_limit": 100,
+          "unresolved_limit": 2,
+          "reason": null,
+          "updated_at": null,
+          "updated_by": null
+        },
+        "global_enabled": false,
+        "policy_valid": true,
+        "usage": {
+          "utc_day": "2026-09-12",
+          "resets_at": "2026-09-13T00:00:00.000Z",
+          "attempts_used": 0,
+          "unresolved_used": 0,
+          "legacy_unresolved": 0,
+          "attempts_remaining": 100,
+          "unresolved_remaining": 2
+        },
+        "can_dispatch": false,
+        "hold_reason": "GLOBAL_DISPATCH_PAUSED",
+        "next_eligible_at": null,
+        "allowed": false,
+        "code": "GLOBAL_DISPATCH_PAUSED",
+        "reason": "Sending is paused by the application operator."
+      }
+    },
+    {
+      "label": "SMALL",
+      "rows": 10,
+      "first_visit_tick": 1,
+      "completed_tick": 20,
+      "initial_backlog": 10,
+      "final_backlog": 0,
+      "ai": {
+        "budget_day": "2026-09-12",
+        "next_reset_at": "2026-09-13T00:00:00.000Z",
+        "admitted_attempts": 0,
+        "in_flight": 0,
+        "limits": {
+          "paused": false,
+          "max_daily_attempts": 100,
+          "max_in_flight": 2
+        },
+        "can_invoke": true,
+        "hold_code": null,
+        "provider_reported_attempts": 0,
+        "unknown_usage_attempts": 0,
+        "input_tokens_known_total": null,
+        "output_tokens_known_total": null,
+        "total_tokens_known_total": null,
+        "cost": {
+          "currency": "USD",
+          "estimated_microusd": null,
+          "estimated_usd": null,
+          "estimated_attempts": 0,
+          "unknown_attempts": 0,
+          "basis": "OWNER_RATES_PROVIDER_REPORTED_TOKENS",
+          "is_invoice": false,
+          "is_monetary_cap": false
+        }
+      },
+      "sending": {
+        "controls": {
+          "schema_version": 1,
+          "revision": 0,
+          "paused": false,
+          "daily_attempt_limit": 100,
+          "unresolved_limit": 2,
+          "reason": null,
+          "updated_at": null,
+          "updated_by": null
+        },
+        "global_enabled": false,
+        "policy_valid": true,
+        "usage": {
+          "utc_day": "2026-09-12",
+          "resets_at": "2026-09-13T00:00:00.000Z",
+          "attempts_used": 0,
+          "unresolved_used": 0,
+          "legacy_unresolved": 0,
+          "attempts_remaining": 100,
+          "unresolved_remaining": 2
+        },
+        "can_dispatch": false,
+        "hold_reason": "GLOBAL_DISPATCH_PAUSED",
+        "next_eligible_at": null,
+        "allowed": false,
+        "code": "GLOBAL_DISPATCH_PAUSED",
+        "reason": "Sending is paused by the application operator."
+      }
+    }
+  ],
+  "noisy_remaining_when_small_completed": 160,
+  "control_drill": {
+    "global_hold": true,
+    "workspace_hold": true,
+    "ai_pause_hold": true,
+    "created_send_attempts": 0,
+    "phase": "SEPARATE_SYNTHETIC_CONTROL_DRILL"
+  },
+  "alert_injection": [
+    {
+      "code": "POLICY_BACKLOG",
+      "severity": "CRITICAL",
+      "title": "Mandatory contact policy is waiting",
+      "runbook": "policy-backlog"
+    },
+    {
+      "code": "UNCERTAIN_SEND",
+      "severity": "CRITICAL",
+      "title": "Provider outcomes need reconciliation",
+      "runbook": "uncertain-send"
+    },
+    {
+      "code": "RECEIPT_REVIEW",
+      "severity": "WARNING",
+      "title": "Webhook receipts need review",
+      "runbook": "policy-backlog"
+    },
+    {
+      "code": "EVENT_RECOVERY",
+      "severity": "WARNING",
+      "title": "Background events need recovery",
+      "runbook": "event-recovery"
+    },
+    {
+      "code": "ANALYSIS_BACKLOG",
+      "severity": "WARNING",
+      "title": "Analysis work is waiting",
+      "runbook": "analysis-backlog"
+    },
+    {
+      "code": "FOLLOW_UP_OVERDUE",
+      "severity": "WARNING",
+      "title": "Human follow-ups are overdue",
+      "runbook": "human-work"
+    },
+    {
+      "code": "WORKFLOW_BLOCKED",
+      "severity": "WARNING",
+      "title": "A workflow needs review",
+      "runbook": "human-work"
+    },
+    {
+      "code": "SEND_BUDGET_NEAR_LIMIT",
+      "severity": "WARNING",
+      "title": "Daily sending allowance is nearly used",
+      "runbook": "quota-review"
+    },
+    {
+      "code": "AI_BUDGET_NEAR_LIMIT",
+      "severity": "WARNING",
+      "title": "Daily AI allowance is nearly used",
+      "runbook": "quota-review"
+    }
+  ],
+  "network_attempts": 0
+}

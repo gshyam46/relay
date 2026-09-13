@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "accepted_at": "2026-09-12",
+  "origin": "SYNTHETIC_ENGINEERING_REGRESSION",
+  "corpus_sha256": "fb947b5bae9e05a71b8655aec2d5a6d92420c9b2f01f254c819101bf03ddfc85",
+  "baseline_report_sha256": "7d8bfd40cfb5c52d1e4def105343db33f1c6e6a7467188462f13a1f942184dda",
+  "baseline_versions": {
+    "reply_policy_versions": [
+      "l3.02-reply-policy-v1"
+    ],
+    "reply_prompt_versions": [
+      "l3.02-reply-prompt-v1"
+    ],
+    "grounding_versions": [
+      "l1-extractive-grounding-v1"
+    ],
+    "source_sha256": {
+      "src/modules/channels/replyClassifier.js": "8d45d7d9465bb6b6c15c2929e4eec01551324f7bf138bef11a33d3d01bb53482",
+      "src/modules/channels/replyInterpretationContract.js": "05a6be0f6e67ab557ac09942e8b58d5de5e9dbe10228f4a34c2d5a8826228887",
+      "src/modules/ai/llmReplyClassifier.js": "fdc53fe2b81947fab81e33c8eb842f9fde1a6f17bc31423093eecfacb641896a",
+      "src/modules/ai/llmSynthesisAgent.js": "778d4e413d13eae3579b6a96fa8bc4b4c0c1b853ba7e7ded42b2c5bd46efa541",
+      "src/modules/ai/grounding.js": "0f8d3e1e434dfb86ffce27e5caeaaa18c0718f740fe7ae0091eb272edc7d7540",
+      "src/modules/lead-intelligence/localSynthesisAgent.js": "fdd755159e8e96de14e178856d6a2cb361b7c4af5fd7a771668089356609a374",
+      "src/modules/lead-intelligence/synthesisContract.js": "aa0502e2110dd304ecb8a861a1faa3c54896870b8d0987a8c37dccb9a7b42722",
+      "src/modules/lead-intelligence/freshnessContract.js": "49b46978b2087e9f5f0f831f685b95a47347894c903554c41a5db68ca46e76f7",
+      "src/modules/lead-intelligence/intelligenceContract.js": "765bb2f76a2a82fd3a460692da6e5c2f6716a6a52192663f07586313111332c6",
+      "src/modules/business-context/businessContextContract.js": "5df7f85a4e0f5d8834502ec97e3cb3d3a4395e748c774a1b98de27fac6387674",
+      "src/modules/outbound-automation/messageComposer.js": "739d6ee174906639919d2c75b7dbc689afae873f7dd5ed850b643ed0b2237129",
+      "scripts/helpers/intelligenceEvaluation.js": "4b1f4ab9569e34008137ed1cc97dd1d7225b72886e87c9b93d9e30ab9caed528",
+      "scripts/helpers/intelligenceEvaluationMetrics.js": "dc67a03a1936a49f9d7e1e5a06b82ba4ec965f776f8c53336a1bd8e70f94adde",
+      "scripts/helpers/intelligenceEvaluationIO.js": "b1aa4e5462c7093048f64dd9913081b413451f34626ee5d703d156128a84fc9c",
+      "scripts/evaluate-intelligence.js": "eecf9ea548c33354635b296c04a69a87e6330dade2f503b0b59170ec61d70fd8"
+    }
+  },
+  "grader_version": "l3.04-engineering-regression-v1",
+  "denominators": {
+    "messages": 46,
+    "labeled_messages": 35,
+    "ambiguous_unlabeled": 11,
+    "explicit_opt_outs": 17,
+    "known_non_opt_outs": 18
+  },
+  "floors": {
+    "labeled_correct": 26,
+    "max_abstentions": 20,
+    "per_class": {
+      "POSITIVE_REPLY": {
+        "actual": 6,
+        "true_positives": 3
+      },
+      "NEGATIVE_REPLY": {
+        "actual": 5,
+        "true_positives": 2
+      },
+      "QUESTION": {
+        "actual": 7,
+        "true_positives": 4
+      },
+      "OPT_OUT": {
+        "actual": 17,
+        "true_positives": 17
+      },
+      "UNKNOWN": {
+        "actual": 0,
+        "true_positives": 0
+      }
+    }
+  },
+  "safety_failure_count": 0,
+  "limitations": [
+    "Engineering-reviewed synthetic regression baseline, not a customer-held-out or hosted-model quality result.",
+    "New accepted baseline and grader versions require explicit review; no automatic baseline update."
+  ]
+}

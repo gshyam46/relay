@@ -31,7 +31,7 @@ test("campaign sequence enrollment is idempotent for multiple leads", async (t) 
   assert.equal((await client.db.all("SELECT * FROM workflow_runs WHERE organization_id = ?", [organization.id])).length, 2);
 });
 
-test("due runner creates approval-gated sequence actions and continues after approval", async (t) => {
+test("due runner creates review-gated actions and advances only after exact delivery", async (t) => {
   const client = await startClient(t);
   const { organization, sequence, leads } = await createSequenceFixture(client, {
     organizationName: "M6 Approval Sequence Org",
@@ -61,14 +61,21 @@ test("due runner creates approval-gated sequence actions and continues after app
   });
   const action = await client.db.get("SELECT * FROM actions WHERE lead_id = ?", [leads[0].id]);
   const waitingRun = await client.get(`/api/workflow-runs?organization_id=${organization.id}`);
-  await client.post(`/api/actions/${action.id}/approval/approve`, {
-    organization_id: organization.id,
-    reviewer_name: "Reviewer"
-  });
+  await client.approve(action.id);
   const secondRun = await client.post("/api/workflows/run-due", {
     organization_id: organization.id,
     due_at: new Date(base + 1000).toISOString()
   });
+  assert.equal((await client.db.all("SELECT * FROM action_executions WHERE action_id = ?", [action.id])).length, 0);
+  await client.services.actionExecutor.execute(action);
+  const execution = (await client.services.executionsRepository.listForAction(action.id))[0];
+  await client.services.callbacksService.receiveExecutionCallback({ organization_id: organization.id, action_id: action.id,
+    action_execution_id: execution.id, revision_id: execution.action_revision_id, provider: execution.provider,
+    provider_event_id: "workflow-exact-delivery", status: "COMPLETED" });
+  const afterDelivery = await client.post("/api/workflows/run-due", {
+    due_at: new Date(base + 1500).toISOString()
+  });
+  assert.equal(afterDelivery.processed_runs[0].status, "WAITING");
   const finalRun = await client.post("/api/workflows/run-due", {
     organization_id: organization.id,
     due_at: new Date(base + 2000).toISOString()
@@ -78,7 +85,7 @@ test("due runner creates approval-gated sequence actions and continues after app
   assert.equal(action.status, "AWAITING_APPROVAL");
   assert.equal(action.approval_requirement, "REQUIRED");
   assert.equal(waitingRun.workflow_runs[0].status, "WAITING_APPROVAL");
-  assert.equal(secondRun.processed_runs[0].status, "WAITING");
+  assert.equal(secondRun.processed_runs[0].status, "WAITING_EXECUTION");
   assert.equal((await client.db.all("SELECT * FROM action_executions WHERE action_id = ?", [action.id])).length, 1);
   assert.equal((await client.db.all("SELECT * FROM channel_messages WHERE action_id = ?", [action.id])).length, 1);
   assert.equal(finalRun.processed_runs[0].status, "COMPLETED");
@@ -114,7 +121,7 @@ test("wait steps delay later sequence actions until due", async (t) => {
 
   assert.equal(first.processed_runs[0].status, "WAITING");
   assert.equal(early.processed_runs.length, 0);
-  assert.equal(due.processed_runs[0].status, "WAITING");
+  assert.equal(due.processed_runs[0].status, "WAITING_EXECUTION");
   assert.equal((await client.db.all("SELECT * FROM actions WHERE lead_id = ?", [leads[0].id])).length, 1);
 });
 
@@ -179,6 +186,50 @@ test("workflow APIs are organization scoped", async (t) => {
   assert.equal(wrongRuns.workflow_runs.length, 0);
 });
 
+test("mixed-tenant or missing enrollment IDs leave all existing runs unchanged", async (t) => {
+  const client = await startClient(t);
+  const foreign = await createSequenceFixture(client, {
+    organizationName: "Enrollment Foreign Workspace",
+    steps: [{ type: "CREATE_HUMAN_TASK", title: "Review foreign lead" }]
+  });
+  await client.post(`/api/sequences/${foreign.sequence.id}/enroll`, {
+    lead_ids: [foreign.leads[1].id]
+  });
+  const own = await createSequenceFixture(client, {
+    organizationName: "Enrollment Own Workspace",
+    steps: [{ type: "CREATE_HUMAN_TASK", title: "Review own lead" }]
+  });
+  await client.post(`/api/sequences/${own.sequence.id}/enroll`, {
+    lead_ids: [own.leads[1].id]
+  });
+  const before = await client.db.all("SELECT * FROM workflow_runs ORDER BY id");
+  let expectedError;
+
+  for (const leadIds of [
+    [own.leads[0].id, foreign.leads[0].id],
+    [foreign.leads[0].id, own.leads[0].id],
+    [own.leads[0].id, "lead_does_not_exist"]
+  ]) {
+    const response = await client.rawFetch(`/api/sequences/${own.sequence.id}/enroll`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ organization_id: foreign.organization.id, lead_ids: leadIds })
+    });
+    assert.equal(response.status, 404);
+    const body = await response.json();
+    expectedError ??= body.error;
+    assert.equal(body.error, expectedError, "foreign and missing leads share the same response");
+    assert.deepEqual(await client.db.all("SELECT * FROM workflow_runs ORDER BY id"), before);
+  }
+
+  const valid = await client.post(`/api/sequences/${own.sequence.id}/enroll`, {
+    lead_ids: [own.leads[0].id, own.leads[0].id, own.leads[1].id]
+  });
+  assert.equal(valid.workflow_runs.length, 2);
+  assert.ok(valid.workflow_runs.every((run) => run.organization_id === own.organization.id));
+  assert.equal((await client.db.all("SELECT * FROM workflow_runs")).length, 3);
+});
+
 test("workflow state survives restart", async (t) => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-lead-workflows-"));
   const databaseFile = path.join(tempDir, "app.db");
@@ -199,6 +250,7 @@ test("workflow state survives restart", async (t) => {
       organization_id: organization.id,
       due_at: new Date().toISOString()
     });
+    const persistedBeforeRestart = await firstClient.db.get("SELECT * FROM workflow_runs WHERE organization_id = ?", [organization.id]);
     await firstClient.stop();
 
     secondClient = await startClient(t, databaseFile, { autoCleanup: false });
@@ -211,6 +263,8 @@ test("workflow state survives restart", async (t) => {
     assert.equal(sequences.sequences.length, 1);
     assert.equal(sequences.sequences[0].steps.length, 1);
     assert.equal(runs.workflow_runs[0].status, "WAITING");
+    assert.equal(runs.workflow_runs[0].next_run_at, persistedBeforeRestart.next_run_at);
+    assert.equal(runs.workflow_runs[0].step_anchor_at, persistedBeforeRestart.step_anchor_at);
   } finally {
     await firstClient?.stop();
     await secondClient?.stop();

@@ -227,6 +227,7 @@ test("new synthesis creates a new intelligence recommendation version and preser
     idempotency_key: "new-evidence-for-recommendation",
     evidence_items: [companyEvidence()]
   });
+  await refreshAfterResearch(client, leadResponse.lead.id, organization.organization.id);
   await client.post(`/api/leads/${leadResponse.lead.id}/synthesis/run`, {
     organization_id: organization.organization.id
   });
@@ -329,7 +330,15 @@ function companyEvidence(overrides = {}) {
     claim_field: "COMPANY_NAME",
     claim_value: "Northstar Interiors",
     confidence: "MEDIUM",
+    evidence_timestamp: new Date(Date.now() - 1000).toISOString(),
     metadata: { reviewed_by: "qa" },
     ...overrides
   };
+}
+
+async function refreshAfterResearch(client, leadId, organizationId) {
+  const outdated = await client.get(`/api/leads/${leadId}/intelligence`);
+  assert.equal(outdated.intelligence, null);
+  assert.equal(outdated.currentness.state, "OUTDATED");
+  return client.post(`/api/leads/${leadId}/intelligence/run`, { organization_id: organizationId });
 }

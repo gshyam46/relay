@@ -1,62 +1,31 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
 import { createDatabase, getMigrationStatus } from "../src/database/database.js";
-import { PostgresDatabaseClient } from "../src/database/postgresClient.js";
+import { connectTestAdmin, postgresTestContext, schemaDatabaseConfig, schemaFor } from "../scripts/helpers/testSafety.js";
 import { startClient } from "./helpers/testClient.js";
 
-// Live PostgreSQL verification.
-//
-// The suite runs on SQLite by default because that is what local development
-// uses. These tests prove the SAME repositories, services and API behave
-// identically on PostgreSQL — the claim the DatabaseClient abstraction exists to
-// make. They are skipped unless a database is provided:
-//
-//   TEST_DATABASE_URL=postgresql://user:pass@host:5432/relay npm test
-//
-// SAFETY: every test here works inside its OWN generated schema, created at the
-// start and dropped at the end. Nothing touches `public` and nothing outside its
-// own schema is read or written, so pointing this at a real database is
-// non-destructive. An earlier version of this file ran
-// `DROP SCHEMA public CASCADE`, which would have destroyed any database it was
-// aimed at — including the staging one, since the documented workflow is to run
-// these against the configured DATABASE_URL.
-const connectionString = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
-const skip = connectionString ? false : "Neither TEST_DATABASE_URL nor DATABASE_URL is set";
-// TEST_DATABASE_SSL overrides, DATABASE_SSL is the fallback, so one .env entry
-// configures the app and the tests alike.
-const useSsl = (process.env.TEST_DATABASE_SSL ?? process.env.DATABASE_SSL) !== "disable";
+// Only the explicit disposable-target runner enables real PostgreSQL tests.
+// An inherited application DATABASE_URL never activates or selects them.
+const context = postgresTestContext();
+const skip = context ? false : "Run npm run test:pg with an explicitly acknowledged disposable database";
 
-function schemaScopedConfig(schema) {
-  const url = new URL(connectionString);
-  url.searchParams.set("options", `-c search_path=${schema}`);
-  return { driver: "postgres", databaseUrl: url.toString(), ssl: useSsl, maxConnections: 4 };
-}
-
-async function adminClient() {
-  return PostgresDatabaseClient.connect({ connectionString, ssl: useSsl, maxConnections: 1 });
-}
-
-/**
- * Creates a private schema, hands back a migrated client scoped to it, and
- * registers teardown that drops it — so a failing assertion still cleans up.
- */
 async function withScopedSchema(t) {
-  const schema = `relay_adapter_${randomUUID().replaceAll("-", "")}`;
-  const admin = await adminClient();
-  await admin.exec(`CREATE SCHEMA ${schema}`);
-  await admin.close();
-
+  const schema = schemaFor(context.runId, "adapter");
+  const admin = await connectTestAdmin(context);
+  try {
+    await admin.exec('CREATE SCHEMA "' + schema + '"');
+  } finally {
+    await admin.close();
+  }
   t.after(async () => {
-    const cleanup = await adminClient();
+    const cleanup = await connectTestAdmin(context);
     try {
-      await cleanup.exec(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await cleanup.exec('DROP SCHEMA IF EXISTS "' + schema + '" CASCADE');
     } finally {
       await cleanup.close();
     }
   });
-
-  return { schema, config: schemaScopedConfig(schema) };
+  return { schema, config: schemaDatabaseConfig(context, schema) };
 }
 
 test("postgres: migrations apply cleanly to an empty schema and are idempotent", { skip }, async (t) => {

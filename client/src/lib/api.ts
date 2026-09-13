@@ -45,3 +45,17 @@ export const api = {
 };
 
 export { ApiError };
+
+// Downloads the server's serialized selection; never reconstruct CSV from cached rows.
+export async function downloadLeadExport(leadIds: string[]): Promise<number> {
+  const res = await fetch(BASE + "/leads/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lead_ids: leadIds }) });
+  if (!res.ok) { const body = await res.json().catch(() => res.statusText); if (res.status === 401) unauthorizedHandler?.(); throw new ApiError(res.status, body); }
+  const count = Number(res.headers.get("X-Export-Record-Count"));
+  if (!res.headers.get("Content-Type")?.toLowerCase().startsWith("text/csv") || !Number.isInteger(count) || count !== leadIds.length) throw new Error("Export response did not confirm the exact selected records. No download was created.");
+  const blob = await res.blob();
+  if (!blob.size || blob.size > 8 * 1024 * 1024) throw new Error("Export response is empty or too large. No download was created.");
+  const url = URL.createObjectURL(blob), link = document.createElement("a");
+  link.href = url; link.download = "leads-export.csv"; document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return count;
+}

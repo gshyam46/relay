@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "corpus_file": "corpus-v1.json",
+  "sha256": "fb947b5bae9e05a71b8655aec2d5a6d92420c9b2f01f254c819101bf03ddfc85",
+  "origin": "SYNTHETIC",
+  "label_review": "ENGINEERING_ONLY_NATIVE_CUSTOMER_REVIEW_PENDING",
+  "frozen_on": "2026-09-12",
+  "counts": {
+    "reply_messages": 46,
+    "reply_adapter_scenarios": 18,
+    "grounding_cases": 24,
+    "composer_cases": 12
+  }
+}

@@ -94,7 +94,7 @@ export class SynthesisRepository {
     await this.db.run(
       `UPDATE intelligence_synthesis_runs
         SET status = ?, last_error = ?, updated_at = ?
-        WHERE id = ?`,
+        WHERE id = ? AND status IN ('DRAFT','FAILED')`,
       [SYNTHESIS_STATUS.FAILED, error.message || String(error), nowIso(), id]
     );
     return await this.getRun(id);

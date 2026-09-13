@@ -22,10 +22,10 @@ test("composes a real email: greeting, grounded context, a question, and a sign-
     organizationName: "Meridian Interiors"
   });
 
-  assert.equal(subject, "Following up on your enquiry — Sharma Interiors");
+  assert.equal(subject, "A quick question");
   assert.ok(message.startsWith("Hi Priya,"), "greets by first name");
-  assert.ok(message.includes("Sharma Interiors"), "references the company we were given");
-  assert.ok(message.includes("Meridian Interiors"), "signs off as the workspace");
+  assert.equal(message.includes("Sharma Interiors"), false, "company does not establish representation or enquiry");
+  assert.equal(message.includes("Meridian Interiors"), false, "unverified free-text sender is omitted");
   assert.ok(message.includes("?"), "asks the lead something rather than only talking at them");
 
   // The subject must not be the body — that was the original defect.
@@ -86,22 +86,12 @@ test("junk names are not used as a greeting", () => {
   }
 });
 
-test("the message answers what the lead actually said", () => {
-  const question = composeOutboundMessage({
-    lead: LEAD,
-    actionType: "SEND_EMAIL",
-    replyContext: { event_type: "QUESTION" }
-  });
-  assert.match(question.subject, /^Re: your question/);
-  assert.ok(question.message.includes("answer"), "a question gets an answer, not a fresh opener");
-
-  const positive = composeOutboundMessage({
-    lead: LEAD,
-    actionType: "SEND_EMAIL",
-    replyContext: { event_type: "POSITIVE_REPLY" }
-  });
-  assert.match(positive.subject, /^Next steps/);
-  assert.notEqual(positive.message, question.message, "different intents produce different messages");
+test("a reply label alone cannot invent a substantive answer or booking commitment", () => {
+  const question = composeOutboundMessage({ lead: LEAD, actionType: "SEND_EMAIL", replyContext: { event_type: "QUESTION" } });
+  const positive = composeOutboundMessage({ lead: LEAD, actionType: "SEND_EMAIL", replyContext: { event_type: "POSITIVE_REPLY" } });
+  assert.deepEqual(question, positive, "both stay neutral until a human reviews actual conversation context");
+  assert.doesNotMatch(question.message, /answer|shortly|call|book|confirm|this week/i);
+  assert.doesNotMatch(question.subject, /your question|next steps/i);
 });
 
 test("short-form channels get one line, not a letter", () => {
@@ -135,7 +125,7 @@ test("an outbound action carries sendable copy, never internal reasoning", async
   assert.ok(emailAction.payload.subject, "the action carries a subject");
   assert.ok(emailAction.payload.message, "and a message body");
   assert.ok(emailAction.payload.message.includes("Ananya"), "personalised from the lead's own record");
-  assert.ok(emailAction.payload.message.includes("Composed Copy Org"), "signed as the workspace");
+  assert.equal(emailAction.payload.message.includes("Composed Copy Org"), false, "unverified workspace name is not a message claim");
 
   // The regression this guards: the router falls back to `rationale` when no
   // message is present, so an unconfigured payload would have emailed our own

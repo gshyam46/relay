@@ -1,0 +1,1577 @@
+{
+  "version": 1,
+  "frozen_on": "2026-09-12",
+  "labels": "Synthetic engineering expectations recorded before evaluator implementation; not customer judgments or a held-out model-quality dataset.",
+  "evaluated_at": "2026-01-15T12:00:00.000Z",
+  "recorded_at": "2026-01-15T12:00:00.000Z",
+  "profiles": {
+    "workshop": {
+      "profile": {
+        "business_name": "Synthetic table workshop",
+        "offerings": [
+          "Custom dining tables"
+        ],
+        "service_areas": [
+          "Pune, India"
+        ],
+        "target_customers": [],
+        "exclusions": [],
+        "required_criteria": [],
+        "preferred_criteria": [],
+        "preferred_next_step": null,
+        "timezone": "Asia/Kolkata",
+        "language": "English"
+      },
+      "fit_criteria": {
+        "version": 1,
+        "interest": {
+          "requirement": "REQUIRED",
+          "accepted_aliases": [
+            "Custom dining table",
+            "Dining table"
+          ],
+          "excluded_aliases": [
+            "Chair repair"
+          ]
+        },
+        "location": {
+          "requirement": "REQUIRED",
+          "areas": [
+            {
+              "country_code": "IN",
+              "locality": "Pune",
+              "aliases": [
+                "Puna"
+              ]
+            }
+          ],
+          "excluded_areas": [
+            {
+              "country_code": "IN",
+              "locality": "Mumbai",
+              "aliases": []
+            }
+          ]
+        },
+        "budget": {
+          "requirement": "REQUIRED",
+          "currency": "INR",
+          "minimum": "30000.00"
+        },
+        "timeline": {
+          "requirement": "PREFERRED",
+          "earliest_date": "2026-02-01",
+          "latest_date": "2026-03-31"
+        }
+      }
+    },
+    "huge": {
+      "profile": {
+        "business_name": "Synthetic table workshop",
+        "offerings": [
+          "Custom dining tables"
+        ],
+        "service_areas": [
+          "Pune, India"
+        ],
+        "target_customers": [],
+        "exclusions": [],
+        "required_criteria": [],
+        "preferred_criteria": [],
+        "preferred_next_step": null,
+        "timezone": "Asia/Kolkata",
+        "language": "English"
+      },
+      "fit_criteria": {
+        "version": 1,
+        "interest": {
+          "requirement": "REQUIRED",
+          "accepted_aliases": [
+            "Custom dining table",
+            "Dining table"
+          ],
+          "excluded_aliases": [
+            "Chair repair"
+          ]
+        },
+        "location": {
+          "requirement": "REQUIRED",
+          "areas": [
+            {
+              "country_code": "IN",
+              "locality": "Pune",
+              "aliases": [
+                "Puna"
+              ]
+            }
+          ],
+          "excluded_areas": [
+            {
+              "country_code": "IN",
+              "locality": "Mumbai",
+              "aliases": []
+            }
+          ]
+        },
+        "budget": {
+          "requirement": "REQUIRED",
+          "currency": "INR",
+          "minimum": "9007199254740993.00"
+        },
+        "timeline": {
+          "requirement": "PREFERRED",
+          "earliest_date": "2026-02-01",
+          "latest_date": "2026-03-31"
+        }
+      }
+    },
+    "country": {
+      "profile": {
+        "business_name": "Synthetic table workshop",
+        "offerings": [
+          "Custom dining tables"
+        ],
+        "service_areas": [
+          "Pune, India"
+        ],
+        "target_customers": [],
+        "exclusions": [],
+        "required_criteria": [],
+        "preferred_criteria": [],
+        "preferred_next_step": null,
+        "timezone": "Asia/Kolkata",
+        "language": "English"
+      },
+      "fit_criteria": {
+        "version": 1,
+        "interest": {
+          "requirement": "REQUIRED",
+          "accepted_aliases": [
+            "Custom dining table",
+            "Dining table"
+          ],
+          "excluded_aliases": [
+            "Chair repair"
+          ]
+        },
+        "location": {
+          "requirement": "REQUIRED",
+          "areas": [
+            {
+              "country_code": "IN",
+              "locality": null,
+              "aliases": []
+            }
+          ],
+          "excluded_areas": []
+        },
+        "budget": {
+          "requirement": "REQUIRED",
+          "currency": "INR",
+          "minimum": "30000.00"
+        },
+        "timeline": {
+          "requirement": "PREFERRED",
+          "earliest_date": "2026-02-01",
+          "latest_date": "2026-03-31"
+        }
+      }
+    },
+    "deadline": {
+      "profile": {
+        "business_name": "Synthetic table workshop",
+        "offerings": [
+          "Custom dining tables"
+        ],
+        "service_areas": [
+          "Pune, India"
+        ],
+        "target_customers": [],
+        "exclusions": [],
+        "required_criteria": [],
+        "preferred_criteria": [],
+        "preferred_next_step": null,
+        "timezone": "Asia/Kolkata",
+        "language": "English"
+      },
+      "fit_criteria": {
+        "version": 1,
+        "interest": {
+          "requirement": "REQUIRED",
+          "accepted_aliases": [
+            "Custom dining table",
+            "Dining table"
+          ],
+          "excluded_aliases": [
+            "Chair repair"
+          ]
+        },
+        "location": {
+          "requirement": "REQUIRED",
+          "areas": [
+            {
+              "country_code": "IN",
+              "locality": "Pune",
+              "aliases": [
+                "Puna"
+              ]
+            }
+          ],
+          "excluded_areas": [
+            {
+              "country_code": "IN",
+              "locality": "Mumbai",
+              "aliases": []
+            }
+          ]
+        },
+        "budget": {
+          "requirement": "REQUIRED",
+          "currency": "INR",
+          "minimum": "30000.00"
+        },
+        "timeline": {
+          "requirement": "REQUIRED",
+          "earliest_date": "2026-02-01",
+          "latest_date": "2026-03-31"
+        }
+      }
+    },
+    "notes": {
+      "profile": {
+        "business_name": "Synthetic table workshop",
+        "offerings": [
+          "Custom dining tables"
+        ],
+        "service_areas": [
+          "Pune, India"
+        ],
+        "target_customers": [],
+        "exclusions": [],
+        "required_criteria": [
+          "Delivery must include installation"
+        ],
+        "preferred_criteria": [],
+        "preferred_next_step": null,
+        "timezone": "Asia/Kolkata",
+        "language": "English"
+      },
+      "fit_criteria": {
+        "version": 1,
+        "interest": {
+          "requirement": "REQUIRED",
+          "accepted_aliases": [
+            "Custom dining table",
+            "Dining table"
+          ],
+          "excluded_aliases": [
+            "Chair repair"
+          ]
+        },
+        "location": {
+          "requirement": "REQUIRED",
+          "areas": [
+            {
+              "country_code": "IN",
+              "locality": "Pune",
+              "aliases": [
+                "Puna"
+              ]
+            }
+          ],
+          "excluded_areas": [
+            {
+              "country_code": "IN",
+              "locality": "Mumbai",
+              "aliases": []
+            }
+          ]
+        },
+        "budget": {
+          "requirement": "REQUIRED",
+          "currency": "INR",
+          "minimum": "30000.00"
+        },
+        "timeline": {
+          "requirement": "PREFERRED",
+          "earliest_date": "2026-02-01",
+          "latest_date": "2026-03-31"
+        }
+      }
+    },
+    "preferences": {
+      "profile": {
+        "business_name": "Synthetic table workshop",
+        "offerings": [
+          "Custom dining tables"
+        ],
+        "service_areas": [
+          "Pune, India"
+        ],
+        "target_customers": [],
+        "exclusions": [],
+        "required_criteria": [],
+        "preferred_criteria": [
+          "Prefer a repeat customer"
+        ],
+        "preferred_next_step": null,
+        "timezone": "Asia/Kolkata",
+        "language": "English"
+      },
+      "fit_criteria": {
+        "version": 1,
+        "interest": {
+          "requirement": "REQUIRED",
+          "accepted_aliases": [
+            "Custom dining table",
+            "Dining table"
+          ],
+          "excluded_aliases": [
+            "Chair repair"
+          ]
+        },
+        "location": {
+          "requirement": "REQUIRED",
+          "areas": [
+            {
+              "country_code": "IN",
+              "locality": "Pune",
+              "aliases": [
+                "Puna"
+              ]
+            }
+          ],
+          "excluded_areas": [
+            {
+              "country_code": "IN",
+              "locality": "Mumbai",
+              "aliases": []
+            }
+          ]
+        },
+        "budget": {
+          "requirement": "REQUIRED",
+          "currency": "INR",
+          "minimum": "30000.00"
+        },
+        "timeline": {
+          "requirement": "PREFERRED",
+          "earliest_date": "2026-02-01",
+          "latest_date": "2026-03-31"
+        }
+      }
+    },
+    "none": {
+      "profile": {
+        "business_name": "Synthetic table workshop",
+        "offerings": [
+          "Custom dining tables"
+        ],
+        "service_areas": [
+          "Pune, India"
+        ],
+        "target_customers": [],
+        "exclusions": [],
+        "required_criteria": [],
+        "preferred_criteria": [],
+        "preferred_next_step": null,
+        "timezone": "Asia/Kolkata",
+        "language": "English"
+      },
+      "fit_criteria": null
+    },
+    "interest_only": {
+      "profile": {
+        "business_name": "Synthetic table workshop",
+        "offerings": [
+          "Custom dining tables"
+        ],
+        "service_areas": [
+          "Pune, India"
+        ],
+        "target_customers": [],
+        "exclusions": [],
+        "required_criteria": [],
+        "preferred_criteria": [],
+        "preferred_next_step": null,
+        "timezone": "Asia/Kolkata",
+        "language": "English"
+      },
+      "fit_criteria": {
+        "version": 1,
+        "interest": {
+          "requirement": "REQUIRED",
+          "accepted_aliases": [
+            "Custom dining table",
+            "Dining table"
+          ],
+          "excluded_aliases": [
+            "Chair repair"
+          ]
+        },
+        "location": null,
+        "budget": null,
+        "timeline": null
+      }
+    },
+    "repairs": {
+      "profile": {
+        "business_name": "Synthetic Bengaluru repair workshop",
+        "offerings": [
+          "Chair repair"
+        ],
+        "service_areas": [
+          "Bengaluru, India"
+        ],
+        "target_customers": [],
+        "exclusions": [],
+        "required_criteria": [],
+        "preferred_criteria": [],
+        "preferred_next_step": null,
+        "timezone": "Asia/Kolkata",
+        "language": "English"
+      },
+      "fit_criteria": {
+        "version": 1,
+        "interest": {
+          "requirement": "REQUIRED",
+          "accepted_aliases": [
+            "Chair repair"
+          ],
+          "excluded_aliases": [
+            "Custom dining table"
+          ]
+        },
+        "location": {
+          "requirement": "REQUIRED",
+          "areas": [
+            {
+              "country_code": "IN",
+              "locality": "Bengaluru",
+              "aliases": [
+                "Bangalore"
+              ]
+            }
+          ],
+          "excluded_areas": []
+        },
+        "budget": {
+          "requirement": "REQUIRED",
+          "currency": "INR",
+          "minimum": "3000"
+        },
+        "timeline": null
+      }
+    }
+  },
+  "base_enquiry": {
+    "interest": {
+      "state": "KNOWN",
+      "value": "Custom dining table",
+      "provenance": {
+        "assertion": "CUSTOMER_STATED",
+        "source_type": "MANUAL",
+        "source_reference": "Synthetic recorded customer enquiry",
+        "observed_at": "2026-01-14T12:00:00.000Z"
+      }
+    },
+    "location": {
+      "state": "KNOWN",
+      "value": {
+        "country_code": "IN",
+        "locality": "Pune"
+      },
+      "provenance": {
+        "assertion": "CUSTOMER_STATED",
+        "source_type": "MANUAL",
+        "source_reference": "Synthetic recorded customer enquiry",
+        "observed_at": "2026-01-14T12:00:00.000Z"
+      }
+    },
+    "budget": {
+      "state": "KNOWN",
+      "value": {
+        "currency": "INR",
+        "minimum": "40000.00",
+        "maximum": "50000.00"
+      },
+      "provenance": {
+        "assertion": "CUSTOMER_STATED",
+        "source_type": "MANUAL",
+        "source_reference": "Synthetic recorded customer enquiry",
+        "observed_at": "2026-01-14T12:00:00.000Z"
+      }
+    },
+    "timeline": {
+      "state": "KNOWN",
+      "value": {
+        "description": "Requested delivery date",
+        "target_date": "2026-02-20"
+      },
+      "provenance": {
+        "assertion": "CUSTOMER_STATED",
+        "source_type": "MANUAL",
+        "source_reference": "Synthetic recorded customer enquiry",
+        "observed_at": "2026-01-14T12:00:00.000Z"
+      }
+    },
+    "enquiry_date": {
+      "state": "KNOWN",
+      "value": "2026-01-02",
+      "provenance": {
+        "assertion": "CUSTOMER_STATED",
+        "source_type": "MANUAL",
+        "source_reference": "Synthetic recorded customer enquiry",
+        "observed_at": "2026-01-14T12:00:00.000Z"
+      }
+    },
+    "last_interaction": {
+      "state": "KNOWN",
+      "value": "2026-01-02T12:00:00.000Z",
+      "provenance": {
+        "assertion": "CUSTOMER_STATED",
+        "source_type": "MANUAL",
+        "source_reference": "Synthetic recorded customer enquiry",
+        "observed_at": "2026-01-14T12:00:00.000Z"
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "matching",
+      "profile": "workshop",
+      "enquiry_patch": {},
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {
+          "interest": "MATCH",
+          "location": "MATCH",
+          "budget": "MATCH",
+          "timeline": "MATCH"
+        }
+      }
+    },
+    {
+      "id": "unknown_interest",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "interest": {
+          "state": "KNOWN",
+          "value": "A heritage family dining solution",
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "interest": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "id": "explicit_exclusion",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "interest": {
+          "state": "KNOWN",
+          "value": "Chair repair",
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "DOES_NOT_MATCH",
+        "band": "LOW",
+        "outcomes": {
+          "interest": "NOT_MATCH"
+        }
+      }
+    },
+    {
+      "id": "unknown_budget",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "budget": {
+          "state": "UNKNOWN",
+          "value": null,
+          "provenance": null
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "budget": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "id": "zero_budget",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "budget": {
+          "state": "KNOWN",
+          "value": {
+            "currency": "INR",
+            "minimum": "0",
+            "maximum": "0"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "DOES_NOT_MATCH",
+        "band": "LOW",
+        "outcomes": {
+          "budget": "NOT_MATCH"
+        }
+      }
+    },
+    {
+      "id": "threshold_equal",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "budget": {
+          "state": "KNOWN",
+          "value": {
+            "currency": "INR",
+            "minimum": "30000.00",
+            "maximum": "30000.00"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {
+          "budget": "MATCH"
+        }
+      }
+    },
+    {
+      "id": "one_minor_below",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "budget": {
+          "state": "KNOWN",
+          "value": {
+            "currency": "INR",
+            "minimum": "29999.99",
+            "maximum": "29999.99"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "DOES_NOT_MATCH",
+        "band": "LOW",
+        "outcomes": {
+          "budget": "NOT_MATCH"
+        }
+      }
+    },
+    {
+      "id": "range_above",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "budget": {
+          "state": "KNOWN",
+          "value": {
+            "currency": "INR",
+            "minimum": "30000",
+            "maximum": "50000"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {
+          "budget": "MATCH"
+        }
+      }
+    },
+    {
+      "id": "range_below",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "budget": {
+          "state": "KNOWN",
+          "value": {
+            "currency": "INR",
+            "minimum": "20000",
+            "maximum": "29999.99"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "DOES_NOT_MATCH",
+        "band": "LOW",
+        "outcomes": {
+          "budget": "NOT_MATCH"
+        }
+      }
+    },
+    {
+      "id": "range_crosses",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "budget": {
+          "state": "KNOWN",
+          "value": {
+            "currency": "INR",
+            "minimum": "29999.99",
+            "maximum": "30000"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "budget": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "id": "currency_unknown",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "budget": {
+          "state": "KNOWN",
+          "value": {
+            "currency": "USD",
+            "minimum": "100000",
+            "maximum": "100000"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "budget": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "id": "huge_exact_equal",
+      "profile": "huge",
+      "enquiry_patch": {
+        "budget": {
+          "state": "KNOWN",
+          "value": {
+            "currency": "INR",
+            "minimum": "9007199254740993.00",
+            "maximum": "9007199254740993.00"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {
+          "budget": "MATCH"
+        }
+      }
+    },
+    {
+      "id": "huge_one_minor_below",
+      "profile": "huge",
+      "enquiry_patch": {
+        "budget": {
+          "state": "KNOWN",
+          "value": {
+            "currency": "INR",
+            "minimum": "9007199254740992.99",
+            "maximum": "9007199254740992.99"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "DOES_NOT_MATCH",
+        "band": "LOW",
+        "outcomes": {
+          "budget": "NOT_MATCH"
+        }
+      }
+    },
+    {
+      "id": "location_no_country",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "location": {
+          "state": "KNOWN",
+          "value": {
+            "country_code": null,
+            "locality": "Pune"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "location": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "id": "location_different_country",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "location": {
+          "state": "KNOWN",
+          "value": {
+            "country_code": "US",
+            "locality": "Pune"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "DOES_NOT_MATCH",
+        "band": "LOW",
+        "outcomes": {
+          "location": "NOT_MATCH"
+        }
+      }
+    },
+    {
+      "id": "location_unmapped",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "location": {
+          "state": "KNOWN",
+          "value": {
+            "country_code": "IN",
+            "locality": "Chennai"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "location": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "id": "location_excluded",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "location": {
+          "state": "KNOWN",
+          "value": {
+            "country_code": "IN",
+            "locality": "Mumbai"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "DOES_NOT_MATCH",
+        "band": "LOW",
+        "outcomes": {
+          "location": "NOT_MATCH"
+        }
+      }
+    },
+    {
+      "id": "approved_alias",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "interest": {
+          "state": "KNOWN",
+          "value": "  dining   TABLE  ",
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        },
+        "location": {
+          "state": "KNOWN",
+          "value": {
+            "country_code": "IN",
+            "locality": "PUNA"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {
+          "interest": "MATCH",
+          "location": "MATCH"
+        }
+      }
+    },
+    {
+      "id": "country_rule",
+      "profile": "country",
+      "enquiry_patch": {
+        "location": {
+          "state": "KNOWN",
+          "value": {
+            "country_code": "IN",
+            "locality": "Delhi"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {
+          "location": "MATCH"
+        }
+      }
+    },
+    {
+      "id": "preference_unknown",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "timeline": {
+          "state": "KNOWN",
+          "value": {
+            "description": "Requested delivery date",
+            "target_date": null
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {
+          "timeline": "UNKNOWN"
+        },
+        "ranking_incomplete": true
+      }
+    },
+    {
+      "id": "preference_outside",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "timeline": {
+          "state": "KNOWN",
+          "value": {
+            "description": "Requested delivery date",
+            "target_date": "2026-01-31"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {
+          "timeline": "NOT_MATCH"
+        },
+        "preferred_matches": 0,
+        "ranking_incomplete": false
+      }
+    },
+    {
+      "id": "required_date_before",
+      "profile": "deadline",
+      "enquiry_patch": {
+        "timeline": {
+          "state": "KNOWN",
+          "value": {
+            "description": "Requested delivery date",
+            "target_date": "2026-01-31"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "DOES_NOT_MATCH",
+        "band": "LOW",
+        "outcomes": {
+          "timeline": "NOT_MATCH"
+        }
+      }
+    },
+    {
+      "id": "required_date_first",
+      "profile": "deadline",
+      "enquiry_patch": {
+        "timeline": {
+          "state": "KNOWN",
+          "value": {
+            "description": "Requested delivery date",
+            "target_date": "2026-02-01"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {
+          "timeline": "MATCH"
+        }
+      }
+    },
+    {
+      "id": "required_date_last",
+      "profile": "deadline",
+      "enquiry_patch": {
+        "timeline": {
+          "state": "KNOWN",
+          "value": {
+            "description": "Requested delivery date",
+            "target_date": "2026-03-31"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {
+          "timeline": "MATCH"
+        }
+      }
+    },
+    {
+      "id": "stale_interest",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "interest": {
+          "state": "KNOWN",
+          "value": "Custom dining table",
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2025-09-01T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "interest": "NEEDS_REVIEW"
+        }
+      }
+    },
+    {
+      "id": "undated_interest",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "interest": {
+          "state": "KNOWN",
+          "value": "Custom dining table",
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": null
+          }
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "interest": "NEEDS_REVIEW"
+        }
+      }
+    },
+    {
+      "id": "future_interest",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "interest": {
+          "state": "KNOWN",
+          "value": "Custom dining table",
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-16T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "interest": "NEEDS_REVIEW"
+        }
+      }
+    },
+    {
+      "id": "inferred_interest",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "interest": {
+          "state": "KNOWN",
+          "value": "Custom dining table",
+          "provenance": {
+            "assertion": "INFERRED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "interest": "NEEDS_REVIEW"
+        }
+      }
+    },
+    {
+      "id": "conflicted_interest",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "interest": {
+          "state": "CONFLICTED",
+          "alternatives": [
+            {
+              "value": "Custom dining table",
+              "provenance": {
+                "assertion": "CUSTOMER_STATED",
+                "source_type": "MANUAL",
+                "source_reference": "Synthetic recorded customer enquiry",
+                "observed_at": "2026-01-14T12:00:00.000Z"
+              }
+            },
+            {
+              "value": "Chair repair",
+              "provenance": {
+                "assertion": "CUSTOMER_STATED",
+                "source_type": "MANUAL",
+                "source_reference": "Synthetic recorded customer enquiry",
+                "observed_at": "2026-01-14T12:00:00.000Z"
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "interest": "NEEDS_REVIEW"
+        }
+      }
+    },
+    {
+      "id": "unrelated_unknown",
+      "profile": "interest_only",
+      "enquiry_patch": {
+        "budget": {
+          "state": "UNKNOWN",
+          "value": null,
+          "provenance": null
+        },
+        "location": {
+          "state": "UNKNOWN",
+          "value": null,
+          "provenance": null
+        },
+        "timeline": {
+          "state": "UNKNOWN",
+          "value": null,
+          "provenance": null
+        },
+        "enquiry_date": {
+          "state": "UNKNOWN",
+          "value": null,
+          "provenance": null
+        },
+        "last_interaction": {
+          "state": "UNKNOWN",
+          "value": null,
+          "provenance": null
+        }
+      },
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {
+          "interest": "MATCH"
+        }
+      }
+    },
+    {
+      "id": "unconfigured",
+      "profile": "none",
+      "enquiry_patch": {},
+      "expected": {
+        "status": "NOT_CONFIGURED",
+        "band": "UNASSESSED",
+        "outcomes": {}
+      }
+    },
+    {
+      "id": "unassessed_required_note",
+      "profile": "notes",
+      "enquiry_patch": {},
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {}
+      }
+    },
+    {
+      "id": "unassessed_preference_note",
+      "profile": "preferences",
+      "enquiry_patch": {},
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {},
+        "ranking_incomplete": true
+      }
+    },
+    {
+      "id": "negated_phrase",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "interest": {
+          "state": "KNOWN",
+          "value": "Not a custom dining table",
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "interest": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "id": "unmapped_language",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "interest": {
+          "state": "KNOWN",
+          "value": "???? ???? ?? ???? ?????",
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "NEEDS_REVIEW",
+        "band": "REVIEW",
+        "outcomes": {
+          "interest": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "id": "repair_business_match",
+      "profile": "repairs",
+      "enquiry_patch": {
+        "interest": {
+          "state": "KNOWN",
+          "value": "Chair repair",
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        },
+        "location": {
+          "state": "KNOWN",
+          "value": {
+            "country_code": "IN",
+            "locality": "Bangalore"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        },
+        "budget": {
+          "state": "KNOWN",
+          "value": {
+            "currency": "INR",
+            "minimum": "5000",
+            "maximum": "5000"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "MATCHES_CRITERIA",
+        "band": "MATCHING",
+        "outcomes": {
+          "interest": "MATCH",
+          "location": "MATCH",
+          "budget": "MATCH"
+        }
+      }
+    },
+    {
+      "id": "repair_against_table_business",
+      "profile": "workshop",
+      "enquiry_patch": {
+        "interest": {
+          "state": "KNOWN",
+          "value": "Chair repair",
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        },
+        "location": {
+          "state": "KNOWN",
+          "value": {
+            "country_code": "IN",
+            "locality": "Bangalore"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        },
+        "budget": {
+          "state": "KNOWN",
+          "value": {
+            "currency": "INR",
+            "minimum": "5000",
+            "maximum": "5000"
+          },
+          "provenance": {
+            "assertion": "CUSTOMER_STATED",
+            "source_type": "MANUAL",
+            "source_reference": "Synthetic recorded customer enquiry",
+            "observed_at": "2026-01-14T12:00:00.000Z"
+          }
+        }
+      },
+      "expected": {
+        "status": "DOES_NOT_MATCH",
+        "band": "LOW",
+        "outcomes": {
+          "interest": "NOT_MATCH",
+          "budget": "NOT_MATCH"
+        }
+      }
+    }
+  ],
+  "ranking_cohort": [
+    {
+      "lead_id": "a",
+      "case_id": "matching",
+      "lead": {
+        "name": "Recorded person",
+        "company": null,
+        "email": "person@example.test",
+        "phone": null
+      },
+      "last_recorded_at": "2026-01-02T12:00:00.000Z",
+      "expected_rank": 1
+    },
+    {
+      "lead_id": "b",
+      "case_id": "preference_outside",
+      "lead": {
+        "name": "Recorded person",
+        "company": "Recorded company",
+        "email": "person@example.test",
+        "phone": "+919876543210"
+      },
+      "last_recorded_at": "2026-01-12T12:00:00.000Z",
+      "expected_rank": 2
+    },
+    {
+      "lead_id": "c",
+      "case_id": "unknown_interest",
+      "lead": {
+        "name": "Recorded person",
+        "company": "Recorded company",
+        "email": "person@example.test",
+        "phone": "+919876543210"
+      },
+      "last_recorded_at": "2026-01-15T11:00:00.000Z",
+      "expected_rank": 3
+    },
+    {
+      "lead_id": "d",
+      "case_id": "explicit_exclusion",
+      "lead": {
+        "name": "Recorded person",
+        "company": "Recorded company",
+        "email": "person@example.test",
+        "phone": "+919876543210"
+      },
+      "last_recorded_at": "2026-01-14T12:00:00.000Z",
+      "expected_rank": 4
+    }
+  ],
+  "expected_order": [
+    "a",
+    "b",
+    "c",
+    "d"
+  ],
+  "expected_recency_order": [
+    "c",
+    "d",
+    "b",
+    "a"
+  ],
+  "expected_readiness_order": [
+    "b",
+    "c",
+    "d",
+    "a"
+  ]
+}

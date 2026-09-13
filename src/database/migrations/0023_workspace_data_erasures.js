@@ -1,0 +1,5 @@
+export const id="0023_workspace_data_erasures";
+export async function up(db){
+ const bytes=db.kind==="postgres"?"octet_length(erased_counts_json)":"length(CAST(erased_counts_json AS BLOB))";
+ await db.exec("CREATE TABLE workspace_data_erasures(id TEXT PRIMARY KEY,organization_id TEXT NOT NULL REFERENCES organizations(id),request_key TEXT NOT NULL CHECK(length(request_key) BETWEEN 1 AND 200),request_hash TEXT NOT NULL CHECK(length(request_hash)=64),inventory_version INTEGER NOT NULL CHECK(inventory_version=CAST(inventory_version AS INTEGER) AND inventory_version=1),plan_hash TEXT NOT NULL CHECK(length(plan_hash)=64),erased_counts_json TEXT NOT NULL CHECK("+bytes+" BETWEEN 2 AND 32768),retained_suppression_count INTEGER NOT NULL CHECK(retained_suppression_count=CAST(retained_suppression_count AS INTEGER) AND retained_suppression_count BETWEEN 0 AND 50000),completed_at TEXT NOT NULL,completed_by TEXT NOT NULL,UNIQUE(organization_id,id),UNIQUE(organization_id,request_key),FOREIGN KEY(organization_id,completed_by) REFERENCES users(organization_id,id)); CREATE INDEX idx_workspace_erasure_history ON workspace_data_erasures(organization_id,completed_at DESC,id);");
+}

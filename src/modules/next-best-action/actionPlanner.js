@@ -1,12 +1,20 @@
+import { buildGroundedContext, GROUNDING_VERSION } from "../ai/grounding.js";
 import { NEXT_BEST_ACTION_TYPES } from "./nextBestActionContract.js";
 
 export class ActionPlanner {
-  plan({ intelligenceRecommendation, policyDecision }) {
+  plan({ lead, snapshot, intelligenceRecommendation, policyDecision }) {
+    const context = buildGroundedContext({ lead, snapshot });
+    if (intelligenceRecommendation.organization_id !== lead.organization_id ||
+        intelligenceRecommendation.lead_id !== lead.id || intelligenceRecommendation.snapshot_id !== snapshot.id ||
+        !Array.isArray(intelligenceRecommendation.evidence_refs) || !intelligenceRecommendation.evidence_refs.length ||
+        intelligenceRecommendation.evidence_refs.some((ref) => !context.evidenceRefs.includes(ref))) {
+      throw new Error("Grounding input rejected: recommendation references. Review the source data.");
+    }
     const actionType = actionTypeFor(intelligenceRecommendation.recommendation?.step);
     return {
       action_type: actionType,
       title: titleFor(actionType),
-      rationale: intelligenceRecommendation.recommendation?.reason || "Next step is derived from Lead Intelligence.",
+      rationale: "Plan follows the recorded recommendation and application policy. No new lead facts or operating promises are inferred.",
       policy_decision: {
         decision: policyDecision.decision,
         reasons: policyDecision.reasons
@@ -16,7 +24,8 @@ export class ActionPlanner {
       execution_contract: {
         executable: false,
         reason: "M3 creates a policy-checked plan only. M4/M5 own execution and approval workflows.",
-        future_action_type: actionType
+        future_action_type: actionType,
+        generation: { mode: "DETERMINISTIC_EXTRACTIVE", grounding_version: GROUNDING_VERSION }
       }
     };
   }

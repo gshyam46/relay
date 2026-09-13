@@ -1,4 +1,13 @@
+import { loadConfig } from "../config.js";
+import { buildPostgresOptions, databasePolicyError } from "./connectionPolicy.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { splitStatements, toPositionalPlaceholders } from "./sql.js";
+
+const SAFE_POOL_ERROR_CODES = new Set([
+  "08000", "08001", "08003", "08004", "08006", "08007", "08P01",
+  "57P01", "57P02", "57P03", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT",
+  "EPIPE", "ENOTFOUND", "EAI_AGAIN"
+]);
 
 /**
  * PostgreSQL implementation of the DatabaseClient contract, used for Supabase
@@ -8,18 +17,37 @@ import { splitStatements, toPositionalPlaceholders } from "./sql.js";
  *
  *  1. Placeholders. Repositories write SQLite-style `?`; this client rewrites
  *     them to `$1..$n` (see `sql.js`).
- *  2. Numeric types. `pg` returns BIGINT (`COUNT(*)`) and NUMERIC (`SUM(...)`)
- *     as JavaScript strings to avoid precision loss. Every such value in this
- *     application is a small counter or aggregate that the API serialises as a
- *     number and the frontend does arithmetic on, so both are parsed to Number
- *     to match SQLite's behaviour exactly. Without this, `COUNT(*)` would arrive
- *     as "12" on Postgres and 12 on SQLite and every dashboard total would
- *     silently become string concatenation.
+ *  2. Legacy numeric compatibility. BIGINT/NUMERIC currently map to Number
+ *     because existing dashboard counts and sums expect numeric responses.
+ *     This can lose precision for large integers and exact decimals. Do not
+ *     use this parser as an amount/currency contract; exact monetary/usage
+ *     representation and precision tests remain documented follow-up work.
  */
 export class PostgresDatabaseClient {
+  #pool;
+  #context = new AsyncLocalStorage();
+  #operations = new Set();
+  #closing = false;
+  #closed = false;
+  #closePromise;
+
   constructor(pool) {
     this.kind = "postgres";
-    this.pool = pool;
+    this.#pool = pool;
+    // Surface pool-level failures (a dropped idle connection, a server restart)
+    // instead of letting them reach the process as an unhandled 'error' event,
+    // which would take the whole server down.
+    pool.on?.("error", (error) => {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          event: "database.pool_error",
+          message: "Database pool connection failed; inspect connectivity and database health.",
+          code: SAFE_POOL_ERROR_CODES.has(error?.code) ? error.code : "DATABASE_POOL_ERROR",
+          time: new Date().toISOString()
+        })
+      );
+    });
   }
 
   /**
@@ -29,7 +57,15 @@ export class PostgresDatabaseClient {
    * development, the test suite, CI) never load the driver and never need it
    * installed for anything to work.
    */
-  static async connect({ connectionString, ssl = true, maxConnections = 10, connectionTimeoutMillis = 10000 }) {
+  static async connect(config) {
+    const currentConfig = loadConfig();
+    if (currentConfig._pgEnvironmentPresent) throw databasePolicyError();
+    const currentEnvironment = currentConfig.env;
+    const environment = ["staging", "production", "invalid"].includes(currentEnvironment)
+      ? currentEnvironment : config?.environment ?? currentEnvironment;
+    if (["staging", "production"].includes(environment) && currentConfig._globalTlsDisabled) throw databasePolicyError("DATABASE_TLS_REQUIRED");
+    // Refuse unsafe configuration before driver import or socket creation.
+    const poolOptions = buildPostgresOptions({ ...config, environment });
     let pg;
     try {
       pg = (await import("pg")).default;
@@ -45,149 +81,216 @@ export class PostgresDatabaseClient {
     pg.types.setTypeParser(20, (value) => (value === null ? null : Number(value)));
     pg.types.setTypeParser(1700, (value) => (value === null ? null : Number(value)));
 
-    const pool = new pg.Pool({
-      connectionString,
-      max: maxConnections,
-      connectionTimeoutMillis,
-      // Supabase (and most managed Postgres) terminate TLS with a certificate
-      // chain that is not in Node's default trust store for the pooler
-      // hostname. Verification is therefore relaxed while the transport stays
-      // encrypted. `DATABASE_SSL=disable` turns TLS off entirely for a local
-      // Postgres container.
-      ssl: ssl ? { rejectUnauthorized: false } : false
-    });
-
-    // Surface pool-level failures (a dropped idle connection, a server restart)
-    // instead of letting them reach the process as an unhandled 'error' event,
-    // which would take the whole server down.
-    pool.on("error", (error) => {
-      console.error(
-        JSON.stringify({
-          level: "error",
-          event: "database.pool_error",
-          message: error.message,
-          time: new Date().toISOString()
-        })
-      );
-    });
+    const pool = new pg.Pool(poolOptions);
 
     const client = new PostgresDatabaseClient(pool);
-    await client.get("SELECT 1");
-    return client;
+    try {
+      await client.get("SELECT 1");
+      return client;
+    } catch (error) {
+      try { await pool.end(); } catch { /* Preserve the connection failure. */ }
+      throw error;
+    }
   }
 
   async exec(sql) {
-    // `pg` accepts multi-statement scripts only through the simple query
-    // protocol, which is exactly what a parameterless `query()` call uses.
-    await this.pool.query(sql);
+    return this.#perform(() => this.#pool.query(sql).then(() => undefined));
   }
 
   async run(sql, params = []) {
-    const result = await this.pool.query(toPositionalPlaceholders(sql), params);
-    return { changes: result.rowCount };
+    return this.#perform(async () => {
+      const result = await this.#pool.query(toPositionalPlaceholders(sql), params);
+      return { changes: result.rowCount };
+    });
   }
 
   async get(sql, params = []) {
-    const result = await this.pool.query(toPositionalPlaceholders(sql), params);
-    return result.rows[0];
+    return this.#perform(async () => {
+      const result = await this.#pool.query(toPositionalPlaceholders(sql), params);
+      return result.rows[0];
+    });
   }
 
   async all(sql, params = []) {
-    const result = await this.pool.query(toPositionalPlaceholders(sql), params);
-    return result.rows;
+    return this.#perform(async () => {
+      const result = await this.#pool.query(toPositionalPlaceholders(sql), params);
+      return result.rows;
+    });
   }
 
   async columnExists(tableName, columnName) {
-    const row = await this.get(
-      `SELECT 1 AS present
-         FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = ?
-          AND column_name = ?`,
-      [tableName, columnName]
-    );
-    return Boolean(row);
+    return Boolean(await this.get(COLUMN_EXISTS_SQL, [tableName, columnName]));
   }
 
   /**
-   * Runs `work` inside a transaction on a single pooled connection.
-   *
-   * The callback receives a client bound to that one connection, so every
-   * statement it issues participates in the transaction. Statements issued
-   * against the outer client during `work` would take a different connection and
-   * would NOT be transactional — callers must use the client they are given.
+   * Pins one connection and invokes work exactly once. Only the supplied tx
+   * client may be used inside work. No implicit nesting or callback retry.
+   * An operation error aborts the unit even if work catches that error.
    */
   async transaction(work) {
-    const connection = await this.pool.connect();
-    const scoped = new PostgresConnectionClient(connection);
-    try {
-      await connection.query("BEGIN");
-      const result = await work(scoped);
-      await connection.query("COMMIT");
-      return result;
-    } catch (error) {
+    if (typeof work !== "function") throw new TypeError("Transaction work must be a function.");
+    return this.#perform(async () => {
+      const connection = await this.#pool.connect();
+      const state = { active: true, failure: null, pending: new Set() };
+      const tx = new PostgresTransactionClient(connection, state, this.#context);
+      Object.defineProperty(tx, 'rootDatabase', { value: this, enumerable: false, writable: false });
+      let begun = false;
+      let commitStarted = false;
+      let releaseError;
+      let primaryError;
       try {
-        await connection.query("ROLLBACK");
-      } catch {
-        // A failed rollback must not mask the original error.
+        await connection.query("BEGIN");
+        begun = true;
+        let result;
+        try {
+          result = await this.#context.run(state, () => work(tx));
+        } finally {
+          state.active = false;
+        }
+        await Promise.allSettled([...state.pending]);
+        if (state.failure) throw state.failure;
+        commitStarted = true;
+        await connection.query("COMMIT");
+        return result;
+      } catch (error) {
+        primaryError = error;
+        state.active = false;
+        await Promise.allSettled([...state.pending]);
+        if (!begun || commitStarted) releaseError = error;
+        if (begun) {
+          try {
+            await connection.query("ROLLBACK");
+          } catch (rollbackError) {
+            releaseError = rollbackError;
+          }
+        }
+        throw error;
+      } finally {
+        state.active = false;
+        try {
+          // pg destroys a released connection when passed an error.
+          connection.release(releaseError);
+        } catch (error) {
+          if (!primaryError) throw error;
+        }
       }
-      throw error;
-    } finally {
-      connection.release();
-    }
+    });
   }
 
   async close() {
-    await this.pool.end();
+    this.#assertOuterContext();
+    if (this.#closePromise) return this.#closePromise;
+    this.#closing = true;
+    this.#closePromise = (async () => {
+      await Promise.allSettled([...this.#operations]);
+      try {
+        await this.#pool.end();
+      } finally {
+        this.#closed = true;
+      }
+    })();
+    return this.#closePromise;
   }
-}
 
-/**
- * The same contract, pinned to one checked-out connection, so that everything a
- * `transaction()` callback runs lands inside that transaction.
- */
-class PostgresConnectionClient {
-  constructor(connection) {
-    this.kind = "postgres";
-    this.connection = connection;
-  }
-
-  async exec(sql) {
-    for (const statement of splitStatements(sql)) {
-      await this.connection.query(statement);
+  #assertOuterContext() {
+    if (this.#context.getStore()) {
+      throw new Error("Use the transaction-scoped client inside transaction work; outer database access is forbidden.");
     }
   }
 
+  #perform(work) {
+    this.#assertOuterContext();
+    if (this.#closing || this.#closed) throw new Error("Database client is closed.");
+    const operation = Promise.resolve().then(work);
+    this.#operations.add(operation);
+    operation.then(
+      () => this.#operations.delete(operation),
+      () => this.#operations.delete(operation)
+    );
+    return operation;
+  }
+}
+
+const COLUMN_EXISTS_SQL = `SELECT 1 AS present
+  FROM information_schema.columns
+  WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`;
+
+/** A handle valid only in the callback's async context and lifetime. */
+class PostgresTransactionClient {
+  #connection;
+  #state;
+  #context;
+
+  constructor(connection, state, context) {
+    this.transactionBound = true;
+    this.kind = "postgres";
+    this.#connection = connection;
+    this.#state = state;
+    this.#context = context;
+  }
+
+  async exec(sql) {
+    return this.#perform(async () => {
+      for (const statement of splitStatements(sql)) {
+        await this.#connection.query(statement);
+      }
+    });
+  }
+
   async run(sql, params = []) {
-    const result = await this.connection.query(toPositionalPlaceholders(sql), params);
-    return { changes: result.rowCount };
+    return this.#perform(async () => {
+      const result = await this.#connection.query(toPositionalPlaceholders(sql), params);
+      return { changes: result.rowCount };
+    });
   }
 
   async get(sql, params = []) {
-    const result = await this.connection.query(toPositionalPlaceholders(sql), params);
-    return result.rows[0];
+    return this.#perform(async () => {
+      const result = await this.#connection.query(toPositionalPlaceholders(sql), params);
+      return result.rows[0];
+    });
   }
 
   async all(sql, params = []) {
-    const result = await this.connection.query(toPositionalPlaceholders(sql), params);
-    return result.rows;
+    return this.#perform(async () => {
+      const result = await this.#connection.query(toPositionalPlaceholders(sql), params);
+      return result.rows;
+    });
   }
 
   async columnExists(tableName, columnName) {
-    const row = await this.get(
-      `SELECT 1 AS present
-         FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = ?
-          AND column_name = ?`,
-      [tableName, columnName]
-    );
-    return Boolean(row);
+    return Boolean(await this.get(COLUMN_EXISTS_SQL, [tableName, columnName]));
   }
 
-  async transaction(work) {
-    // Already inside one — Postgres would need SAVEPOINTs for true nesting, and
-    // nothing in this codebase nests transactions.
-    return work(this);
+  async transaction() {
+    this.#assertActive();
+    throw new Error("Nested transactions are not supported; compose work with the existing transaction-scoped client.");
+  }
+
+  async close() {
+    this.#assertActive();
+    throw new Error("A transaction-scoped client cannot close its database.");
+  }
+
+  #assertActive() {
+    if (!this.#state.active) throw new Error("Transaction-scoped client is closed.");
+    if (this.#context.getStore() !== this.#state) {
+      throw new Error("Transaction-scoped client used outside its owning transaction context.");
+    }
+  }
+
+  #perform(work) {
+    this.#assertActive();
+    if (this.#state.failure) throw this.#state.failure;
+    const operation = Promise.resolve().then(work);
+    this.#state.pending.add(operation);
+    operation.then(
+      () => this.#state.pending.delete(operation),
+      (error) => {
+        this.#state.failure ??= error;
+        this.#state.pending.delete(operation);
+      }
+    );
+    return operation;
   }
 }

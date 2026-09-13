@@ -1,22 +1,25 @@
+import { reviewContextRevisions } from "../lead-intelligence/businessFitAuthority.js";
+import { evaluateFreshness } from "../lead-intelligence/freshnessService.js";
+import { leadDataRevision } from "../data-foundation/leadDataSafety.js";
+import { PreparedActionService } from "../outbound-automation/preparedActionService.js";
+import { loadLeadBusinessContext } from "../business-context/businessContextRepository.js";
+import { hasAmbiguousReplySinceInTransaction } from "./ambiguousInboundSafety.js";
+import { LocalReplyClassifier } from "./replyClassifier.js";
+import { InboundMessageService } from "./inboundMessageService.js";
+import { assertWorkspaceTransaction } from "../contact-policy/contactPolicyService.js";
+import { FollowUpsRepository } from "./followUpsRepository.js";
+import { ChannelMessagesRepository } from "./channelMessagesRepository.js";
+import { ExecutionsRepository } from "../outbound-automation/executionsRepository.js";
+import { ActionsRepository } from "../outbound-automation/actionsRepository.js";
+import { fingerprint } from "../outbound-automation/preparedActionContract.js";
+import { AuditRepository } from "../events/auditRepository.js";
 import {
   CHANNEL_DIRECTION,
   CHANNEL_MESSAGE_STATUS,
   CHANNEL_TYPES,
   FOLLOW_UP_STATUS,
-  INBOUND_EVENT_TYPES,
-  channelForActionType,
-  validateChannel,
-  validateInboundEventType
+  channelForActionType
 } from "./channelContract.js";
-import { normalizeEmail, normalizePhone, normalizeString } from "../data-foundation/normalization.js";
-import { nowIso } from "../../shared/time.js";
-
-const CHANNEL_LEAD_SOURCE = {
-  EMAIL: "EMAIL",
-  WHATSAPP: "WHATSAPP",
-  SMS: "SMS",
-  VOICE: "VOICE"
-};
 
 export class ChannelWorkflowService {
   constructor({
@@ -29,8 +32,11 @@ export class ChannelWorkflowService {
     workflowService = null,
     replyClassifier = null,
     eventsRepository = null,
-    intelligenceService = null
+    intelligenceService = null,
+    contactPolicyService = null,
+    now = Date.now
   }) {
+    this.now = now;
     this.leadsRepository = leadsRepository;
     this.actionsRepository = actionsRepository;
     this.channelMessagesRepository = channelMessagesRepository;
@@ -41,6 +47,12 @@ export class ChannelWorkflowService {
     this.replyClassifier = replyClassifier;
     this.eventsRepository = eventsRepository;
     this.intelligenceService = intelligenceService;
+    this.contactPolicyService = contactPolicyService;
+    this.localReplyClassifier = new LocalReplyClassifier();
+    this.inboundMessageService = new InboundMessageService({
+      db: leadsRepository.db, replyClassifier, localReplyClassifier: this.localReplyClassifier,
+      contactPolicyService, workflowService, intelligenceService, eventsRepository, auditRepository
+    });
   }
 
   availableChannels() {
@@ -56,245 +68,141 @@ export class ChannelWorkflowService {
     };
   }
 
-  async recordOutboundExecutionAttempt({ action, payload, attempt, result, execution }) {
+  async recordOutboundExecutionAttempt({ action, payload, attempt, result, execution, approvedDispatch = null }) {
     const channel = channelForActionType(action.type);
-    const status = result.ok
-      ? channel === CHANNEL_TYPES.HUMAN_TASK
-        ? CHANNEL_MESSAGE_STATUS.QUEUED
-        : CHANNEL_MESSAGE_STATUS.SENT
-      : CHANNEL_MESSAGE_STATUS.FAILED;
-    const message = await this.channelMessagesRepository.create({
-      organization_id: action.organization_id,
-      lead_id: action.lead_id,
-      action_id: action.id,
-      direction: CHANNEL_DIRECTION.OUTBOUND,
-      channel,
-      status,
-      subject: payload.title || payload.reason || action.type,
-      body: outboundBody(payload),
-      summary: result.ok ? result.summary || outboundBody(payload) : result.error,
-      provider: result.provider || action.provider || "mock-channel",
-      provider_reference: result.provider_reference || null,
-      idempotency_key: `${execution.idempotency_key}:channel-message`,
-      payload: {
-        action_type: action.type,
-        attempt,
-        execution_id: execution.id,
-        mock_behavior: payload.mock_behavior || "SUCCESS",
-        plan_id: payload.plan_id || null
+    const isCustomerMessage = action.type.startsWith("SEND_");
+    const envelope = approvedDispatch?.envelope;
+    if (isCustomerMessage && (!envelope || envelope.organization_id !== action.organization_id
+      || envelope.action_id !== action.id || envelope.action_type !== action.type || envelope.channel !== channel)) {
+      throw validationError("An exact captured dispatch envelope is required to record this outbound message.");
+    }
+    const renderedBody = envelope ? envelope.body : outboundBody(payload);
+    return this.#contactPolicy().withWorkspacePolicyTransaction(action.organization_id, async (tx) => {
+      const persistedAction = await new ActionsRepository(tx).getActionForOrganization(action.id, action.organization_id);
+      if (!persistedAction || persistedAction.lead_id !== action.lead_id || persistedAction.type !== action.type) {
+        throw validationError("Outbound message must identify its persisted workspace action.");
       }
-    });
-    await this.auditRepository?.record({
-      organization_id: action.organization_id,
-      lead_id: action.lead_id,
-      action_id: action.id,
-      event_type: result.ok ? "ChannelMessageStarted" : "ChannelMessageFailed",
-      message: result.ok ? "Outbound activity recorded through the channel boundary." : "Outbound channel attempt failed.",
-      metadata: { channel, message_id: message.id, attempt }
-    });
-    return message;
-  }
-
-  async recordExecutionCallback({ action, callback, status, provider_reference = null }) {
-    const message = await this.channelMessagesRepository.latestOutboundForAction(action.id, action.organization_id);
-    let updatedMessage = message;
-    if (message) {
-      updatedMessage = await this.channelMessagesRepository.updateStatus(
-        message.id,
-        status === "COMPLETED" ? CHANNEL_MESSAGE_STATUS.DELIVERED : CHANNEL_MESSAGE_STATUS.FAILED,
-        {
-          provider_reference,
-          // Keep the original send-time summary (e.g. a mock voice transcript) instead of
-          // clobbering it with a generic message; only failures get an explicit note.
-          summary: status === "COMPLETED" ? null : "Outbound activity failed."
-        }
-      );
-    }
-    const followUp = status === "COMPLETED" ? await this.scheduleNoResponseFollowUp(action) : null;
-    return { message: updatedMessage, follow_up: followUp, callback };
-  }
-
-  async receiveInboundEvent({
-    organization_id,
-    lead_id = null,
-    contact = null,
-    channel,
-    provider = "mock-channel",
-    provider_event_id,
-    event_type = null,
-    payload = {}
-  }) {
-    if (!validateChannel(channel)) {
-      throw validationError("channel is invalid.");
-    }
-
-    let classification = null;
-    let resolvedEventType = event_type;
-    if (!resolvedEventType) {
-      if (!this.replyClassifier) {
-        throw validationError("event_type is required (no reply classifier configured).");
+      const recordedExecution = await new ExecutionsRepository(tx).getExecution(execution.id);
+      if (!recordedExecution || recordedExecution.action_id !== action.id) {
+        throw validationError("Outbound message must identify its persisted action execution.");
       }
-      if (!payload.text) {
-        throw validationError("payload.text is required to auto-classify a reply when event_type is omitted.");
-      }
-      classification = await this.replyClassifier.classify(payload.text);
-      resolvedEventType = classification.event_type;
-    }
-    if (!validateInboundEventType(resolvedEventType)) {
-      throw validationError("event_type is invalid.");
-    }
-
-    const { lead, created: leadCreated } = await this.#resolveOrCreateLead({ organization_id, lead_id, contact, channel });
-    lead_id = lead.id;
-
-    const { inbound_event: inboundEvent, duplicate } = await this.inboundEventsRepository.create({
-      organization_id,
-      lead_id,
-      channel,
-      provider,
-      provider_event_id,
-      event_type: resolvedEventType,
-      sentiment: sentimentForEvent(resolvedEventType),
-      confidence: classification?.confidence || null,
-      reason: classification?.reason || null,
-      suggested_next_step: classification?.suggested_next_step || null,
-      payload: classification ? { ...payload, classification } : payload
-    });
-    const summary = classification
-      ? `Classified as ${inboundEventLabel(resolvedEventType)} (${classification.confidence.toLowerCase()} confidence): ${classification.reason}`
-      : inboundEventSummary(resolvedEventType);
-    const message = await this.channelMessagesRepository.create({
-      organization_id,
-      lead_id,
-      inbound_event_id: inboundEvent.id,
-      direction: CHANNEL_DIRECTION.INBOUND,
-      channel,
-      status: CHANNEL_MESSAGE_STATUS.RECEIVED,
-      subject: inboundEventLabel(resolvedEventType),
-      body: payload.text || payload.transcript || payload.summary || null,
-      summary,
-      provider,
-      provider_event_id,
-      idempotency_key: `inbound:${provider_event_id}:message`,
-      classification_event_type: resolvedEventType,
-      classification_confidence: classification?.confidence || null,
-      suggested_next_step: classification?.suggested_next_step || null,
-      payload: { event_type: resolvedEventType, classification, payload }
-    });
-
-    const escalate = classification?.confidence === "LOW";
-    const followUp = duplicate
-      ? null
-      : await this.applyInboundEventToFollowUps({
-          lead,
-          inboundEvent,
-          event_type: resolvedEventType,
-          channel,
-          escalate,
-          suggestedNextStep: classification?.suggested_next_step || null
-        });
-    if (!duplicate && resolvedEventType === INBOUND_EVENT_TYPES.OPT_OUT) {
-      await this.leadsRepository.updateLeadStatus(lead.id, "OPTED_OUT");
-    } else if (!duplicate) {
-      await this.leadsRepository.updateLeadStatus(lead.id, "ACTIVE");
-    }
-    if (!duplicate) {
-      await this.auditRepository?.record({
-        organization_id,
-        lead_id,
-        event_type: "InboundEventReceived",
-        message: "Inbound channel event recorded.",
-        metadata: { channel, event_type: resolvedEventType, provider_event_id, message_id: message.id, classification }
-      });
-      // Two-part refresh, deliberately split by cost.
-      //
-      // The snapshot re-run is deterministic and cheap, so it happens inline and
-      // the reply shows up as a signal on the Intelligence tab immediately. It
-      // must never block the inbound write path, hence the catch — the same
-      // defensive posture the reply classifier takes toward its LLM call.
-      try {
-        await this.intelligenceService?.runForLead(await this.leadsRepository.getLead(lead.id));
-      } catch (error) {
-        console.error("Intelligence refresh after inbound reply failed:", error.message);
-      }
-
-      // Re-running synthesis -> recommendation -> next best action is the
-      // expensive half (and, with an LLM configured, involves network calls), so
-      // it goes on the domain event queue instead of inside a provider webhook.
-      // The worker retries it; a slow or failing re-analysis can never cause a
-      // provider to see a failed webhook and redeliver the reply.
-      await this.eventsRepository?.publish({
-        organization_id,
-        lead_id: lead.id,
-        type: "LeadReplyReceived",
+      // The provider callback may arrive before the adapter response is recorded.
+      // Read its persisted outcome under the same gate as callback message writes.
+      const status = recordedExecution.status === "COMPLETED"
+        ? channel === CHANNEL_TYPES.HUMAN_TASK ? CHANNEL_MESSAGE_STATUS.COMPLETED : CHANNEL_MESSAGE_STATUS.DELIVERED
+        : recordedExecution.status === "FAILED" ? CHANNEL_MESSAGE_STATUS.FAILED
+        : result.ok ? channel === CHANNEL_TYPES.HUMAN_TASK ? CHANNEL_MESSAGE_STATUS.QUEUED : CHANNEL_MESSAGE_STATUS.SENT
+        : CHANNEL_MESSAGE_STATUS.FAILED;
+      const message = await new ChannelMessagesRepository(tx).create({
+        organization_id: action.organization_id,
+        lead_id: action.lead_id,
+        action_id: action.id,
+        direction: CHANNEL_DIRECTION.OUTBOUND,
+        channel,
+        status,
+        subject: envelope ? envelope.subject : payload.title || payload.reason || action.type,
+        body: renderedBody,
+        summary: status === CHANNEL_MESSAGE_STATUS.FAILED
+          ? recordedExecution.error || result.error || "Outbound activity failed."
+          : result.summary || renderedBody,
+        provider: recordedExecution.provider || result.provider || action.provider || "mock-channel",
+        provider_reference: recordedExecution.provider_reference || result.provider_reference || null,
+        idempotency_key: `${recordedExecution.idempotency_key}:channel-message`,
         payload: {
-          lead_id: lead.id,
-          inbound_event_id: inboundEvent.id,
-          channel,
-          event_type: resolvedEventType,
-          confidence: classification?.confidence || null
+          action_type: action.type,
+          attempt,
+          execution_id: recordedExecution.id,
+          mock_behavior: payload.mock_behavior || "SUCCESS",
+          plan_id: payload.plan_id || null,
+          ...(envelope ? {
+            prepared_revision_id: approvedDispatch.revision_id,
+            envelope_hash: approvedDispatch.envelope_hash,
+            recipient: envelope.recipient,
+            sender: envelope.sender,
+            scheduled_at: envelope.scheduled_at
+          } : {})
         }
       });
-    }
-
-    return { inbound_event: inboundEvent, message, follow_up: followUp, duplicate, classification, lead, lead_created: leadCreated };
+      if (this.auditRepository) {
+        await new AuditRepository(tx).record({
+          organization_id: action.organization_id,
+          lead_id: action.lead_id,
+          action_id: action.id,
+          event_type: status === CHANNEL_MESSAGE_STATUS.FAILED ? "ChannelMessageFailed" : "ChannelMessageStarted",
+          message: status === CHANNEL_MESSAGE_STATUS.FAILED ? "Outbound channel attempt failed." : "Outbound activity recorded through the channel boundary.",
+          metadata: { channel, message_id: message.id, attempt }
+        });
+      }
+      return message;
+    });
   }
 
-  // Real inbound contact (an email/SMS/WhatsApp message or call from someone not yet a lead)
-  // should be capturable as a new lead, not just attachable to an existing one. Resolution order:
-  // explicit lead_id > match by normalized email/phone within the workspace > create a new lead.
-  async #resolveOrCreateLead({ organization_id, lead_id, contact, channel }) {
-    if (lead_id) {
-      const lead = await this.leadsRepository.getLead(lead_id);
-      if (!lead || lead.organization_id !== organization_id) {
-        throw notFoundError("Lead not found for workspace.");
+  async recordExecutionCallback(input) {
+    return this.#contactPolicy().withWorkspacePolicyTransaction(input.action.organization_id,
+      (tx) => this.recordExecutionCallbackInTransaction(tx, input));
+  }
+
+  async recordExecutionCallbackInTransaction(tx, { action, execution, callback, status,
+    provider_reference = null, allow_follow_up = true }) {
+    assertWorkspaceTransaction(tx, action.organization_id);
+    if (!execution || execution.action_id !== action.id) throw effectError("CALLBACK_IDENTITY_CONFLICT");
+    const current = await new ActionsRepository(tx).getActionForUpdate(action.id, action.organization_id);
+    const persisted = await new ExecutionsRepository(tx).getExecutionForOrganization(execution.id, action.organization_id);
+    if (!current || !persisted || current.active_execution_id !== persisted.id
+      || persisted.fence_token === null || Number(current.execution_fence) !== Number(persisted.fence_token)
+      || persisted.outcome_class === "CLOSED_UNRESOLVED" || persisted.status !== status) {
+      return { message: null, follow_up: null, callback, skipped: true, reason: "STALE_OR_TERMINAL_EXECUTION" };
+    }
+    const messages = new ChannelMessagesRepository(tx);
+    const messageKey = persisted.idempotency_key + ":channel-message";
+    let message = await messages.getByIdempotencyKey(action.organization_id, messageKey);
+    const channel = channelForActionType(current.type);
+    const messageStatus = status === "COMPLETED"
+      ? channel === CHANNEL_TYPES.HUMAN_TASK ? CHANNEL_MESSAGE_STATUS.COMPLETED : CHANNEL_MESSAGE_STATUS.DELIVERED
+      : CHANNEL_MESSAGE_STATUS.FAILED;
+    if (!message) {
+      const revision = await tx.get("SELECT * FROM action_revisions WHERE id = ? AND organization_id = ? AND action_id = ?",
+        [persisted.action_revision_id, action.organization_id, action.id]);
+      if (!revision) throw effectError(channel === CHANNEL_TYPES.HUMAN_TASK
+        ? "MISSING_IMMUTABLE_TASK_COPY" : "MISSING_IMMUTABLE_REVISION");
+      let envelope;
+      try { envelope = JSON.parse(revision.envelope_json); }
+      catch { throw effectError("CALLBACK_IMMUTABLE_COPY_INVALID"); }
+      if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)
+        || revision.content_hash !== persisted.envelope_hash || fingerprint(envelope) !== persisted.envelope_hash
+        || envelope.organization_id !== action.organization_id || envelope.action_id !== action.id
+        || envelope.action_type !== current.type || envelope.channel !== channel || typeof envelope.body !== "string") {
+        throw effectError("CALLBACK_IMMUTABLE_COPY_INVALID");
       }
-      return { lead, created: false };
+      message = await messages.create({
+        organization_id: action.organization_id, lead_id: current.lead_id, action_id: current.id,
+        direction: CHANNEL_DIRECTION.OUTBOUND, channel, status: messageStatus,
+        subject: envelope.subject, body: envelope.body,
+        summary: status === "COMPLETED" ? envelope.body : "Outbound activity failed.",
+        provider: persisted.provider, provider_reference: persisted.provider_reference || provider_reference,
+        idempotency_key: messageKey, occurred_at: persisted.dispatch_authorized_at || persisted.started_at,
+        payload: { action_type: current.type, attempt: persisted.attempt, execution_id: persisted.id,
+          prepared_revision_id: revision.id, envelope_hash: persisted.envelope_hash,
+          recipient: envelope.recipient, sender: envelope.sender, scheduled_at: envelope.scheduled_at }
+      });
+    } else {
+      if (message.action_id !== action.id || message.lead_id !== current.lead_id
+        || message.payload.execution_id !== persisted.id || message.direction !== CHANNEL_DIRECTION.OUTBOUND
+        || message.channel !== channel) throw effectError("CALLBACK_MESSAGE_IDENTITY_CONFLICT");
+      message = await messages.updateStatus(message.id, messageStatus,
+        { provider_reference, summary: status === "COMPLETED" ? null : "Outbound activity failed." });
     }
+    const followUpResult = status === "COMPLETED" && allow_follow_up
+      ? await this.scheduleNoResponseFollowUpInTransaction(tx, current, persisted)
+      : { follow_up: null, reason: "CALLBACK_NOT_APPLICABLE" };
+    return { message, follow_up: followUpResult.follow_up, callback,
+      follow_up_skipped_reason: followUpResult.reason || null, skipped: false };
+  }
 
-    if (!contact || (!contact.email && !contact.phone)) {
-      throw validationError("Either lead_id or contact.email/contact.phone is required.");
-    }
-
-    const email = normalizeEmail(contact.email);
-    if (contact.email && !email.valid) {
-      throw validationError("contact.email must be a valid email address.");
-    }
-    const phone = normalizePhone(contact.phone, "INTERNATIONAL_ONLY");
-    if (contact.phone && !phone.valid) {
-      throw validationError(phone.message || "contact.phone must be a valid international number.");
-    }
-
-    const existing =
-      await this.leadsRepository.findByNormalizedEmail(organization_id, email.value) ||
-      await this.leadsRepository.findByNormalizedPhone(organization_id, phone.normalized_phone);
-    if (existing) {
-      return { lead: existing, created: false };
-    }
-
-    const lead = await this.leadsRepository.createLead({
-      organization_id,
-      name: normalizeString(contact.name) || contact.email || contact.phone || "New inbound contact",
-      email: contact.email || null,
-      phone: contact.phone || null,
-      normalized_email: email.value,
-      normalized_phone: phone.normalized_phone,
-      source: CHANNEL_LEAD_SOURCE[channel] || "EXTERNAL_PROVIDER"
-    });
-    await this.eventsRepository?.publish({
-      organization_id: lead.organization_id,
-      lead_id: lead.id,
-      type: "LeadCreated",
-      payload: { lead_id: lead.id, source: lead.source }
-    });
-    await this.auditRepository?.record({
-      organization_id,
-      lead_id: lead.id,
-      event_type: "LeadCreated",
-      message: `New lead captured from inbound ${channel.toLowerCase()} contact.`,
-      metadata: { channel, source: lead.source }
-    });
-    return { lead, created: true };
+  async receiveInboundEvent(input) {
+    this.inboundMessageService.replyClassifier = this.replyClassifier;
+    if (this.webhookInbox) this.inboundMessageService.webhookInbox = this.webhookInbox;
+    return this.inboundMessageService.receiveInboundEvent(input);
   }
 
   async listLeadTimeline({ organization_id, lead_id }) {
@@ -316,6 +224,8 @@ export class ChannelWorkflowService {
       // separately, and the UI renders the classification as a badge.
       message: message.body || message.summary || "Channel activity recorded.",
       summary: message.summary || null,
+      original_text: typeof message.body === "string" ? message.body : null,
+      interpretation: message.interpretation,
       classification_event_type: message.classification_event_type || null,
       classification_confidence: message.classification_confidence || null,
       suggested_next_step: message.suggested_next_step || null,
@@ -346,84 +256,115 @@ export class ChannelWorkflowService {
     };
   }
 
-  async completeFollowUp({ organization_id, follow_up_id }) {
-    const followUp = await this.followUpsRepository.getForOrganization(follow_up_id, organization_id);
-    if (!followUp) {
-      throw notFoundError("Follow-up not found for workspace.");
-    }
-    if (followUp.status === FOLLOW_UP_STATUS.COMPLETED) {
-      return { follow_up: followUp, duplicate: true };
-    }
-    return {
-      follow_up: await this.followUpsRepository.complete(follow_up_id, organization_id),
-      duplicate: false
-    };
+  completeFollowUp(command) {
+    return this.#transitionFollowUp(command, FOLLOW_UP_STATUS.COMPLETED);
   }
 
-  async cancelFollowUp({ organization_id, follow_up_id }) {
-    const followUp = await this.followUpsRepository.getForOrganization(follow_up_id, organization_id);
-    if (!followUp) {
-      throw notFoundError("Follow-up not found for workspace.");
-    }
-    if (followUp.status === "CANCELLED") {
-      return { follow_up: followUp, duplicate: true };
-    }
-    return {
-      follow_up: await this.followUpsRepository.cancel(follow_up_id, organization_id),
-      duplicate: false
-    };
+  cancelFollowUp(command) {
+    return this.#transitionFollowUp(command, FOLLOW_UP_STATUS.CANCELLED);
   }
 
-  async scheduleNoResponseFollowUp(action) {
-    if (!["SEND_EMAIL", "SEND_WHATSAPP", "SEND_SMS"].includes(action.type)) {
-      return null;
-    }
-    return await this.followUpsRepository.create({
-      organization_id: action.organization_id,
-      lead_id: action.lead_id,
-      action_id: action.id,
-      channel: channelForActionType(action.type),
-      status: FOLLOW_UP_STATUS.PLANNED,
-      due_at: plusHours(48),
-      reason: "Follow up if no response is received.",
-      idempotency_key: `action:${action.id}:no-response-follow-up:v1`
+  async #transitionFollowUp({ organization_id, follow_up_id }, target) {
+    return this.#contactPolicy().withWorkspacePolicyTransaction(organization_id, async (tx) => {
+      const repository = new FollowUpsRepository(tx);
+      const current = await repository.getForOrganization(follow_up_id, organization_id);
+      if (!current) throw notFoundError("Follow-up not found for workspace.");
+      if (current.status === target) return { follow_up: current, duplicate: true };
+      const completed = target === FOLLOW_UP_STATUS.COMPLETED;
+      const followUp = completed
+        ? await repository.complete(follow_up_id, organization_id)
+        : await repository.cancel(follow_up_id, organization_id);
+      await new AuditRepository(tx).record({
+        organization_id, lead_id: current.lead_id, action_id: current.action_id,
+        event_type: completed ? "FollowUpCompleted" : "FollowUpCancelled",
+        message: completed ? "A human follow-up was completed." : "A human follow-up was cancelled.",
+        metadata: { follow_up_id, previous_status: current.status, status: target }
+      });
+      return { follow_up: followUp, duplicate: false };
     });
   }
 
-  async applyInboundEventToFollowUps({ lead, inboundEvent, event_type, channel, escalate = false, suggestedNextStep = null }) {
-    if ([INBOUND_EVENT_TYPES.POSITIVE_REPLY, INBOUND_EVENT_TYPES.NEGATIVE_REPLY, INBOUND_EVENT_TYPES.OPT_OUT].includes(event_type)) {
-      await this.followUpsRepository.cancelOpenForLead(lead.organization_id, lead.id);
-      await this.workflowService?.stopOpenRunsForLead({
-        organization_id: lead.organization_id,
-        lead_id: lead.id,
-        reason: inboundEventSummary(event_type)
-      });
-      return null;
-    }
-    if (event_type === INBOUND_EVENT_TYPES.QUESTION || event_type === INBOUND_EVENT_TYPES.UNKNOWN) {
-      // A reply the classifier couldn't confidently place gets escalated: same DUE follow-up
-      // mechanism, but flagged in the reason text so it surfaces as high-priority attention
-      // instead of blending in with routine question follow-ups.
-      const baseReason = escalate
-        ? "Escalated: could not automatically classify this reply — needs human review."
-        : event_type === INBOUND_EVENT_TYPES.QUESTION
-          ? "Answer the lead's question."
-          : "Review the inbound response.";
-      const reason = suggestedNextStep && !escalate ? `${baseReason} Suggested: ${suggestedNextStep}` : baseReason;
-      return await this.followUpsRepository.create({
-        organization_id: lead.organization_id,
-        lead_id: lead.id,
-        inbound_event_id: inboundEvent.id,
-        channel,
-        status: FOLLOW_UP_STATUS.DUE,
-        due_at: nowIso(),
-        reason,
-        idempotency_key: `inbound:${inboundEvent.id}:human-review-follow-up:v1`,
-        escalated: escalate
-      });
-    }
-    return null;
+  async scheduleNoResponseFollowUp(action, execution = null) {
+    return this.#contactPolicy().withWorkspacePolicyTransaction(action.organization_id, async (tx) =>
+      (await this.scheduleNoResponseFollowUpInTransaction(tx, action, execution)).follow_up);
   }
+
+  async scheduleNoResponseFollowUpInTransaction(tx, action, execution) {
+    assertWorkspaceTransaction(tx, action.organization_id);
+    const skip = (reason) => ({ follow_up: null, reason });
+    if (!["SEND_EMAIL", "SEND_WHATSAPP", "SEND_SMS"].includes(action.type)) return skip("CHANNEL_NOT_APPLICABLE");
+    if (!execution) throw effectError("CALLBACK_EXECUTION_REQUIRED");
+    const current = await new ActionsRepository(tx).getActionForOrganization(action.id, action.organization_id);
+    const persisted = await new ExecutionsRepository(tx).getExecutionForOrganization(execution.id, action.organization_id);
+    if (!current || !persisted || current.active_execution_id !== persisted.id
+      || persisted.fence_token === null || Number(current.execution_fence) !== Number(persisted.fence_token)
+      || current.status !== "COMPLETED" || persisted.outcome_class !== "DELIVERED") return skip("STALE_OR_TERMINAL_EXECUTION");
+
+    const lead = await tx.get("SELECT * FROM leads WHERE organization_id=? AND id=?", [action.organization_id, current.lead_id]);
+    if (!lead || lead.archived_at) return skip("LEAD_ARCHIVED");
+    // The outcome above remains a fact even when its reviewed input authority aged.
+    // A failed assessment must prevent new automatic work without rewriting delivery.
+    let freshness;
+    try { freshness = await evaluateFreshness(tx, lead, { now: this.now }); }
+    catch (error) { if (error.code?.startsWith("FRESHNESS_") || error.code?.startsWith("RESEARCH_") || error.code === "BUSINESS_CONTEXT_INVALID") return skip("FRESHNESS_UNAVAILABLE"); throw error; }
+    if (leadDataRevision(lead) || freshness.policy_version) {
+      const revision = await tx.get("SELECT context_fingerprint FROM action_revisions WHERE organization_id=? AND action_id=? AND id=?", [action.organization_id, current.id, persisted.action_revision_id]);
+      const businessContext = await loadLeadBusinessContext(tx, { organization_id: action.organization_id, lead_id: current.lead_id });
+      if (!revision || revision.context_fingerprint !== new PreparedActionService(tx, { now: this.now }).contextFingerprint(current, lead, reviewContextRevisions(businessContext), freshness)) return skip("INTELLIGENCE_CONTEXT_CHANGED");
+    }
+    const eligibility = await this.#contactPolicy().inspectLeadInTransaction(tx, {
+      organization_id: action.organization_id, lead_id: current.lead_id, channel: channelForActionType(current.type)
+    });
+    if (eligibility.restricted) return skip("CONTACT_RESTRICTED");
+    const message = await new ChannelMessagesRepository(tx).getByIdempotencyKey(action.organization_id,
+      persisted.idempotency_key + ":channel-message");
+    if (!message || message.payload.execution_id !== persisted.id || typeof message.payload.recipient !== "string") {
+      throw effectError("CALLBACK_MESSAGE_IDENTITY_CONFLICT");
+    }
+    const originalContact = await this.#contactPolicy().inspectLeadInTransaction(tx, {
+      organization_id: action.organization_id, lead_id: current.lead_id, channel: channelForActionType(current.type),
+      recipient: { kind: current.type === "SEND_EMAIL" ? "EMAIL" : "PHONE", value: message.payload.recipient }
+    });
+    if (originalContact.restricted) return skip("CONTACT_RESTRICTED");
+    if (eligibility.policy_pending || originalContact.policy_pending) {
+      throw Object.assign(new Error("Required contact policy processing is pending."),
+        { statusCode: 503, code: "POLICY_EFFECT_PENDING" });
+    }
+    const completionTime = canonicalTime(persisted.completed_at);
+    const dispatchTime = canonicalTime(persisted.dispatch_authorized_at || persisted.started_at);
+    if (completionTime === null || dispatchTime === null) throw effectError("CALLBACK_TIMING_INVALID");
+    const reply = await tx.get(`SELECT id FROM inbound_events WHERE organization_id = ? AND lead_id = ?
+      AND received_at >= ? LIMIT 1`, [action.organization_id, current.lead_id, new Date(dispatchTime).toISOString()]);
+    if (reply) return skip("REPLY_RECEIVED");
+    if (await hasAmbiguousReplySinceInTransaction(tx, { organization_id: action.organization_id, lead_id: current.lead_id,
+      recipient: { kind: current.type === "SEND_EMAIL" ? "EMAIL" : "PHONE", value: message.payload.recipient },
+      since: new Date(dispatchTime).toISOString() })) return skip("AMBIGUOUS_REPLY_RECEIVED");
+    const runId = new ActionsRepository(tx).actionPayload(current).workflow_run_id;
+    const stoppedRun = runId
+      ? await tx.get("SELECT id FROM workflow_runs WHERE organization_id = ? AND lead_id = ? AND id = ? AND status IN ('STOPPED', 'BLOCKED')",
+        [action.organization_id, current.lead_id, runId])
+      : await tx.get("SELECT id FROM workflow_runs WHERE organization_id = ? AND lead_id = ? AND last_action_id = ? AND status IN ('STOPPED', 'BLOCKED')",
+        [action.organization_id, current.lead_id, current.id]);
+    if (stoppedRun) return skip("WORKFLOW_STOPPED");
+    const follow_up = await new FollowUpsRepository(tx).create({
+      organization_id: action.organization_id, lead_id: current.lead_id, action_id: current.id,
+      channel: channelForActionType(current.type), status: FOLLOW_UP_STATUS.PLANNED,
+      due_at: new Date(completionTime + 48 * 60 * 60 * 1000).toISOString(),
+      reason: "Follow up if no response is received.",
+      idempotency_key: `action:${current.id}:no-response-follow-up:v1`
+    });
+    return { follow_up, reason: null };
+  }
+
+  #contactPolicy() {
+    if (!this.contactPolicyService) {
+      const error = new Error("Contact policy is unavailable.");
+      error.statusCode = 503;
+      throw error;
+    }
+    return this.contactPolicyService;
+  }
+
 }
 
 function outboundBody(payload) {
@@ -436,47 +377,11 @@ function outboundBody(payload) {
   );
 }
 
-function sentimentForEvent(eventType) {
-  const map = {
-    POSITIVE_REPLY: "POSITIVE",
-    NEGATIVE_REPLY: "NEGATIVE",
-    QUESTION: "QUESTION",
-    OPT_OUT: "OPT_OUT",
-    UNKNOWN: "UNKNOWN"
-  };
-  return map[eventType] || "UNKNOWN";
-}
-
-function inboundEventLabel(eventType) {
-  const labels = {
-    POSITIVE_REPLY: "Positive response",
-    NEGATIVE_REPLY: "Negative response",
-    QUESTION: "Question received",
-    OPT_OUT: "Opt-out received",
-    UNKNOWN: "Response received"
-  };
-  return labels[eventType] || "Response received";
-}
-
-function inboundEventSummary(eventType) {
-  const labels = {
-    POSITIVE_REPLY: "Lead responded positively. Open follow-ups were stopped.",
-    NEGATIVE_REPLY: "Lead responded negatively. Open follow-ups were stopped.",
-    QUESTION: "Lead asked a question. A follow-up is due.",
-    OPT_OUT: "Lead opted out. Contact should stop.",
-    UNKNOWN: "Inbound response needs review."
-  };
-  return labels[eventType] || "Inbound response recorded.";
-}
-
 function channelTitle(message) {
   const direction = message.direction === CHANNEL_DIRECTION.INBOUND ? "Inbound" : "Outbound";
   return `${direction} ${String(message.channel || "channel").toLowerCase()} activity`;
 }
 
-function plusHours(hours) {
-  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
-}
 
 function validationError(message) {
   const error = new Error(message);
@@ -488,4 +393,13 @@ function notFoundError(message) {
   const error = new Error(message);
   error.statusCode = 404;
   return error;
+}
+
+
+function effectError(code) {
+  return Object.assign(new Error("Callback effects require review."), { statusCode: 409, code });
+}
+function canonicalTime(value) {
+  const parsed = typeof value === "string" ? Date.parse(value) : NaN;
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value ? parsed : null;
 }

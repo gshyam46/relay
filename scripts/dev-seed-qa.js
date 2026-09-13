@@ -1,5 +1,8 @@
 import { createDatabase } from "../src/database/database.js";
 import { createServices } from "../src/api/app.js";
+import { randomUUID } from "node:crypto";
+import { AuthRepository } from "../src/modules/auth/authRepository.js";
+import { hashPassword } from "../src/modules/auth/passwords.js";
 
 const db = await createDatabase(process.env.DATABASE_FILE || "data/app.db");
 const services = createServices(db);
@@ -13,6 +16,10 @@ try {
   }
 
   const organization = await services.leadsRepository.createOrganization({ name: "M2 QA Workspace" });
+  // Synthetic audit actor for this local seed; no reusable login credential is created or printed.
+  const seedOwner = await new AuthRepository(db).createUser({ organization_id: organization.id, name: "Local QA seed",
+    email: "seed-" + randomUUID() + "@example.test", password_hash: await hashPassword(randomUUID()), role: "OWNER" });
+  const importActor = { id: seedOwner.id, role: seedOwner.role };
   const existingDuplicate = await services.leadsRepository.createLead({
     organization_id: organization.id,
     name: "Existing Duplicate",
@@ -54,6 +61,7 @@ try {
 
   const preview = await services.importsService.previewCsv({
     organization_id: organization.id,
+    actor: importActor,
     filename: "m2-qa-leads.csv",
     csv_text:
       'Name,Email,Phone,Company,Notes\nPriya Sharma,priya@example.com,+91 98765 43210,Northstar Interiors,"Complete imported lead"\nQuoted,quoted@example.com,+91 98765 43218,"Company, With Comma","Quoted CSV parser case"\nDuplicate Import,duplicate@example.com,+91 98765 43219,Northstar Interiors,"Duplicate email warning"',
@@ -62,6 +70,7 @@ try {
   await services.importsService.commitImport({
     import_id: preview.import.id,
     organization_id: organization.id,
+    actor: importActor,
     selected_row_ids: preview.rows.map((row) => row.id)
   });
 

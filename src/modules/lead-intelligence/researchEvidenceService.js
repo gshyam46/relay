@@ -1,3 +1,8 @@
+import { freshnessError } from "./freshnessContract.js";
+import { currentLeadData } from "../data-foundation/leadDataSafety.js";
+import { ContactPolicyService } from "../contact-policy/contactPolicyService.js";
+import { ResearchEvidenceRepository } from "./researchEvidenceRepository.js";
+import { AuditRepository } from "../events/auditRepository.js";
 import { ApprovedManualResearchAdapter } from "./approvedResearchAdapter.js";
 import { serializeEvidenceItem } from "./researchEvidenceRepository.js";
 import {
@@ -20,6 +25,17 @@ export class ResearchEvidenceService {
     evidence_items,
     simulate_failure_stage = null
   }) {
+    const db = this.researchEvidenceRepository.db;
+    if (!db.transactionBound) {
+      const result = await new ContactPolicyService(db).withWorkspacePolicyTransaction(lead.organization_id, async tx => {
+        const service = new ResearchEvidenceService({ researchEvidenceRepository: new ResearchEvidenceRepository(tx), auditRepository: this.auditRepository ? new AuditRepository(tx) : null });
+        try { return { value: await service.ingestForLead({ lead, provider_key, idempotency_key, evidence_items, simulate_failure_stage }) }; }
+        catch (error) { return { error }; }
+      });
+      if (result.error) throw result.error;
+      return result.value;
+    }
+    lead = await currentLeadData(db, lead);
     requireProvider(provider_key);
     requireText(idempotency_key, "idempotency_key");
     if (!Array.isArray(evidence_items) || evidence_items.length === 0) {
@@ -35,6 +51,14 @@ export class ResearchEvidenceService {
       return await this.researchEvidenceRepository.ingestionDetail(existing);
     }
 
+    if (evidence_items.length > 100 || Buffer.byteLength(JSON.stringify(evidence_items), "utf8") > 524288) throw freshnessError("FRESHNESS_INPUT_LIMIT", "Research ingestion exceeds 100 records or 512 KiB.", 409);
+    const adapter = new ApprovedManualResearchAdapter({ provider_key });
+    const normalizedItems = adapter.normalize(evidence_items);
+    const errors = normalizedItems.flatMap((item, index) => validateResearchEvidenceItem(item).map(message => "item " + (index + 1) + ": " + message));
+    if (errors.length) throw Object.assign(new Error(errors.join(" ")), { statusCode: 400 });
+    const retained = (await this.researchEvidenceRepository.evidenceItemsForLead(lead.id, lead.organization_id)).filter(item => item.ingestion_id !== existing?.id);
+    // This conservative request bound includes future persisted ownership/identifier overhead.
+    if (retained.length + normalizedItems.length > 100 || Buffer.byteLength(JSON.stringify([...retained, ...normalizedItems]), "utf8") + normalizedItems.length * 1024 > 524288) throw freshnessError("FRESHNESS_INPUT_LIMIT", "Combined research sources exceed the bounded input limit.", 409);
     const ingestion =
       existing ||
       await this.researchEvidenceRepository.createIngestion({
@@ -49,15 +73,6 @@ export class ResearchEvidenceService {
     try {
       if (simulate_failure_stage === "AFTER_INGESTION") {
         throw new Error("Simulated research evidence ingestion failure.");
-      }
-
-      const adapter = new ApprovedManualResearchAdapter({ provider_key });
-      const normalizedItems = adapter.normalize(evidence_items);
-      const errors = normalizedItems.flatMap((item, index) =>
-        validateResearchEvidenceItem(item).map((message) => `item ${index + 1}: ${message}`)
-      );
-      if (errors.length > 0) {
-        throw new Error(errors.join(" "));
       }
 
       await this.researchEvidenceRepository.updateIngestionState(ingestion.id, {

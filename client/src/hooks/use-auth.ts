@@ -15,6 +15,7 @@ export interface AuthUser {
 interface AuthResponse {
   user: AuthUser;
   organization: Organization;
+  capabilities?: { test_controls: boolean; developer_tools?: boolean };
 }
 
 // The session cookie (not this query) is the real source of truth for "am I logged in" — this
@@ -37,13 +38,23 @@ export function useMe() {
   return query;
 }
 
+// A missing capability (including login/register responses) never enables a
+// developer control. The server independently enforces the same restriction.
+export function useTestControlsEnabled() {
+  const { data, isError } = useMe();
+  return !isError && data?.capabilities?.test_controls === true && data.user.role === "OWNER";
+}
+
 export function useRegister() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: { organization_name: string; name: string; email: string; password: string }) =>
       api.post<AuthResponse>("/auth/register", input),
     onSuccess: (data) => {
+      qc.removeQueries({predicate:query=>query.queryKey[0]!=="auth"});
       qc.setQueryData(["auth", "me"], data);
+      // Fetch server capabilities after the new session has been established.
+      void qc.invalidateQueries({ queryKey: ["auth", "me"] });
     },
   });
 }
@@ -53,7 +64,10 @@ export function useLogin() {
   return useMutation({
     mutationFn: (input: { email: string; password: string }) => api.post<AuthResponse>("/auth/login", input),
     onSuccess: (data) => {
+      qc.removeQueries({predicate:query=>query.queryKey[0]!=="auth"});
       qc.setQueryData(["auth", "me"], data);
+      // Fetch server capabilities after the new session has been established.
+      void qc.invalidateQueries({ queryKey: ["auth", "me"] });
     },
   });
 }
@@ -69,4 +83,9 @@ export function useLogout() {
       qc.clear();
     },
   });
+}
+
+export function useDeveloperToolsEnabled() {
+  const { data, isError } = useMe();
+  return !isError && data?.capabilities?.developer_tools === true && data.user.role === "OWNER";
 }

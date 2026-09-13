@@ -1,3 +1,5 @@
+import { parseBusinessFit } from "./businessFit.js";
+import { parseFreshnessAssessment } from "./freshnessContract.js";
 import { createId } from "../../shared/ids.js";
 import { nowIso } from "../../shared/time.js";
 import { parseJson, stringifyJson } from "../../database/database.js";
@@ -13,6 +15,8 @@ export class IntelligenceRepository {
     version,
     pipeline_version,
     input_fingerprint,
+    freshness = null,
+    business_fit = null,
     summary = "Lead Intelligence is being prepared.",
     readiness_status = "NEEDS_MORE_DATA",
     readiness_score = 0,
@@ -26,6 +30,8 @@ export class IntelligenceRepository {
       status: "DRAFT",
       pipeline_version,
       input_fingerprint,
+      freshness_json: freshness ? JSON.stringify(parseFreshnessAssessment(freshness)) : null,
+      business_fit_json: business_fit ? JSON.stringify(parseBusinessFit(business_fit)) : null,
       readiness_status,
       readiness_score,
       summary,
@@ -37,8 +43,8 @@ export class IntelligenceRepository {
     await this.db.run(
       `INSERT INTO intelligence_snapshots
           (id, organization_id, lead_id, version, status, pipeline_version, input_fingerprint,
-           readiness_status, readiness_score, summary, score, next_best_action, evidence_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           readiness_status, readiness_score, summary, score, next_best_action, evidence_json, created_at, freshness_json, business_fit_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         snapshot.id,
         snapshot.organization_id,
@@ -53,7 +59,9 @@ export class IntelligenceRepository {
         snapshot.score,
         snapshot.next_best_action,
         snapshot.evidence_json,
-        snapshot.created_at
+        snapshot.created_at,
+        snapshot.freshness_json,
+        snapshot.business_fit_json
       ]
     );
     return snapshot;
@@ -453,6 +461,8 @@ export class IntelligenceRepository {
 export function serializeSnapshot({ snapshot, evidence = [], claims = [], signals = [], qualification = null, recommendation = null }) {
   return {
     ...snapshot,
+    freshness: parseFreshnessAssessment(snapshot.freshness_json),
+    business_fit: parseBusinessFit(snapshot.business_fit_json),
     evidence: evidence.map(serializeEvidence),
     claims: claims.map(serializeClaim),
     signals: signals.map(serializeSignal),

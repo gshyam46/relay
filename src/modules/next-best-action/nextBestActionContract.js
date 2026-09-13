@@ -1,4 +1,4 @@
-export const NEXT_BEST_ACTION_PIPELINE_VERSION = "m3-next-best-action-v1";
+export const NEXT_BEST_ACTION_PIPELINE_VERSION = "l1.09-bounded-plan-v2";
 
 export const NEXT_BEST_ACTION_PLAN_STATUS = Object.freeze({
   DRAFT: "DRAFT",

@@ -2,7 +2,17 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useWorkspaceStore } from "@/stores/workspace";
 
-export interface OutboundAction {
+export interface DispatchTiming {
+  next_attempt_at?: string | null;
+  scheduled_at?: string | null;
+  retry_deadline_at?: string | null;
+  execution_hold_reason?: string | null;
+  execution_outcome?: string | null;
+  execution_attempt?: number | null;
+  max_attempts?: number;
+}
+
+export interface OutboundAction extends DispatchTiming {
   action_id: string;
   lead_id: string;
   lead_name: string;
@@ -50,7 +60,7 @@ export function useOutboundSummary() {
   });
 }
 
-export interface LeadOutboundAction {
+export interface LeadOutboundAction extends DispatchTiming {
   id: string;
   lead_id: string;
   type: string;
@@ -67,7 +77,7 @@ export interface LeadOutboundAction {
     created_at: string;
     decided_at: string | null;
   } | null;
-  executions: { id: string; status: string; attempt: number; provider: string | null; created_at: string }[];
+  executions: { id: string; status: string; attempt: number; provider: string | null; created_at: string; outcome_class?: string }[];
   callbacks: { id: string; status: string; created_at: string }[];
 }
 
@@ -89,10 +99,10 @@ export function useApproveAction() {
   const org = useWorkspaceStore((s) => s.currentOrg);
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (actionId: string) =>
+    mutationFn: ({ actionId, expectedRevisionId }: { actionId: string; expectedRevisionId: string }) =>
       api.post(`/actions/${actionId}/approval/approve`, {
         organization_id: org!.id,
-        reviewer_name: "UI User",
+        expected_revision_id: expectedRevisionId,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["outbound-summary"] });
@@ -107,10 +117,10 @@ export function useRejectAction() {
   const org = useWorkspaceStore((s) => s.currentOrg);
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (actionId: string) =>
+    mutationFn: ({ actionId, expectedRevisionId }: { actionId: string; expectedRevisionId: string }) =>
       api.post(`/actions/${actionId}/approval/reject`, {
         organization_id: org!.id,
-        reviewer_name: "UI User",
+        expected_revision_id: expectedRevisionId,
         reviewer_note: "Rejected from UI",
       }),
     onSuccess: () => {
@@ -150,11 +160,10 @@ export function useBulkApproveActions() {
   const org = useWorkspaceStore((s) => s.currentOrg);
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (actionIds: string[]) =>
+    mutationFn: (revisions: { action_id: string; expected_revision_id: string }[]) =>
       api.post<BulkApproveResult>("/actions/bulk-approve", {
         organization_id: org!.id,
-        action_ids: actionIds,
-        reviewer_name: "UI User (bulk)",
+        revisions,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["outbound-summary"] });
@@ -178,11 +187,10 @@ export function useBulkRejectActions() {
   const org = useWorkspaceStore((s) => s.currentOrg);
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (actionIds: string[]) =>
+    mutationFn: (revisions: { action_id: string; expected_revision_id: string }[]) =>
       api.post<BulkRejectResult>("/actions/bulk-reject", {
         organization_id: org!.id,
-        action_ids: actionIds,
-        reviewer_name: "UI User (bulk)",
+        revisions,
         reviewer_note: "Rejected in bulk from Outbound.",
       }),
     onSuccess: () => {
@@ -199,6 +207,8 @@ export function useBulkRejectActions() {
 export interface BulkExecuteResult {
   organization_id: string;
   executed: number;
+  deferred: number;
+  held: number;
   failed: number;
   results: { action_id: string; ok: boolean; error?: string }[];
 }

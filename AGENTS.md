@@ -73,6 +73,14 @@ Then identify:
 
 Do not begin unrelated work unless it is required to complete the current task.
 
+### Current Planning and Documentation
+
+The active launch sequence is L0-L6 in docs/ROADMAP.md. docs/TASKS.md owns current task status; docs/REVIEW.md owns the review evidence register; docs/DECISIONS.md records decision status and architectural tradeoffs; docs/PILOT.md defines customer-validation and launch evidence. Historical M0-M10 work is preserved under docs/history/ and is not current launch certification. docs/status.html is a historical visualization until separately reconciled.
+
+Distinguish implemented behavior, proposed contracts, historical verification, and live human/provider QA. Update the affected Markdown specifications alongside every implementation slice and record verification evidence before closing tasks. Preserve the architecture-change procedure below.
+
+For parallel implementation, agree exact file/module ownership first. One integrating owner controls shared API wiring, global contracts/configuration, migration registry, and package scripts within a batch. Resolve dependent contracts before other agents implement against them.
+
 ---
 
 ## Core Engineering Principles

@@ -1,4 +1,5 @@
 import { LEAD_SOURCES } from "./leadValidation.js";
+import { createHash } from "node:crypto";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const INTERNATIONAL_PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
@@ -30,6 +31,9 @@ export function normalizePhone(rawPhone, defaultPhoneRegion) {
     };
   }
 
+  if (raw.length > 100 || !/^\+?[0-9 ()\t.-]+$/.test(raw) || /[\r\n]/.test(raw)) {
+    return { raw_phone: raw, normalized_phone: null, valid: false, message: "phone must contain one number without letters, extensions or multiple contacts." };
+  }
   const compact = raw.replace(/[\s().-]/g, "");
   if (compact.startsWith("+")) {
     return {
@@ -49,7 +53,7 @@ export function normalizePhone(rawPhone, defaultPhoneRegion) {
     };
   }
 
-  const digits = raw.replace(/\D/g, "");
+  const digits = compact;
   if (defaultPhoneRegion === "IN") {
     const local = digits.length === 11 && digits.startsWith("0") ? digits.slice(1) : digits;
     const valid = /^\d{10}$/.test(local);
@@ -110,4 +114,10 @@ export function buildNameCompanyKey(name, company) {
     return null;
   }
   return `${normalizedName}|${normalizedCompany}`;
+}
+
+// Bounded candidate lookup shared by SQLite/PostgreSQL; not a person identity.
+export function buildNameCompanyLookupKey(name, company) {
+  const key = buildNameCompanyKey(name, company);
+  return key === null ? null : createHash("sha256").update(key).digest("hex");
 }

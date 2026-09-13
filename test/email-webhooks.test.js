@@ -1,3 +1,4 @@
+import { provisionEmailWebhooks } from "./helpers/emailSetup.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { startClient } from "./helpers/testClient.js";
@@ -47,7 +48,7 @@ test("SendGrid Inbound Parse webhook resolves the org by token and auto-classifi
     name: "Webhook Lead",
     email: "webhook-lead@example.com"
   });
-  const webhooks = await client.get(`/api/settings/channels/email/webhooks?organization_id=${organization.organization.id}`);
+  const webhooks = await provisionEmailWebhooks(client, organization.organization.id);
   assert.match(webhooks.inbound_path, /^\/api\/webhooks\/sendgrid\/inbound\/whk_/);
 
   const body = buildInboundParseBody({
@@ -105,9 +106,24 @@ test("SendGrid Inbound Parse webhook rejects an unknown token", async (t) => {
   assert.equal(res.status, 404);
 });
 
+async function configureSyntheticSendgrid(t, client, organizationId) {
+  await client.put("/api/settings", { organization_id: organizationId, category: "channel_email",
+    values: { provider: "sendgrid", api_key: "synthetic-sendgrid-key", from_email: "fixture@example.com" } });
+  const originalFetch = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    if (String(url).startsWith(client.baseUrl)) return originalFetch(url, options);
+    assert.equal(String(url), "https://api.sendgrid.com/v3/mail/send");
+    const body = JSON.parse(options.body);
+    assert.ok(body.custom_args.relay_execution_id);
+    assert.ok(body.custom_args.relay_revision_id);
+    return new Response(null, { status: 202, headers: { "x-message-id": "http-acceptance-reference" } });
+  });
+}
+
 test("SendGrid Event Webhook completes an action on delivered and fails it on bounce", async (t) => {
   const client = await startClient(t);
   const organization = await client.register("Events Webhook Org");
+  await configureSyntheticSendgrid(t, client, organization.organization.id);
   const lead = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Delivery Lead",
@@ -118,9 +134,11 @@ test("SendGrid Event Webhook completes an action on delivered and fails it on bo
     type: "SEND_EMAIL",
     mock_behavior: "SUCCESS"
   });
-  await client.post(`/api/actions/${action.action.id}/execute`, { organization_id: organization.organization.id });
+  await client.approve(action.action.id);
+  const dispatched = await client.post(`/api/actions/${action.action.id}/execute`, { organization_id: organization.organization.id });
+  const execution = dispatched.execution_result.execution;
 
-  const webhooks = await client.get(`/api/settings/channels/email/webhooks?organization_id=${organization.organization.id}`);
+  const webhooks = await provisionEmailWebhooks(client, organization.organization.id);
 
   const deliveredRes = await fetch(`${client.baseUrl}${webhooks.events_path}`, {
     method: "POST",
@@ -128,10 +146,13 @@ test("SendGrid Event Webhook completes an action on delivered and fails it on bo
     body: JSON.stringify([
       {
         event: "delivered",
+        email: lead.lead.email,
         sg_event_id: "evt-delivered-1",
         sg_message_id: "sg-msg-1",
         timestamp: 1710000000,
-        custom_args: { relay_action_id: action.action.id, relay_org_id: organization.organization.id }
+        relay_action_id: action.action.id,
+        relay_execution_id: execution.id, relay_revision_id: execution.action_revision_id,
+        relay_org_id: organization.organization.id
       }
     ])
   });
@@ -149,20 +170,24 @@ test("SendGrid Event Webhook completes an action on delivered and fails it on bo
     body: JSON.stringify([
       {
         event: "delivered",
+        email: lead.lead.email,
         sg_event_id: "evt-delivered-1",
         sg_message_id: "sg-msg-1",
-        timestamp: 1710000001,
-        custom_args: { relay_action_id: action.action.id }
+        timestamp: 1710000000,
+        custom_args: { relay_action_id: action.action.id, relay_execution_id: execution.id, relay_revision_id: execution.action_revision_id }
       }
     ])
   });
   const duplicateBody = await duplicateRes.json();
-  assert.equal(duplicateBody.results[0].applied, false);
+  assert.equal(duplicateBody.results[0].processing_state, "PROCESSED");
+  assert.equal(duplicateBody.results[0].duplicate, true);
+  assert.equal(duplicateBody.results[0].receipt_id, deliveredBody.results[0].receipt_id);
 });
 
 test("SendGrid Event Webhook bounce fails the action and tracking-only events do not change status", async (t) => {
   const client = await startClient(t);
   const organization = await client.register("Bounce Webhook Org");
+  await configureSyntheticSendgrid(t, client, organization.organization.id);
   const lead = await client.post("/api/leads", {
     organization_id: organization.organization.id,
     name: "Bounce Lead",
@@ -173,8 +198,10 @@ test("SendGrid Event Webhook bounce fails the action and tracking-only events do
     type: "SEND_EMAIL",
     mock_behavior: "SUCCESS"
   });
-  await client.post(`/api/actions/${action.action.id}/execute`, { organization_id: organization.organization.id });
-  const webhooks = await client.get(`/api/settings/channels/email/webhooks?organization_id=${organization.organization.id}`);
+  await client.approve(action.action.id);
+  const dispatched = await client.post(`/api/actions/${action.action.id}/execute`, { organization_id: organization.organization.id });
+  const execution = dispatched.execution_result.execution;
+  const webhooks = await provisionEmailWebhooks(client, organization.organization.id);
 
   await fetch(`${client.baseUrl}${webhooks.events_path}`, {
     method: "POST",
@@ -183,17 +210,21 @@ test("SendGrid Event Webhook bounce fails the action and tracking-only events do
       { event: "open", sg_event_id: "evt-open-1", sg_message_id: "sg-msg-2", timestamp: 1, custom_args: { relay_action_id: action.action.id } },
       {
         event: "bounce",
+        type: "bounce",
+        email: lead.lead.email,
         sg_event_id: "evt-bounce-1",
         sg_message_id: "sg-msg-2",
         timestamp: 2,
         reason: "550 mailbox unavailable",
-        custom_args: { relay_action_id: action.action.id }
+        custom_args: { relay_action_id: action.action.id, relay_execution_id: execution.id, relay_revision_id: execution.action_revision_id }
       }
     ])
   });
 
   const afterBounce = await client.get(`/api/leads/${lead.lead.id}/outbound?organization_id=${organization.organization.id}`);
   assert.equal(afterBounce.actions[0].status, "FAILED");
+  const restriction = await client.services.contactPolicyService.inspectLead({ organization_id: organization.organization.id, lead_id: lead.lead.id, channel: "EMAIL" });
+  assert.equal(restriction.restricted, true);
 });
 
 test("SendGrid Event Webhook cannot apply events against another organization's action", async (t) => {
@@ -209,10 +240,11 @@ test("SendGrid Event Webhook cannot apply events against another organization's 
     type: "SEND_EMAIL",
     mock_behavior: "SUCCESS"
   });
+  await client.approve(action.action.id);
   await client.post(`/api/actions/${action.action.id}/execute`, { organization_id: orgA.organization.id });
 
   const orgB = await client.register("Tenant B Webhook"); // switches the active session to org B
-  const orgBWebhooks = await client.get(`/api/settings/channels/email/webhooks?organization_id=${orgB.organization.id}`);
+  const orgBWebhooks = await provisionEmailWebhooks(client, orgB.organization.id);
   const res = await fetch(`${client.baseUrl}${orgBWebhooks.events_path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },

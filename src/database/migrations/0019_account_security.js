@@ -1,0 +1,16 @@
+import {createHash} from "node:crypto";
+export const id="0019_account_security";
+export async function up(db){const bytes=db.kind==="postgres"?"octet_length(summary_json)":"length(CAST(summary_json AS BLOB))";await db.exec(`
+ ALTER TABLE users ADD COLUMN auth_revision INTEGER NOT NULL DEFAULT 0 CHECK(auth_revision=CAST(auth_revision AS INTEGER) AND auth_revision BETWEEN 0 AND 2147483647);
+ ALTER TABLE sessions ADD COLUMN auth_revision INTEGER NOT NULL DEFAULT 0 CHECK(auth_revision=CAST(auth_revision AS INTEGER) AND auth_revision BETWEEN 0 AND 2147483647);
+ ALTER TABLE sessions ADD COLUMN public_id TEXT CHECK(public_id IS NULL OR length(public_id)=69);
+ CREATE UNIQUE INDEX idx_session_public_reference ON sessions(public_id);
+ CREATE INDEX idx_session_user_scope ON sessions(user_id,organization_id,expires_at);
+ CREATE TABLE account_security_state(organization_id TEXT NOT NULL,user_id TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision=CAST(revision AS INTEGER) AND revision BETWEEN 0 AND 1000),recovery_generation INTEGER NOT NULL CHECK(recovery_generation=CAST(recovery_generation AS INTEGER) AND recovery_generation BETWEEN 0 AND 1000),updated_at TEXT NOT NULL,PRIMARY KEY(organization_id,user_id),FOREIGN KEY(organization_id,user_id) REFERENCES users(organization_id,id));
+ CREATE TABLE account_recovery_codes(id TEXT PRIMARY KEY,organization_id TEXT NOT NULL,user_id TEXT NOT NULL,generation INTEGER NOT NULL CHECK(generation=CAST(generation AS INTEGER) AND generation BETWEEN 1 AND 1000),code_hash TEXT NOT NULL UNIQUE CHECK(length(code_hash)=64),created_at TEXT NOT NULL,expires_at TEXT NOT NULL,consumed_at TEXT,revoked_at TEXT,FOREIGN KEY(organization_id,user_id) REFERENCES account_security_state(organization_id,user_id));
+ CREATE INDEX idx_account_recovery_generation ON account_recovery_codes(organization_id,user_id,generation);
+ CREATE TABLE account_security_changes(id TEXT PRIMARY KEY,organization_id TEXT NOT NULL,user_id TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision=CAST(revision AS INTEGER) AND revision BETWEEN 1 AND 1000),expected_revision INTEGER NOT NULL CHECK(expected_revision=CAST(expected_revision AS INTEGER) AND expected_revision=revision-1),operation TEXT NOT NULL CHECK(operation IN('CHANGE_PASSWORD','ROTATE_RECOVERY_CODES','RECOVER','REVOKE_SESSION','REVOKE_OTHER_SESSIONS','REVOKE_ALL_SESSIONS')),authentication_method TEXT NOT NULL CHECK(authentication_method IN('PASSWORD','RECOVERY_CODE')),summary_json TEXT NOT NULL CHECK(${bytes} BETWEEN 2 AND 4096),created_at TEXT NOT NULL,actor_user_id TEXT NOT NULL,UNIQUE(organization_id,user_id,revision),UNIQUE(organization_id,id),FOREIGN KEY(organization_id,user_id) REFERENCES users(organization_id,id),FOREIGN KEY(organization_id,actor_user_id) REFERENCES users(organization_id,id));
+ CREATE INDEX idx_account_security_history ON account_security_changes(organization_id,user_id,revision);
+`);
+ let cursor="";for(;;){const rows=await db.all("SELECT id FROM sessions WHERE id>? ORDER BY id LIMIT 500",[cursor]);if(!rows.length)break;for(const row of rows)await db.run("UPDATE sessions SET public_id=? WHERE id=?",["sref_"+createHash("sha256").update(row.id).digest("hex"),row.id]);cursor=rows.at(-1).id;}
+}

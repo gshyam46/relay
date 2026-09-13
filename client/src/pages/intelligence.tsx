@@ -1,464 +1,61 @@
-import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-  Brain,
-  Building2,
-  Search,
-  Play,
-  CheckCircle2,
-  Clock,
-  XCircle,
-  Filter,
-  Loader2,
-  Zap,
-} from "lucide-react";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import {LoadingState} from "@/components/loading-screen";
+import { IntelligenceEvaluation } from "@/components/intelligence-evaluation";
+import { BusinessFitBadge } from "@/components/business-fit";
+import { attentionLabels, fitFieldLabels, type FitStatus } from "@/types/business-fit";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { Brain, Building2, Loader2 } from "lucide-react";
 import { Header } from "@/components/layout/header";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ErrorState } from "@/components/ui/error-state";
 import { useWorkspaceStore } from "@/stores/workspace";
-import {
-  useIntelligenceSummary,
-  useAnalyzeLead,
-  useBulkRunIntelligence,
-  type IntelligenceRow,
-} from "@/hooks/use-intelligence";
-import { useAttentionQueue } from "@/hooks/use-dashboard";
-import { cn } from "@/lib/utils";
-
-type StatusFilter = "ALL" | "NOT_RUN" | "PENDING" | "COMPLETED" | "FAILED";
-
-const STATUS_CHART_COLORS: Record<string, string> = {
-  "Not analyzed": "#94a3b8",
-  Analyzing: "#f59e0b",
-  Analyzed: "#0f766e",
-  Failed: "#ef4444",
-};
-
-export function IntelligencePage() {
-  const org = useWorkspaceStore((s) => s.currentOrg);
-
-  if (!org) {
-    return (
-      <>
-        <Header title="Intelligence" />
-        <EmptyState
-          icon={Building2}
-          title="No workspace selected"
-          description="Select or create a workspace first."
-        />
-      </>
-    );
-  }
-
-  return <IntelligenceWithOrg />;
-}
-
+import { useMe } from "@/hooks/use-auth";
+import { useIntelligenceSummary } from "@/hooks/use-intelligence";
+import { useAnalysisSubmission } from "@/hooks/use-analysis-jobs";
+import { AnalysisJobPanel, AnalysisJobsList, AnalysisSubmissionRecovery } from "@/components/analysis-jobs";
+import type { AnalysisJob } from "@/types/analysis-jobs";
+import { CurrentnessBadge } from "@/components/intelligence-currentness";
+import { CurrentnessReasonText } from "@/components/recommendation-changes";
+import type { CurrentnessState } from "@/types/intelligence-currentness";
+import { contextFieldClass } from "@/components/context-editor";
+const button = "rounded-lg border border-line px-3 py-2 text-sm text-brand disabled:opacity-50";
+type Filter = "ALL" | CurrentnessState | "FAILED";
+export function IntelligencePage() { const org = useWorkspaceStore(s => s.currentOrg); return org ? <IntelligenceWithOrg key={org.id} /> : <><Header title="Intelligence" /><EmptyState icon={Building2} title="No workspace selected" description="Select or create a workspace first." /></>; }
 function IntelligenceWithOrg() {
-  const org = useWorkspaceStore((s) => s.currentOrg)!;
-  const { data, isLoading, isError, refetch } = useIntelligenceSummary();
-  const { data: attention } = useAttentionQueue();
-  const analyzeLead = useAnalyzeLead();
-  const bulkRun = useBulkRunIntelligence();
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
-  const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
-  const [bulkRunning, setBulkRunning] = useState(false);
-  const [bulkResult, setBulkResult] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const navigate = useNavigate();
-
-  const filtered = useMemo(() => {
-    if (!data?.leads) return [];
-    let rows = data.leads;
-    if (statusFilter !== "ALL") {
-      rows = rows.filter((r) => r.intelligence_status === statusFilter);
-    }
-    if (search) {
-      const q = search.toLowerCase();
-      rows = rows.filter(
-        (r) =>
-          r.name?.toLowerCase().includes(q) ||
-          r.email?.toLowerCase().includes(q) ||
-          r.company?.toLowerCase().includes(q),
-      );
-    }
-    return rows;
-  }, [data, search, statusFilter]);
-
-  const totals = data?.totals;
-  // Eligibility comes from the server so this button can never disagree with
-  // what the bulk endpoint would actually do.
-  const eligibleLeadIds = useMemo(() => data?.eligible_lead_ids ?? [], [data]);
-  const eligibleCount = totals?.eligible_for_analysis ?? 0;
-
-  const handleRunOne = async (leadId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setRunningIds((prev) => new Set(prev).add(leadId));
-    try {
-      await analyzeLead.mutateAsync(leadId);
-    } finally {
-      setRunningIds((prev) => {
-        const next = new Set(prev);
-        next.delete(leadId);
-        return next;
-      });
-    }
-  };
-
-  const handleRunAllPending = async () => {
-    if (bulkRunning) return;
-    setBulkRunning(true);
-    setBulkResult(null);
-    try {
-      // Hand back the ids the summary already resolved, so the server does not
-            // repeat the eligibility scan.
-      const result = await bulkRun.mutateAsync(eligibleLeadIds.length ? eligibleLeadIds : undefined);
-      setBulkResult(
-        `Analyzed ${result.processed} lead${result.processed !== 1 ? "s" : ""} — ${result.succeeded} succeeded${result.failed ? `, ${result.failed} failed` : ""}${result.remaining ? `, ${result.remaining} remaining (run again to continue)` : ""}.`,
-      );
-    } catch (err: unknown) {
-      setBulkResult(err instanceof Error ? err.message : "Bulk analysis failed");
-    } finally {
-      setBulkRunning(false);
-      setTimeout(() => setBulkResult(null), 8000);
-    }
-  };
-
-  const handleAnalyzeSelected = async () => {
-    if (selected.size === 0 || bulkRunning) return;
-    setBulkRunning(true);
-    setBulkResult(null);
-    try {
-      const result = await bulkRun.mutateAsync(Array.from(selected));
-      setBulkResult(
-        `Analyzed ${result.processed} selected lead${result.processed !== 1 ? "s" : ""} — ${result.succeeded} succeeded${result.failed ? `, ${result.failed} failed` : ""}.`,
-      );
-      setSelected(new Set());
-    } catch (err: unknown) {
-      setBulkResult(err instanceof Error ? err.message : "Bulk analysis failed");
-    } finally {
-      setBulkRunning(false);
-      setTimeout(() => setBulkResult(null), 8000);
-    }
-  };
-
-  const toggleSelected = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleSelectAll = () => {
-    setSelected((prev) => (prev.size === filtered.length ? new Set() : new Set(filtered.map((r) => r.lead_id))));
-  };
-
-  const statusBreakdown = useMemo(() => {
-    if (!totals) return [];
-    return [
-      { name: "Not analyzed", value: totals.not_run },
-      { name: "Analyzing", value: totals.pending },
-      { name: "Analyzed", value: totals.completed },
-      { name: "Failed", value: totals.failed },
-    ].filter((d) => d.value > 0);
-  }, [totals]);
-
-  return (
-    <>
-      <Header
-        title="Intelligence"
-        description={org.name}
-        actions={
-          <button
-            onClick={handleRunAllPending}
-            disabled={bulkRunning || !eligibleCount}
-            title={
-              eligibleCount
-                ? `Run the full pipeline for ${eligibleCount} lead${eligibleCount !== 1 ? "s" : ""} without a current recommendation`
-                : "Every lead already has a current recommendation"
-            }
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-brand text-white rounded-lg hover:bg-brand-strong transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {bulkRunning ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Play className="w-3.5 h-3.5" />
-            )}
-            {bulkRunning
-              ? "Analyzing..."
-              : eligibleCount
-                ? `Analyze ${eligibleCount} eligible lead${eligibleCount !== 1 ? "s" : ""}`
-                : "All leads analyzed"}
-          </button>
-        }
-      />
-      {bulkResult && (
-        <div className="mx-6 mt-4 px-4 py-2.5 rounded-lg text-sm font-medium bg-brand-light text-brand">
-          {bulkResult}
-        </div>
-      )}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Summary Cards */}
-        {totals && (
-          <div className="px-6 py-4 border-b border-line bg-surface space-y-3">
-            <div className="flex items-start gap-6 flex-wrap">
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 flex-1 min-w-[320px]">
-                <StatCard label="Total leads" value={totals.total} />
-                <StatCard label="Needs analysis" value={totals.eligible_for_analysis} color="text-warn" />
-                <StatCard label="Analyzing" value={totals.pending} color="text-warn" />
-                <StatCard label="Analyzed" value={totals.completed} color="text-ok" />
-                <StatCard label="Failed" value={totals.failed} color="text-danger" />
-                <StatCard label="Recommendations ready" value={totals.with_recommendation} color="text-brand" />
-                <StatCard label="Action ready" value={totals.with_nba} color="text-brand" />
-              </div>
-              {statusBreakdown.length > 0 && (
-                <div className="flex items-center gap-3 shrink-0">
-                  <ResponsiveContainer width={72} height={72}>
-                    <PieChart>
-                      <Pie data={statusBreakdown} cx="50%" cy="50%" innerRadius={20} outerRadius={34} paddingAngle={2} dataKey="value" stroke="none">
-                        {statusBreakdown.map((d) => (
-                          <Cell key={d.name} fill={STATUS_CHART_COLORS[d.name]} />
-                        ))}
-                      </Pie>
-                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #d9e1e7" }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="space-y-0.5">
-                    <p className="text-[10px] font-semibold text-muted uppercase tracking-wide mb-1">Analysis status</p>
-                    {statusBreakdown.map((d) => (
-                      <div key={d.name} className="flex items-center gap-1.5 text-[11px]">
-                        <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STATUS_CHART_COLORS[d.name] }} />
-                        <span className="text-muted">{d.name}</span>
-                        <span className="font-semibold text-ink">{d.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            {attention && attention.total > 0 && (
-              <div className="flex items-center gap-3 flex-wrap pt-1">
-                <span className="text-[11px] font-semibold text-muted uppercase tracking-wide">Needs attention:</span>
-                {(["HIGH", "MEDIUM", "LOW"] as const).map((p) => {
-                  const count = attention.items.filter((i) => i.priority === p).length;
-                  if (count === 0) return null;
-                  const style =
-                    p === "HIGH" ? "bg-danger-light text-danger" : p === "MEDIUM" ? "bg-warn-light text-warn" : "bg-soft text-muted";
-                  return (
-                    <span key={p} className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", style)}>
-                      {count} {formatLabel(p)}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Filters */}
-        <div className="px-6 py-3 border-b border-line bg-surface flex items-center gap-4 flex-wrap">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search leads..."
-              className="w-full pl-9 pr-4 py-2 text-sm border border-line rounded-lg bg-surface focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
-            />
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Filter className="w-3.5 h-3.5 text-muted" />
-            {(["ALL", "NOT_RUN", "COMPLETED", "PENDING", "FAILED"] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                className={cn(
-                  "px-2.5 py-1 text-xs font-medium rounded-full transition-colors cursor-pointer",
-                  statusFilter === s
-                    ? "bg-brand text-white"
-                    : "bg-soft text-muted hover:text-ink",
-                )}
-              >
-                {s === "ALL" ? "All" : formatLabel(s)}
-              </button>
-            ))}
-          </div>
-          <span className="text-xs text-muted ml-auto shrink-0">
-            {filtered.length} lead{filtered.length !== 1 ? "s" : ""}
-          </span>
-        </div>
-
-        {selected.size > 0 && (
-          <div className="px-6 py-2.5 border-b border-line bg-brand-light/40 flex items-center gap-3">
-            <span className="text-xs font-medium text-ink">{selected.size} selected</span>
-            <button
-              onClick={handleAnalyzeSelected}
-              disabled={bulkRunning}
-              className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-white bg-brand rounded-md hover:bg-brand-strong transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {bulkRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-              Analyze selected
-            </button>
-          </div>
-        )}
-
-        {/* Table */}
-        {isError ? (
-          <ErrorState title="Couldn't load intelligence" onRetry={() => refetch()} />
-        ) : isLoading ? (
-          <div className="p-6 space-y-2 flex-1">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-14 bg-surface border border-line rounded-lg animate-pulse" />
-            ))}
-          </div>
-        ) : filtered.length > 0 ? (
-          <div className="flex-1 overflow-y-auto">
-            <table className="w-full text-left">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-soft border-b border-line">
-                  <th className="w-10 pl-6">
-                    <input
-                      type="checkbox"
-                      checked={filtered.length > 0 && selected.size === filtered.length}
-                      onChange={toggleSelectAll}
-                      className="cursor-pointer"
-                    />
-                  </th>
-                  <th className="py-2.5 px-4 text-[11px] font-semibold text-muted uppercase tracking-wider">Lead</th>
-                  <th className="py-2.5 px-4 text-[11px] font-semibold text-muted uppercase tracking-wider">Analysis</th>
-                  <th className="py-2.5 px-4 text-[11px] font-semibold text-muted uppercase tracking-wider">Recommendation</th>
-                  <th className="py-2.5 px-4 text-[11px] font-semibold text-muted uppercase tracking-wider">Next Step</th>
-                  <th className="py-2.5 px-4 text-[11px] font-semibold text-muted uppercase tracking-wider">Last Analyzed</th>
-                  <th className="py-2.5 px-4 text-[11px] font-semibold text-muted uppercase tracking-wider w-20">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {filtered.map((row) => (
-                  <IntelRow
-                    key={row.lead_id}
-                    row={row}
-                    running={runningIds.has(row.lead_id)}
-                    checked={selected.has(row.lead_id)}
-                    onToggle={() => toggleSelected(row.lead_id)}
-                    onRun={(e) => handleRunOne(row.lead_id, e)}
-                    onClick={() => navigate(`/leads/${row.lead_id}?tab=intelligence`)}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState
-            icon={Brain}
-            title="No leads match"
-            description={
-              search || statusFilter !== "ALL"
-                ? "Try adjusting your filters."
-                : "Import leads to get started with intelligence analysis."
-            }
-          />
-        )}
-      </div>
-    </>
-  );
+  const [pageCursors, setPageCursors] = useState<(string | undefined)[]>([undefined]);
+  const org = useWorkspaceStore(s => s.currentOrg)!, query = useIntelligenceSummary(pageCursors.at(-1)), { data: me } = useMe();
+  const submission = useAnalysisSubmission(), owner = me?.user.role === "OWNER";
+  const [params, setParams] = useSearchParams(), jobsView = params.get("view") === "jobs", evaluationView = params.get("view") === "evaluation", jobId = params.get("job");
+  useEffect(() => { if (submission.job) setParams(previous => { const next = new URLSearchParams(previous); next.set("job", submission.job!.id); return next; }); }, [submission.job?.id]);
+  const [search, setSearch] = useState(""), [filter, setFilter] = useState<Filter>("ALL"), [selected, setSelected] = useState<string[]>([]);
+  const [fitFilter, setFitFilter] = useState<"ALL" | FitStatus | "UNASSESSED">("ALL");
+  const [running, setRunning] = useState<string | "BULK" | null>(null);
+  const rows = query.data?.leads || [], filtered = useMemo(() => rows.filter(row => (fitFilter === "ALL" || fitFilter === "UNASSESSED" ? fitFilter === "ALL" || !row.business_fit : row.business_fit?.status === fitFilter) && (filter === "ALL" || filter === "FAILED" ? filter === "ALL" || row.intelligence_status === "FAILED" || row.recommendation_status === "FAILED" : row.currentness?.state === filter) && (!search || [row.name,row.email,row.company].some(value => value?.toLowerCase().includes(search.toLowerCase())))), [rows,filter,search,fitFilter]);
+  const available = filtered.filter(row => row.currentness?.can_refresh).map(row => row.lead_id), allDisplayed = available.length > 0 && available.every(id => selected.includes(id)), hidden = selected.filter(id => !filtered.some(row => row.lead_id === id)).length;
+  const eligible = query.data?.eligible_lead_ids || [];
+  function toggle(id: string) { setSelected(previous => previous.includes(id) ? previous.filter(value => value !== id) : previous.length < 1000 ? [...previous,id] : previous); }
+  async function run(ids: string[], single = false) {
+    if (!owner || running || !ids.length) return;
+    setRunning(single ? ids[0] : "BULK");
+    try { await submission.submit(ids.slice(0, 50)); } finally { setRunning(null); }
+  }
+  function completed(job: AnalysisJob) { const ids = new Set(job.items.filter(item => item.state === "COMPLETED").map(item => item.lead_id)); setSelected(previous => previous.filter(id => !ids.has(id))); }
+  function selectJob(id: string) { setParams(previous => { const next = new URLSearchParams(previous); next.set("job", id); return next; }); }
+  return <><Header title="Intelligence" description={org.name} actions={<button className={button} disabled={!owner || !!running || !!submission.pending || query.isError || !eligible.length} onClick={() => void run(eligible.slice(0,50))}>{running === "BULK" ? "Analysis request running..." : eligible.length ? "Analyze " + Math.min(50,eligible.length) + " eligible leads" : "No leads need analysis"}</button>} />
+    <div className="flex flex-wrap gap-2 border-b border-line px-4 py-3"><button type="button" className={button} aria-pressed={!jobsView && !evaluationView} onClick={() => setParams(previous => { const next = new URLSearchParams(previous); next.delete("view"); return next; })}>Enquiry intelligence</button><button type="button" className={button} aria-pressed={jobsView} onClick={() => setParams(previous => { const next = new URLSearchParams(previous); next.set("view", "jobs"); return next; })}>Analysis jobs</button><button type="button" className={button} aria-pressed={evaluationView} onClick={() => setParams(previous => { const next = new URLSearchParams(previous); next.set("view", "evaluation"); return next; })}>Reviewed reply evaluation</button></div>
+    <section aria-label="Intelligence directory" className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-6 space-y-4">
+      <AnalysisSubmissionRecovery submission={submission} />
+      {evaluationView ? <IntelligenceEvaluation selectedId={params.get("dataset")} onSelect={id => setParams(previous => { const next = new URLSearchParams(previous); next.set("dataset", id); return next; })} /> : jobsView ? <AnalysisJobsList selectedId={jobId} onSelect={selectJob} /> : <>
+      {jobId && <AnalysisJobPanel key={jobId} id={jobId} onCompleted={completed} />}
+      <p className="text-sm text-muted">Review currentness and source quality before acting. Refresh uses saved inputs; it does not re-confirm customer facts, resolve conflicts or grant contact permission. Each job records up to 50 explicitly selected leads and continues after navigation or reload. More selected records remain for another explicit job. The job prepares plans and reviewable drafts; it never approves or sends them. Priority within this page uses current configured fit and confirmed preferences, not contact completeness or import recency.</p>
+      {query.data && <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">{[["Returned leads",rows.length],["Needs analysis",query.data.totals.eligible_for_analysis],["Current analysis",rows.filter(row => row.currentness?.state === "CURRENT").length],["Outdated analysis",rows.filter(row => row.currentness?.state === "OUTDATED").length],["Never analysed",rows.filter(row => row.currentness?.state === "NEVER_ANALYSED").length]].map(([label,value]) => <div key={label} className="rounded-xl border border-line bg-surface p-3"><p className="text-lg font-semibold">{value}</p><p className="text-xs text-muted">{label}</p></div>)}</div>}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3"><label className="text-sm space-y-1">Search intelligence<input aria-label="Search intelligence" className={contextFieldClass} maxLength={200} value={search} onChange={event => setSearch(event.target.value)} placeholder="Name, email or company" /></label><label className="text-sm space-y-1">Analysis filter<select aria-label="Analysis filter" className={contextFieldClass} value={filter} onChange={event => setFilter(event.target.value as Filter)}><option value="ALL">All returned leads</option><option value="NEVER_ANALYSED">Not analysed yet</option><option value="CURRENT">Analysis current</option><option value="OUTDATED">Analysis outdated</option><option value="FAILED">Failed processing</option></select></label><label className="text-sm space-y-1">Business fit filter<select aria-label="Business fit filter" className={contextFieldClass} value={fitFilter} onChange={event => setFitFilter(event.target.value as typeof fitFilter)}><option value="ALL">All fit states</option><option value="MATCHES_CRITERIA">Matches configured criteria</option><option value="NEEDS_REVIEW">Fit needs review</option><option value="DOES_NOT_MATCH">Does not meet criteria</option><option value="NOT_CONFIGURED">Criteria not configured</option><option value="UNASSESSED">No current fit assessment</option></select></label></div>
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface p-3 text-sm"><span>{selected.length} selected; {hidden} not shown by these filters.</span><button className={button} disabled={!owner || !!running || !!submission.pending || !available.length || !allDisplayed && new Set([...selected,...available]).size > 1000} onClick={() => { setSelected(previous => allDisplayed ? previous.filter(id => !available.includes(id)) : [...new Set([...previous,...available])]); }}>{allDisplayed ? "Deselect displayed leads" : "Select displayed leads"}</button><button className={button} disabled={!!running || !selected.length} onClick={() => setSelected([])}>Clear analysis selection</button><button className={button} disabled={!owner || !!running || !!submission.pending || !selected.length || query.isError} onClick={() => void run(selected)}>{selected.length > 50 ? "Analyze first 50 selected" : "Analyze selected"}</button><button className={button} disabled={query.isFetching} onClick={() => void query.refetch()}>{query.isFetching ? "Checking saved state..." : "Check saved state"}</button></div>
+      <div className="flex flex-wrap items-center gap-3 text-sm"><Link className="text-brand underline" to="/settings?tab=fit">Review configured fit criteria</Link>{query.data?.ranking && <span className="text-xs text-muted">Priority within this page: {query.data.ranking.returned_count} returned of {query.data.ranking.workspace_active_count} active records. Matching enquiries, review required, lower priority, then unassessed; confirmed preferences break ties within matches. This is not a workspace-wide top list.</span>}</div>
+      {!owner && <p className="text-sm text-muted">A workspace owner can request analysis.</p>}
+      {query.isError ? <p role="alert" className="text-sm text-warn">Intelligence currentness could not load. Existing results may be outdated; check saved state before requesting analysis or reviewing work.</p> : !query.data ? <LoadingState label="Loading current intelligence" /> : filtered.length ? <div className="overflow-x-auto rounded-xl border border-line bg-surface"><table className="w-full text-left text-sm"><thead className="bg-soft"><tr>{["Select","Lead","Business fit and priority","Currentness","Analysis stages","Last analysed","Action"].map(label => <th key={label} className="p-3 font-medium">{label}</th>)}</tr></thead><tbody>{filtered.map(row => <tr key={row.lead_id} className="border-t border-line align-top"><td className="p-3"><input type="checkbox" aria-label={"Select " + row.name + " for analysis"} checked={selected.includes(row.lead_id)} disabled={!owner || !!running || !!submission.pending || !row.currentness?.can_refresh || !selected.includes(row.lead_id) && selected.length >= 1000} onChange={() => toggle(row.lead_id)} /></td><td className="p-3 min-w-40"><Link className="text-brand font-medium underline" to={"/leads/" + row.lead_id + "?tab=intelligence"}>{row.name || "Unnamed enquiry"}</Link>{row.company && <p className="text-xs text-muted break-words">{row.company}</p>}</td><td className="p-3 min-w-52"><BusinessFitBadge fit={row.business_fit} />{row.attention_priority && <><p className="mt-2 text-xs font-medium">{attentionLabels[row.attention_priority.band]}</p><p className="mt-1 text-xs text-muted">{row.attention_priority.reason}</p>{row.attention_priority.ranking_incomplete && <p className="mt-1 text-xs text-warn">Assessment coverage incomplete</p>}</>}{row.business_fit?.criterion_results.some(item => item.outcome === "UNKNOWN" || item.outcome === "NEEDS_REVIEW") && <p className="mt-2 text-xs text-muted">Review: {row.business_fit.criterion_results.filter(item => item.outcome === "UNKNOWN" || item.outcome === "NEEDS_REVIEW").map(item => fitFieldLabels[item.criterion_id]).join(", ")}.</p>}<Link className="inline-block mt-2 text-xs text-brand underline" to={"/leads/" + row.lead_id + "?tab=intelligence#business-fit"}>{row.business_fit?.status === "NEEDS_REVIEW" ? "Review missing or uncertain fit evidence" : "Review fit evidence"}</Link></td><td className="p-3 min-w-48"><CurrentnessBadge currentness={row.currentness} />{row.currentness?.reasons.length > 0 && <details className="mt-2"><summary className="text-xs text-brand cursor-pointer">Why this state?</summary><ul className="mt-2 text-xs space-y-1">{row.currentness.reasons.map((reason,index) => <li key={index}><CurrentnessReasonText reason={reason} /></li>)}</ul></details>}</td><td className="p-3 text-xs text-muted"><p>Readiness: {stage(row.intelligence_status,row.currentness?.state === "OUTDATED")}</p><p>Recommendation: {stage(row.recommendation_status,row.currentness?.state === "OUTDATED")}</p>{row.nba_title && row.currentness?.state === "CURRENT" && <p className="mt-1">Proposed: {row.nba_title}</p>}</td><td className="p-3 text-xs text-muted">{row.currentness?.analysed_at ? new Date(row.currentness.analysed_at).toLocaleString() : "No previous analysis"}</td><td className="p-3"><button className={button} disabled={!owner || !!running || !!submission.pending || !row.currentness?.can_refresh} onClick={() => void run([row.lead_id],true)}>{running === row.lead_id ? <><Loader2 className="inline h-3 w-3 animate-spin" /> Analysing...</> : row.currentness?.state === "NEVER_ANALYSED" ? "Analyze" : "Refresh analysis"}</button></td></tr>)}</tbody></table></div> : <EmptyState icon={Brain} title="No leads match" description="Try another currentness filter or import your enquiries." />}
+      <div className="flex flex-wrap items-center gap-4 text-sm"><button className={button} disabled={!!running || query.isFetching || pageCursors.length === 1} onClick={() => setPageCursors(previous => previous.slice(0,-1))}>Previous intelligence page</button><span>Page {pageCursors.length}</span><button className={button} disabled={!!running || query.isFetching || query.isError || !query.data?.ranking?.has_more || !query.data.ranking.next_after_lead_id} onClick={() => { const next = query.data?.ranking.next_after_lead_id; if (next) setPageCursors(previous => [...previous,next]); }}>Next intelligence page</button></div>
+      <p className="text-xs text-muted">{filtered.length} of {rows.length} returned leads shown. Currentness is checked periodically while visible and when recorded source state changes; no analysis runs automatically from this page.</p>
+    </>}
+    </section></>;
 }
-
-function IntelRow({
-  row,
-  running,
-  checked,
-  onToggle,
-  onRun,
-  onClick,
-}: {
-  row: IntelligenceRow;
-  running: boolean;
-  checked: boolean;
-  onToggle: () => void;
-  onRun: (e: React.MouseEvent) => void;
-  onClick: () => void;
-}) {
-  return (
-    <tr onClick={onClick} className="hover:bg-soft transition-colors cursor-pointer group">
-      <td className="pl-6" onClick={(e) => e.stopPropagation()}>
-        <input type="checkbox" checked={checked} onChange={onToggle} className="cursor-pointer" />
-      </td>
-      <td className="py-3 px-4">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-brand-light text-brand flex items-center justify-center text-xs font-bold shrink-0">
-            {(row.name?.[0] ?? "?").toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-ink truncate max-w-[160px]">{row.name || "Unnamed"}</p>
-            {row.company && <p className="text-[11px] text-muted truncate max-w-[160px]">{row.company}</p>}
-          </div>
-        </div>
-      </td>
-      <td className="py-3 px-4"><IntelStatusBadge status={row.intelligence_status} /></td>
-      <td className="py-3 px-4"><IntelStatusBadge status={row.recommendation_status} /></td>
-      <td className="py-3 px-4">
-        {row.nba_title || row.nba_action_type ? (
-          <div className="flex items-center gap-1.5">
-            {row.nba_status && <IntelStatusBadge status={row.nba_status} />}
-            <span className="text-xs text-ink truncate block max-w-[140px]">
-              {row.nba_title || formatLabel(row.nba_action_type || "")}
-            </span>
-          </div>
-        ) : (
-          <span className="text-xs text-muted">—</span>
-        )}
-      </td>
-      <td className="py-3 px-4">
-        <span className="text-xs text-muted">
-          {row.intelligence_at
-            ? new Date(row.intelligence_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-            : "—"}
-        </span>
-      </td>
-      <td className="py-3 px-4">
-        <button
-          onClick={onRun}
-          disabled={running}
-          className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold text-brand bg-brand-light rounded-md hover:bg-brand-muted transition-colors cursor-pointer disabled:opacity-50"
-        >
-          {running ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-          {running ? "Analyzing" : row.recommendation_status === "COMPLETED" ? "Re-analyze" : "Analyze"}
-        </button>
-      </td>
-    </tr>
-  );
-}
-
-function IntelStatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string; icon: typeof CheckCircle2 }> = {
-    NOT_RUN: { label: "Not run", className: "bg-soft text-muted", icon: Clock },
-    PENDING: { label: "Pending", className: "bg-warn-light text-warn", icon: Clock },
-    COMPLETED: { label: "Done", className: "bg-ok-light text-ok", icon: CheckCircle2 },
-    FAILED: { label: "Failed", className: "bg-danger-light text-danger", icon: XCircle },
-  };
-  const entry = map[status] ?? { label: status, className: "bg-soft text-muted", icon: Clock };
-  const Icon = entry.icon;
-  return (
-    <span className={cn("inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full", entry.className)}>
-      <Icon className="w-3 h-3" />
-      {entry.label}
-    </span>
-  );
-}
-
-function StatCard({ label, value, color }: { label: string; value: number; color?: string }) {
-  return (
-    <div className="bg-page border border-line rounded-lg px-3 py-2.5 text-center">
-      <p className={cn("text-lg font-bold", color ?? "text-ink")}>{value}</p>
-      <p className="text-[10px] text-muted uppercase tracking-wide">{label}</p>
-    </div>
-  );
-}
-
-function formatLabel(s: string) {
-  return s.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
-}
+function stage(status: string, outdated: boolean) { if (outdated) return "Previous result unavailable as current"; return ({NOT_RUN:"Not run",PENDING:"Pending",COMPLETED:"Completed",FAILED:"Failed"} as Record<string,string>)[status] || status.replaceAll("_"," ").toLowerCase(); }
