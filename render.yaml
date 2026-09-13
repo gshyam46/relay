@@ -10,7 +10,8 @@ services:
   - type: web
     name: relay-staging
     runtime: node
-    plan: starter
+    # Free staging preview; sleeping instances cannot provide reliable scheduled work.
+    plan: free
     region: singapore
     branch: mvp
 
@@ -27,8 +28,9 @@ services:
     # Supply MIGRATION_DATABASE_URL to that controlled job only, never to this
     # web service. The job/roles are not provisioned by this blueprint.
     # This check uses the runtime DATABASE_URL and never applies migrations.
-    # preDeployCommand requires an eligible paid instance type.
-    preDeployCommand: npm run verify:deploy
+    # Free staging has no pre-deploy hook. Run npm run verify:deploy as a
+    # separate controlled release check after migrations, before manual deploy.
+    # Startup also checks schema readiness; it never applies migrations.
 
     startCommand: npm start
 
