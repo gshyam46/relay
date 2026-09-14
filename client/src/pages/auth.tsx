@@ -1,3 +1,5 @@
+import { AvailabilityNotice } from "@/components/availability-notice";
+import { isServiceUnavailable, isComingSoon } from "@/lib/api";
 import { useState } from "react";
 import { Zap, Loader2, AlertCircle } from "lucide-react";
 import { useLogin, useRegister } from "@/hooks/use-auth";
@@ -54,6 +56,7 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const login = useLogin();
+  const [unavailable, setUnavailable] = useState<unknown>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,10 +64,12 @@ function LoginForm() {
     try {
       await login.mutateAsync({ email: email.trim(), password });
     } catch (err) {
+      if (isServiceUnavailable(err)) { setPassword(""); setUnavailable(err); return; }
       setError(err instanceof ApiError ? String(err.body && (err.body as { error?: string }).error || "Sign in failed") : "Sign in failed");
     }
   };
 
+  if (unavailable) return <AvailabilityNotice compact source="SIGNIN" contact={{ email }} comingSoon={isComingSoon(unavailable)} uncertainAccount onRetry={() => window.location.reload()}/>;
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <Field label="Email">
@@ -108,6 +113,7 @@ function RegisterForm({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const register = useRegister();
+  const [unavailable, setUnavailable] = useState<unknown>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,10 +126,12 @@ function RegisterForm({ onDone }: { onDone: () => void }) {
         password,
       });
     } catch (err) {
+      if (isServiceUnavailable(err)) { setPassword(""); setUnavailable(err); return; }
       setError(err instanceof ApiError ? String(err.body && (err.body as { error?: string }).error || "Could not create workspace") : "Could not create workspace");
     }
   };
 
+  if (unavailable) return <AvailabilityNotice compact source="SIGNUP" contact={{ email, name, company: organizationName }} comingSoon={isComingSoon(unavailable)} uncertainAccount onRetry={() => window.location.reload()}/>;
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <Field label="Workspace name">
@@ -194,7 +202,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 function ErrorNote({ message }: { message: string }) {
   return (
-    <p className="flex items-center gap-1.5 text-xs text-danger">
+    <p role="alert" className="flex items-center gap-1.5 text-xs text-danger">
       <AlertCircle className="w-3.5 h-3.5 shrink-0" />
       {message}
     </p>

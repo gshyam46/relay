@@ -131,3 +131,7 @@ Owners use Settings > Email to save Sandbox or provisional SendGrid configuratio
 Configuration completeness is not verified delivery. SendGrid dispatch requires current configuration-bound provider checks and processed signed delivery/failure/reply/stop evidence. The [verification contract](docs/L4-01_PROVIDER_VERIFICATION.md) describes the implemented flow; this repository's automated runs use synthetic adapters and have not established a live provider. Unsupported live channels/providers remain held. Sandbox is available. Global/workspace sending switches cannot override this channel hold. Exact draft review includes the configured Reply-To address. See the [contract](docs/L4-01_CHANNEL_SETUP.md) and [local verification](docs/verification/L4-01.md) for implemented bounds and open gates.
 
 Run the focused actual React check with node scripts/run-channel-setup-ui.js --playwright-module ABSOLUTE_INSTALLED_INDEX_MJS after building the client. The launcher owns a disposable loopback fixture and uses an already installed browser; it does not install software or contact providers.
+
+## Vercel frontend preview
+
+The repository includes Vercel configuration for the React frontend, a bounded same-origin API gateway and an independent PostgreSQL interest intake. Missing backend access shows a coming-soon/unavailable page with explicit update opt-in. Passwords are never stored in interest records. See [Vercel setup](docs/VERCEL.md) for the required project, runtime secrets, one-time acquisition schema and verification boundaries.

@@ -10,7 +10,7 @@ export function PilotRequestForm() {
     if (sending.current || pendingRef.current?.request_key !== command.request_key) return;
     sending.current = true; setBusy(true); setError(null);
     try {
-      const response = await fetch("/api/public/pilot-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command) });
+      const response = await fetch("/api/public/pilot-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command), signal: AbortSignal.timeout(15000) });
       if (pendingRef.current?.request_key !== command.request_key) return;
       if (response.status === 202) { const body = await response.json(); if (body?.accepted !== true) throw new Error("Unconfirmed result"); setAccepted(true); pendingRef.current = null; setPending(null); return; }
       if ([400, 409, 429].includes(response.status)) {

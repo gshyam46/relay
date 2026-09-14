@@ -1,0 +1,12 @@
+node_modules
+client/node_modules
+client/dist
+data
+logs
+.env
+.env.*
+.git
+.codex
+.agents
+test
+docs/verification

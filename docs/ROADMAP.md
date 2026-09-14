@@ -180,3 +180,7 @@ L3-02 now provides locally implemented reply-policy/evidence, interpretation vis
 ## Active completion continuation - 2026-09-13
 
 The owner authorized completing remaining feasible implementation. L4 composer, inbox/reminders/outcomes, controlled email verification, public landing and guided setup are integrated alongside L5 security, data lifecycle, schema/restore tools and operational metrics. The next stage is recorded candidate acceptance under [RELEASE_ACCEPTANCE](RELEASE_ACCEPTANCE.md). [COMPLETION_PLAN](COMPLETION_PLAN.md) records sequence and ownership; [TASKS](TASKS.md) remains authoritative. Implementation does not automatically close human/provider/PostgreSQL checks or founder decisions. L6 pricing, cohort results and public-launch go/no-go require real evidence and cannot be inferred from local tests.
+
+## Acquisition deployment refinement - 2026-09-14
+
+The user-requested Vercel frontend and independently stored outage interest form are part of L4-07/L5-07 acquisition readiness. ADR-025 and [VERCEL](VERCEL.md) define the boundary. This makes a frontend preview deployable while the application/backend remains unavailable; it does not close L5/L6 database, provider, customer or public-operator acceptance.

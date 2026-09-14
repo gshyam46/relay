@@ -131,3 +131,7 @@ Shared loading-screen components cover public/session loading, lazy workspace ro
 ## Customer settings and local developer tools
 
 /settings shows customer AI assistance, limits and channel availability. API/provider configuration and verification live at /developer-tools with no customer navigation link. The backend must explicitly set ENABLE_DEVELOPER_TOOLS=true in development/test, and the signed-in session must be an OWNER. It defaults off and is unavailable in staging/production. This is UI availability, not a new authorization role: existing APIs retain their server-side ownership and policy checks. Use the documented deployment/operator API procedure for deployed configuration. Developer browser launchers explicitly opt in on their owned in-memory fixtures.
+
+## Unavailable signup and onboarding
+
+Account/session JSON requests have a 15-second deadline and reject invalid success payloads. Backend absence shows coming soon; failed transport shows currently unavailable; genuine account errors remain errors. AvailabilityNotice collects only explicitly consented contact information through the public intake endpoint. Its same-key retry never replays passwords or creates an account. On Vercel, intake is independent of the backend process. See [deployment](../docs/VERCEL.md).

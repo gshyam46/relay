@@ -234,3 +234,7 @@ The landing walkthrough is displayed automatically. Try it out scrolls to it, Ge
 ## Customer settings and channel availability - 2026-09-13
 
 Customer settings now present AI assistance and usage limits without provider catalogues, model identifiers, credentials or webhook configuration. Email reports its actual Sandbox or checked-connection status; sending policy and message approval remain separate. WhatsApp, SMS and calling explicitly state that live operation is unavailable; Telegram has no sending/reply implementation. The presence of a transport adapter is not an end-to-end product capability. Technical setup and verification remain in an explicitly enabled local developer screen under ADR-024. [Verification and remaining channel work](verification/CUSTOMER_SETTINGS.md).
+
+## Independent frontend and unavailable access - 2026-09-14
+
+The frontend can be hosted on Vercel independently of the application backend. Unavailable signup/signin/onboarding shows a coming-soon or temporary-unavailability page with a separately consented availability-update form. Successful authentication remains an application operation; failed credentials are never an interest record. The Vercel intake persists directly to an application-owned PostgreSQL acquisition schema and confirms only actual saved requests. Operator follow-up remains manual. Deployment configuration and human gates are in [VERCEL](VERCEL.md).

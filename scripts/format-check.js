@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
-const roots = ["src", "public", "test", "scripts", "docs"];
+const roots = ["api", "deployment", "src", "public", "test", "scripts", "docs"];
 const extensions = new Set([".js", ".html", ".css", ".md", ".json", ".yml", ".yaml"]);
 const files = [];
 

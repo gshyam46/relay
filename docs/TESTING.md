@@ -407,3 +407,7 @@ Additional tracked safe browser launchers are verify:setup-journey-ui, verify:in
 [Customer settings evidence](verification/CUSTOMER_SETTINGS.md) records the subsequent default-off developer-screen boundary, customer availability UI and preserved technical workflow tests. Seven new boundary regressions are included in 77 passing targeted backend tests. Technical browser launchers now explicitly enable the separate local developer UI; ordinary customer launchers do not. Earlier full-suite/browser evidence remains tied to its recorded build.
 
 Final customer-settings candidate: 67 browser checks passed (17 setup/customer, 20 channel setup, 12 email verification, 18 analysis); TypeScript/build and formatting passed. See the focused evidence for asset identity and local artifact directories.
+
+## Vercel and availability-update slice - 2026-09-14
+
+[Verification](verification/VERCEL_AVAILABILITY.md) records 36 passing targeted backend tests and the built frontend/gateway outage journey, alongside retained landing/setup/customer regressions. The availability launcher uses two separate owned in-memory databases and a local gateway; it does not claim actual Vercel, PostgreSQL/RLS or notification acceptance. The [runbook](VERCEL.md) names those required live checks.

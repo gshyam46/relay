@@ -164,3 +164,7 @@ After every slice, update this specification, TASKS/ROADMAP, relevant PRODUCT/AR
 ## Current verification boundaries
 
 Implementation evidence is linked above; TASKS.md owns closure status. No real customer testimonials, measured conversion uplift, hosted-model accuracy, unlimited scale or production/provider certification is supplied by the synthetic landing. The public route and real intake endpoint are implemented; public publication still requires the L6 release decision and the unresolved human/operational evidence.
+
+## Independent frontend hosting
+
+[VERCEL](VERCEL.md) prepares standalone public hosting and independent persisted acquisition. The walkthrough stays available without the application backend. Account entry points expose unavailable access and explicit update opt-in; both contact forms use the configured deployment intake store. Successful interest is separate from account creation, booking and live access. Actual Vercel/PG/operator acceptance remains required.

@@ -464,3 +464,7 @@ A manually captured enquiry needs a bounded name; email and phone may be absent.
 ## Dashboard business outcome projection
 
 GET /api/dashboard/metrics now includes business_outcomes with scope ACTIVE_ENQUIRIES, current recorded/withdrawn stream counts, distinct enquiries with a recorded outcome, and fixed per-kind outcome/enquiry counts. It reads current outcome revision heads under the workspace gate. The React Reported wins card uses distinct active enquiries with current RECORDED WON facts; correction/withdrawal/archive changes the projection. Kinds can overlap by enquiry. No conversion rate, causal effect or mixed-currency revenue is inferred. The legacy leads.converted_count field remains compatibility metadata and is not the displayed business outcome.
+
+## Acquisition interest and availability updates
+
+Availability interest is an explicit consented public-interest record, separate from Account, Organization and Lead. Optional purpose distinguishes signup, signin and onboarding; the server fixes its workflow/source text and persists the corresponding consent version. A failed account request does not automatically create interest, and an interest receipt does not establish account creation or access. The Vercel acquisition schema uses the existing PilotInterestService rules and may remain reachable while the main app process is unavailable. Existing application accounts and customer intelligence stay in their authoritative application database.

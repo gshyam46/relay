@@ -20,20 +20,24 @@ export function setUnauthorizedHandler(fn: () => void) {
   unauthorizedHandler = fn;
 }
 
+export function isServiceUnavailable(error: unknown) { return error instanceof ApiError && (error.status >= 500 || error.status === 0 || error.status === 404); }
+export function isComingSoon(error: unknown) { return error instanceof ApiError && (error.body as { code?: string } | null)?.code === "BACKEND_NOT_CONFIGURED"; }
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    ...options,
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => res.statusText);
-    if (res.status === 401) {
-      unauthorizedHandler?.();
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    let res: Response;
+    try { res = await fetch(BASE + path, { ...options, headers: { "Content-Type": "application/json", ...options?.headers }, signal: controller.signal }); }
+    catch { throw new ApiError(controller.signal.aborted ? 504 : 503, { code: "BACKEND_UNAVAILABLE", error: "The service could not be reached." }); }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ code: "BACKEND_RESPONSE_INVALID", error: "The service returned an unavailable response." }));
+      if (res.status === 401) unauthorizedHandler?.();
+      throw new ApiError(res.status, body);
     }
-    throw new ApiError(res.status, body);
-  }
-  if (res.status === 204) return undefined as T;
-  return res.json();
+    if (res.status === 204) return undefined as T;
+    try { if (!res.headers.get("content-type")?.includes("application/json")) throw new Error(); return await res.json(); }
+    catch { throw new ApiError(502, { code: "BACKEND_RESPONSE_INVALID", error: "The service response could not be confirmed." }); }
+  } finally { clearTimeout(timer); }
 }
 
 export const api = {

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { Organization } from "@/types";
 
@@ -18,6 +18,11 @@ interface AuthResponse {
   capabilities?: { test_controls: boolean; developer_tools?: boolean };
 }
 
+function validatedAuth(value: AuthResponse): AuthResponse {
+  if (!value || !value.user || !value.organization || typeof value.user.id !== "string" || typeof value.user.email !== "string" || typeof value.organization.id !== "string" || value.user.organization_id !== value.organization.id) throw new ApiError(502, { code: "BACKEND_RESPONSE_INVALID", error: "Account access could not be confirmed." });
+  return value;
+}
+
 // The session cookie (not this query) is the real source of truth for "am I logged in" — this
 // just asks the server what it thinks that cookie means. A failed request (401, or no cookie at
 // all) means "not signed in", not an error to retry.
@@ -25,7 +30,7 @@ export function useMe() {
   const setCurrentOrg = useWorkspaceStore((s) => s.setCurrentOrg);
   const query = useQuery({
     queryKey: ["auth", "me"],
-    queryFn: () => api.get<AuthResponse>("/auth/me"),
+    queryFn: () => api.get<AuthResponse>("/auth/me").then(validatedAuth),
     retry: false,
   });
 
@@ -49,7 +54,7 @@ export function useRegister() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: { organization_name: string; name: string; email: string; password: string }) =>
-      api.post<AuthResponse>("/auth/register", input),
+      api.post<AuthResponse>("/auth/register", input).then(validatedAuth),
     onSuccess: (data) => {
       qc.removeQueries({predicate:query=>query.queryKey[0]!=="auth"});
       qc.setQueryData(["auth", "me"], data);
@@ -62,7 +67,7 @@ export function useRegister() {
 export function useLogin() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { email: string; password: string }) => api.post<AuthResponse>("/auth/login", input),
+    mutationFn: (input: { email: string; password: string }) => api.post<AuthResponse>("/auth/login", input).then(validatedAuth),
     onSuccess: (data) => {
       qc.removeQueries({predicate:query=>query.queryKey[0]!=="auth"});
       qc.setQueryData(["auth", "me"], data);

@@ -1,3 +1,5 @@
+import {AvailabilityNotice} from "@/components/availability-notice";
+import {isServiceUnavailable} from "@/lib/api";
 import {LoadingScreen} from "@/components/loading-screen";
 import {SetupJourney} from "@/components/setup-journey";
 import {
@@ -84,10 +86,11 @@ function AnalyzeEligibleButton() {
 }
 
 function DashboardContent() {
-  const { data, isLoading, isError, refetch } = useDashboardData();
+  const { data, isLoading, isError, error, refetch } = useDashboardData();
   const { data: attention, isError: attentionError, refetch: refetchAttention } = useAttentionQueue();
   const navigate = useNavigate();
 
+  if (isError && isServiceUnavailable(error)) return <div className="flex-1 overflow-y-auto p-5"><AvailabilityNotice compact source="ONBOARDING" onRetry={() => refetch()}/></div>;
   if (isError) {
     return (
       <ErrorState

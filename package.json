@@ -34,7 +34,9 @@
     "verify:intelligence-trust-ui": "node scripts/run-intelligence-trust-ui.js",
     "verify:operations": "node scripts/verify-operations.js",
     "verify:workspace-data-ui": "node scripts/run-workspace-data-ui.js",
-    "verify:email-verification-ui": "node scripts/run-email-verification-ui.js"
+    "verify:email-verification-ui": "node scripts/run-email-verification-ui.js",
+    "verify:availability-ui": "node scripts/run-availability-ui.js",
+    "interest:store": "node scripts/interest-store.js"
   },
   "engines": {
     "node": ">=24"

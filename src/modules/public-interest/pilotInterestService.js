@@ -4,20 +4,22 @@ import {normalizePeerAddress} from "../../shared/httpRequestPolicy.js";
 const HOUR=3600000,DAY=24*HOUR,globalKey="0".repeat(64);
 const problem=(statusCode,code,message)=>Object.assign(new Error(message),{statusCode,code});
 export function normalizePilotRequest(input){
+ const purpose=input?.purpose;
+ if(purpose!==undefined&&!["AVAILABILITY_SIGNUP","AVAILABILITY_SIGNIN","AVAILABILITY_ONBOARDING"].includes(purpose))throw problem(400,"PILOT_REQUEST_INVALID","Choose a valid interest purpose.");
  const fields=["request_key","name","email","company","workflow","channel","consent","website"];
- if(!input||typeof input!=="object"||Array.isArray(input)||Object.keys(input).length!==fields.length||fields.some(key=>!Object.hasOwn(input,key)))throw problem(400,"PILOT_REQUEST_INVALID","Complete the pilot request fields.");
+ if(!input||typeof input!=="object"||Array.isArray(input)||Object.keys(input).length!==fields.length+(purpose===undefined?0:1)||fields.some(key=>!Object.hasOwn(input,key)))throw problem(400,"PILOT_REQUEST_INVALID","Complete the pilot request fields.");
  const value={};for(const [key,limit] of Object.entries({request_key:200,name:200,email:254,company:200,workflow:2000,website:200})){
   if(typeof input[key]!=="string")throw problem(400,"PILOT_REQUEST_INVALID","Request fields must be text.");
   value[key]=input[key].replace(/\r\n/g,"\n").trim();
   if(value[key].length>limit||/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value[key])||key!=="website"&&!value[key])throw problem(400,"PILOT_REQUEST_INVALID","Check the required fields and their lengths.");
  }
  if(!/^[a-zA-Z0-9_-]{16,200}$/.test(value.request_key)||!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value.email)||value.email.split("@")[0].length>64||input.consent!==true||!["EMAIL","WHATSAPP","UNDECIDED"].includes(input.channel))throw problem(400,"PILOT_REQUEST_INVALID","Provide a valid email, channel and consent.");
- value.email=value.email.toLowerCase();value.channel=input.channel;value.consent=true;return value;
+ value.email=value.email.toLowerCase();value.channel=input.channel;value.consent=true;if(purpose!==undefined){value.purpose=purpose;value.workflow="Availability update requested from "+purpose.slice(13).toLowerCase()+".";}return value;
 }
 export class PilotInterestService{
  constructor(db,{secret,now=Date.now}={}){if(typeof secret!=="string"||secret.length<32)throw new TypeError("Pilot admission requires the configured server secret.");this.db=db;this.secret=secret;this.now=now;}
  async submit(input,peerAddress){
-  const value=normalizePilotRequest(input);if(value.website)return {accepted:true};
+  const value=normalizePilotRequest(input);if(value.website){if(value.purpose)throw problem(400,"PILOT_REQUEST_INVALID","The request could not be saved.");return {accepted:true};}
   const {request_key,website,...fields}=value;
   const fingerprint=createHash("sha256").update(JSON.stringify(fields)).digest("hex");
   const peer=createHmac("sha256",this.secret).update(normalizePeerAddress(peerAddress)).digest("hex");
@@ -36,7 +38,7 @@ export class PilotInterestService{
     const reset=!row||now-row.window_started_at>=window;
     await tx.run("INSERT INTO pilot_request_limits(identity_hash,window_started_at,attempts) VALUES(?,?,?) ON CONFLICT(identity_hash) DO UPDATE SET window_started_at=excluded.window_started_at,attempts=excluded.attempts",[key,reset?now:row.window_started_at,reset?1:row.attempts+1]);
    }
-   const at=new Date(now).toISOString();await tx.run("INSERT INTO pilot_interest_requests(id,request_key,request_hash,name,email,company,workflow,channel,consent_version,status,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,'NEW',?,?)",[createId("pilot"),request_key,fingerprint,fields.name,fields.email,fields.company,fields.workflow,fields.channel,"pilot-interest-v1",at,new Date(now+90*DAY).toISOString()]);
+   const at=new Date(now).toISOString();await tx.run("INSERT INTO pilot_interest_requests(id,request_key,request_hash,name,email,company,workflow,channel,consent_version,status,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,'NEW',?,?)",[createId("pilot"),request_key,fingerprint,fields.name,fields.email,fields.company,fields.workflow,fields.channel,fields.purpose?fields.purpose.toLowerCase()+"-v1":"pilot-interest-v1",at,new Date(now+90*DAY).toISOString()]);
    return {accepted:true};
   },{lockTimeoutMs:5000});}catch(error){if(error.code?.startsWith("PILOT_REQUEST_"))throw error;throw problem(503,"PILOT_REQUEST_UNAVAILABLE","Your request could not be confirmed. Retry the same request reference.");}
  }

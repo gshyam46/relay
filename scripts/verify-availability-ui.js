@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { createServer } from "node:http";
+import { readFile, mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { createApp } from "../src/api/app.js";
+import { createDatabase } from "../src/database/database.js";
+import { loadConfig } from "../src/config.js";
+import { serveStatic } from "../src/shared/http.js";
+import { PilotInterestService } from "../src/modules/public-interest/pilotInterestService.js";
+import { createGateway } from "../api/gateway.js";
+import { safeTestEnvironment, assertNoLiveProviders } from "./helpers/testSafety.js";
+assertNoLiveProviders();
+if(process.env.NODE_ENV!=="test"||process.env.DATABASE_FILE!==":memory:"||process.env.DATABASE_URL)throw Error("Owned in-memory environment required");
+const args=process.argv.slice(2);if(args.length!==2||args[0]!=="--playwright-module"||!path.isAbsolute(args[1]))throw Error("Installed Playwright module required");
+const appDb=await createDatabase(":memory:"),intakeDb=await createDatabase(":memory:"),intake=new PilotInterestService(intakeDb,{secret:"synthetic-independent-intake-secret-0001"});
+let gateway,backend,browser,page,mode="online",storageAvailable=true,count=0;const commands=[],errors=[];
+const frontend=createServer((req,res)=>req.url.startsWith("/api/")?gateway(req,res):serveStatic(req,res,path.resolve("client/dist")));
+await new Promise(r=>frontend.listen(0,"127.0.0.1",r));const base="http://127.0.0.1:"+frontend.address().port;
+const env={FRONTEND_ORIGIN:base,BACKEND_ORIGIN:""};
+const config=loadConfig({...process.env,PUBLIC_APP_ORIGIN:base,PORT:String(frontend.address().port)});
+backend=createApp({db:appDb,config});await new Promise(r=>backend.listen(0,"127.0.0.1",r));const backendOrigin="http://127.0.0.1:"+backend.address().port;
+gateway=createGateway({env,allowLoopback:true,timeoutMs:1000,submitInterest:async(input,peer)=>{commands.push(input);if(!storageAvailable)throw Error("synthetic storage failure");return intake.submit(input,peer);},fetchImpl:async(url,options)=>{
+  if(mode==="timeout")return new Promise((_resolve,reject)=>options.signal.addEventListener("abort",()=>reject(Error("synthetic timeout")),{once:true}));
+  if(mode==="html")return new Response("<html>unavailable</html>",{headers:{"content-type":"text/html"}});
+  if(mode==="auth-failed"&&options.method==="POST"&&url.endsWith("/auth/register"))return Response.json({error:"Unavailable"},{status:503});
+  if(mode==="onboarding-failed"&&url.includes("/setup-journey"))return Response.json({error:"Unavailable"},{status:503});
+  return fetch(url,options);
+}});
+const artifacts=await mkdtemp(path.join(tmpdir(),"relay-availability-ui-")),build=await readFile("client/dist/index.html","utf8");
+const pass=message=>{count++;console.log("PASS "+message);};
+const shown=locator=>locator.waitFor({state:"visible",timeout:25000});
+const rows=()=>intakeDb.all("SELECT * FROM pilot_interest_requests ORDER BY created_at,id");
+try{
+ const {chromium}=await import(pathToFileURL(args[1]).href);browser=await chromium.launch({headless:true,env:safeTestEnvironment(),args:["--disable-background-networking"]});const context=await browser.newContext({viewport:{width:1200,height:950}});context.setDefaultTimeout(25000);await context.route("**/*",route=>route.request().url().startsWith(base+"/")?route.continue():route.abort());page=await context.newPage();page.on("pageerror",e=>errors.push(e.message));
+ await page.goto(base+"/");await shown(page.locator(".demo-workspace"));pass("standalone landing and automatic walkthrough remain usable without a backend");
+ await page.goto(base+"/register");await shown(page.getByRole("heading",{name:"Workspace access is coming soon",exact:true}));assert.equal(await page.locator('input[type="password"]').count(),0);assert.equal((await rows()).length,0);pass("signup with no backend shows coming soon without collecting credentials or silently recording interest");
+ const form=()=>page.getByRole("form",{name:"Availability updates"});
+ async function fillInterest(name,email){await form().getByLabel("Your name",{exact:true}).fill(name);await form().getByLabel("Email",{exact:true}).fill(email);assert.ok(await form().getByRole("button",{name:"Notify me",exact:true}).isDisabled());await form().getByRole("checkbox").check();}
+ await fillInterest("Interested visitor","signup@example.test");let lost=false;await page.route("**/api/public/pilot-requests",async route=>{if(!lost){lost=true;await route.fetch();await route.abort("failed");}else await route.continue();});await form().getByRole("button",{name:"Notify me",exact:true}).click();await shown(form().getByRole("button",{name:"Retry the same request",exact:true}));assert.equal((await rows()).length,1);assert.equal(await page.getByRole("heading",{name:"Your interest is saved",exact:true}).count(),0);const key=commands.at(-1).request_key;await form().getByRole("button",{name:"Retry the same request",exact:true}).click();await shown(page.getByRole("heading",{name:"Your interest is saved",exact:true}));assert.equal(commands.at(-1).request_key,key);assert.equal((await rows()).length,1);assert.equal((await rows())[0].consent_version,"availability_signup-v1");await page.unroute("**/api/public/pilot-requests");pass("lost intake response is honestly unconfirmed and same-key retry recovers one persisted interest record");
+ await page.goto(base+"/login");await shown(form());storageAvailable=false;await fillInterest("Returning visitor","signin@example.test");await form().getByRole("button",{name:"Notify me",exact:true}).click();await shown(form().getByRole("button",{name:"Retry the same request",exact:true}));assert.equal((await rows()).length,1);assert.equal(await page.getByRole("heading",{name:"Your interest is saved",exact:true}).count(),0);storageAvailable=true;await form().getByRole("button",{name:"Retry the same request",exact:true}).click();await shown(page.getByRole("heading",{name:"Your interest is saved",exact:true}));assert.equal((await rows()).length,2);pass("storage outage cannot claim interest was saved; explicit retry after recovery records signin opt-in");
+ env.BACKEND_ORIGIN=backendOrigin;mode="auth-failed";await page.goto(base+"/register");await shown(page.locator('input[type="password"]'));
+ async function registerFields(email){const inputs=page.locator("form input");await inputs.nth(0).fill("Synthetic availability workspace");await inputs.nth(1).fill("Availability owner");await inputs.nth(2).fill(email);await inputs.nth(3).fill("synthetic-private-password");}
+ await registerFields("owner@example.test");await page.locator('form button[type="submit"]').click();await shown(page.getByRole("heading",{name:"Currently unavailable",exact:true}));assert.equal(await page.locator('input[type="password"]').count(),0);assert.equal(await form().getByLabel("Email",{exact:true}).inputValue(),"owner@example.test");assert.equal(await form().getByLabel("Your name",{exact:true}).inputValue(),"Availability owner");assert.ok(!(await form().getByRole("checkbox").isChecked()));assert.equal((await rows()).length,2);assert.equal((await appDb.get("SELECT count(*) n FROM users")).n,0);await page.screenshot({path:path.join(artifacts,"signup-unavailable.png"),fullPage:true});pass("failed registration clears the password and requires separate consent for prefilled contact details");
+ mode="online";await page.getByRole("button",{name:"Check availability",exact:true}).click();await shown(page.locator('input[type="password"]'));assert.equal(await page.locator('input[type="password"]').inputValue(),"");await registerFields("owner@example.test");await page.locator('form button[type="submit"]').click();await shown(page.getByRole("region",{name:"Your first enquiry journey",exact:true}));assert.equal((await appDb.get("SELECT count(*) n FROM users")).n,1);assert.equal((await rows()).length,2);pass("recovered backend supports actual registration and session cookies through the same-origin gateway without replaying passwords");
+ mode="onboarding-failed";await page.getByRole("button",{name:"Refresh saved work",exact:true}).click();await shown(page.getByRole("heading",{name:"Currently unavailable",exact:true}));await shown(page.getByText(/observations below are from the last successful read/));pass("failed onboarding read shows availability capture while retaining last-read observations");
+ mode="online";await context.clearCookies();await page.goto(base+"/login");await shown(page.locator('input[type="password"]'));await page.locator('input[type="email"]').fill("unknown@example.test");await page.locator('input[type="password"]').fill("incorrect-password");await page.locator('form button[type="submit"]').click();await shown(page.getByRole("alert"));assert.equal(await page.getByRole("heading",{name:"Currently unavailable",exact:true}).count(),0);assert.equal((await rows()).length,2);pass("incorrect credentials remain a real sign-in error and are not captured as interest");
+ mode="html";await page.goto(base+"/login");await shown(page.getByRole("heading",{name:"Currently unavailable",exact:true}));assert.equal(await page.locator('input[type="password"]').count(),0);pass("non-API HTML response fails into a usable unavailable page rather than false account access");
+ mode="timeout";await page.goto(base+"/login");await shown(page.getByRole("heading",{name:"Currently unavailable",exact:true}));await page.setViewportSize({width:390,height:844});await page.emulateMedia({reducedMotion:"reduce"});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(artifacts,"unavailable-mobile.png"),fullPage:true});pass("stalled backend is bounded and unavailable screen works at phone width with reduced motion");
+ assert.ok(!JSON.stringify(await rows()).includes("synthetic-private-password"));assert.ok(!commands.some(command=>Object.hasOwn(command,"password")));assert.equal(await page.evaluate(()=>Object.values(localStorage).some(value=>/password|signup@example.test|signin@example.test/.test(value))),false);assert.deepEqual(errors,[]);assert.equal(await readFile("client/dist/index.html","utf8"),build);pass("passwords stay outside interest records/browser storage and the actual built flow has no runtime errors");
+ console.log(JSON.stringify({checks:count,browser:browser.version(),artifacts,scope:"actual local gateway with separate memory databases; no live Vercel/PostgreSQL or email delivery claim"}));
+} catch(error){await page?.screenshot({path:path.join(artifacts,"failure.png"),fullPage:true}).catch(()=>{});console.error("FAILED after "+count+" checks; artifacts "+artifacts);throw error;}
+finally{await browser?.close();for(const server of [frontend,backend]){server.closeAllConnections();await new Promise(r=>server.close(r));}await appDb.close();await intakeDb.close();}
