@@ -72,9 +72,9 @@ On desktop, use a legible workspace stage: source/queue rail, active intelligenc
 
 ## Visual direction
 
-Use the user-approved ivory and ultramarine [design system](DESIGN_SYSTEM.md), superseding the earlier teal, pale green and navy palette. The design should feel precise, confident and alive: large editorial typography, generous space, crisp boundaries, high-quality data typography, and a central interface that reveals information as the visitor explores.
+Use the user-approved ivory and ultramarine [design system](DESIGN_SYSTEM.md), superseding the earlier teal, pale green and navy palette. The design should feel precise, confident and alive: bold sans-serif headlines, layered enquiry cards, generous space, crisp boundaries, high-quality data typography, and a central interface that reveals information as the visitor explores.
 
-The refined design uses a warm ivory editorial canvas, an ultramarine product accent and a light interactive stage. Keep the actual evidence, queue rows and action states the visual focus. Introduce one limited accent for a selected signal if needed; do not replace the palette with a generic rainbow or neon-purple template.
+The 15 September correction restores the earlier hero and section composition on a warm ivory canvas, with an ultramarine hero/interactive stage and ivory working surfaces. Preserve the floating enquiry/fact/unknown/action cards, orbital connectors and illustrated review panel. Keep the actual evidence, queue rows and action states the visual focus. Introduce one limited accent for a selected signal if needed; do not replace the palette with a generic rainbow or neon-purple template.
 
 Use deliberate scene transitions: source text highlights into a claim, a selected claim connects to a reason, and an approved action enters the timeline. Motion should explain the state change. Use native CSS/SVG and existing icon primitives first. No animated particle background, scroll hijacking, automatic audio, cursor replacement or mandatory WebGL.
 

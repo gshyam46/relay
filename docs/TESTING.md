@@ -419,3 +419,7 @@ Use the existing safe landing, availability, setup and customer-workflow browser
 Theme candidate verification is recorded in [PREMIUM_THEME](verification/PREMIUM_THEME.md): existing behavior scenarios passed with the shared visual changes; the last hero-only CSS adjustment has a subsequent passing landing run. Keep these local results separate from actual-device, screen-reader and live deployment acceptance.
 
 The 2026-09-15 readability follow-up additionally checks computed small-text sizes, hover arrow movement and actual phone layout; the existing landing suite retains contrast, keyboard, reduced-motion and synthetic workflow assertions. Results and exact build identity are appended to [theme evidence](verification/PREMIUM_THEME.md).
+
+## Landing composition restoration - 2026-09-15
+
+The latest user correction restores the earlier landing hero and section composition with the ivory/ultramarine palette. All 27 existing landing browser scenarios passed on final index-BdyoBXnw.js, including contrast, reduced motion, mobile, demo state, loading, request retry and registration. TypeScript/build and focused responsive visual inspection passed. [Theme evidence](verification/PREMIUM_THEME.md#restore-the-earlier-landing-experience---2026-09-15) records the corrected caption overlap, final artifacts and remaining human acceptance; previous broader suite counts remain historical.

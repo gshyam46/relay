@@ -4,7 +4,7 @@ Product: **AI Lead Intelligence & Outbound Automation**. User-authorized present
 
 ## Direction and decisions
 
-Use an editorial, product-led identity: warm ivory paper, near-white working surfaces, ultramarine actions and graphite text. Clear composition and typography carry the identity. Avoid decorative orbit lines, floating-card collages, lightning-bolt branding, oversized glowing gradients and multicolored feature cards. The interactive workflow stays central and visible automatically.
+Use warm ivory paper, near-white working surfaces, ultramarine actions and graphite text. The 15 September user correction restores the earlier lively landing composition from commit 86331d6: bold sans-serif headlines, the layered enquiry-card hero, orbital connectors, contrasting interactive stage and illustrated review panels. Apply the ivory and unicorn-blue palette to that existing experience. This explicitly supersedes the first theme pass that flattened those elements into an editorial brief. The interactive workflow stays central and visible automatically. Preserve the current shared monogram and readable control states.
 
 | Token | Value | Use |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ Use an editorial, product-led identity: warm ivory paper, near-white working sur
 | Muted | #686A73 | Supporting text |
 | Line | #DEDCD4 | Fine separators |
 
-Typography: Manrope for the interface, navigation, form labels and data; Newsreader for selected editorial headlines. Self-host WOFF2 assets with font-display: swap and local fallbacks. Preserve source and SIL Open Font License files. Use regular display weights and tabular numerals for comparable metrics; avoid serif body text in dense operational tables.
+Typography: Manrope for the interface, navigation, form labels, data and restored bold landing headlines; Newsreader remains available for selected editorial text elsewhere. Self-host WOFF2 assets with font-display: swap and local fallbacks. Preserve source and SIL Open Font License files. Use bold weights for the restored landing headlines and tabular numerals for comparable metrics; avoid serif body text in dense operational tables.
 
 The Relay display wordmark stays paired with the mandated product identity. A custom SVG relay/ribbon monogram replaces the generic bolt and is shared by the website, app, authentication, loading, favicon and touch icon. Vectors remain source-controlled; no image generation or runtime graphics dependency is required.
 
@@ -39,3 +39,7 @@ Root integrates global tokens/fonts/brand assets/initial HTML, documentation and
 ## Readability and interaction refinement - 15 September 2026
 
 The user approved the visual direction and requested larger supporting text plus visual cues for the walkthrough. Keep headlines, palette and composition. Public fine print and metadata have a 12px floor; supporting prose and controls use 14-16px. Shared app small text is 13px, with legacy 9-11px utility text raised to12px. Walkthrough controls receive subtle selection surfaces, focus outlines and hover arrow movement. Do not add instruction copy, fake activity, automatic step changes or perpetual attention animations. Preserve reduced motion and disabled states.
+
+## Restore the lively landing composition - 15 September 2026
+
+The latest user request retains the colour theme and restores the earlier hero, layered cards, orbital connectors, section rhythm and interactions. Scope is the public LandingPage.tsx and landing.css; shared app styling, brand assets, fonts, loading, authentication, availability capture and form contracts remain as implemented. Keep the readability improvements and subtle hover/focus cues, with no new instruction text or automatic demo progression. Existing landing browser checks and desktop/phone visual comparison against the pre-theme design are required. This is a presentation correction under L4-07, with no domain or architecture change.

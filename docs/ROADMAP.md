@@ -186,3 +186,5 @@ The owner authorized completing remaining feasible implementation. L4 composer, 
 The user-requested Vercel frontend and independently stored outage interest form are part of L4-07/L5-07 acquisition readiness. ADR-025 and [VERCEL](VERCEL.md) define the boundary. This makes a frontend preview deployable while the application/backend remains unavailable; it does not close L5/L6 database, provider, customer or public-operator acceptance.
 
 The user-authorized ivory/ultramarine presentation refinement is locally implemented under L4-06/L4-07. [Theme evidence](verification/PREMIUM_THEME.md) covers existing browser journeys and visual checks; customer design approval and hosted launch acceptance remain separate.
+
+The 2026-09-15 user correction restores the earlier lively landing composition while retaining ivory/ultramarine colours. [Restoration evidence](verification/PREMIUM_THEME.md#restore-the-earlier-landing-experience---2026-09-15) records the final 27 landing browser checks and responsive visual review; user acceptance remains separate from local implementation.
