@@ -238,3 +238,7 @@ Customer settings now present AI assistance and usage limits without provider ca
 ## Independent frontend and unavailable access - 2026-09-14
 
 The frontend can be hosted on Vercel independently of the application backend. Unavailable signup/signin/onboarding shows a coming-soon or temporary-unavailability page with a separately consented availability-update form. Successful authentication remains an application operation; failed credentials are never an interest record. The Vercel intake persists directly to an application-owned PostgreSQL acquisition schema and confirms only actual saved requests. Operator follow-up remains manual. Deployment configuration and human gates are in [VERCEL](VERCEL.md).
+
+## Product visual identity - 2026-09-14
+
+The user-approved ivory and ultramarine direction applies to the complete frontend and landing page, including branding, typography, authentication and loading. [Design system](DESIGN_SYSTEM.md) supersedes the earlier teal/mint presentation. AI Lead Intelligence & Outbound Automation remains the product identity.

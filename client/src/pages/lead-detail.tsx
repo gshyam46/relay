@@ -17,12 +17,12 @@ import {
   Mail,
   Phone,
   Building,
-  Brain,
+  FileSearch,
   CheckCircle2,
   XCircle,
   Clock,
   AlertCircle,
-  Zap,
+  RefreshCw,
   MessageSquare,
   Calendar,
   Loader2,
@@ -277,7 +277,7 @@ export function LeadDetailPage() {
                 {runningAction === "analyze" ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
-                  <Zap className="w-3.5 h-3.5" />
+                  <RefreshCw className="w-3.5 h-3.5" />
                 )}
                 {analyzeLabel}
               </button>
@@ -398,7 +398,7 @@ function OverviewTab({
       <div className="space-y-5">
         <div className="bg-surface border border-line rounded-xl p-5">
           <h3 className="text-sm font-semibold text-ink mb-3 flex items-center gap-2">
-            <Brain className="w-4 h-4 text-brand" />
+            <FileSearch className="w-4 h-4 text-brand" />
             Intelligence Snapshot
           </h3>
           {readiness ? (
@@ -485,13 +485,13 @@ function IntelligenceTab({
             <div className="flex items-start gap-5">
               <div className="relative w-16 h-16 shrink-0">
                 <svg className="w-16 h-16 -rotate-90" viewBox="0 0 56 56">
-                  <circle cx="28" cy="28" r="24" fill="none" stroke="#d9e1e7" strokeWidth="4" />
+                  <circle cx="28" cy="28" r="24" fill="none" stroke="var(--color-line)" strokeWidth="4" />
                   <circle
                     cx="28"
                     cy="28"
                     r="24"
                     fill="none"
-                    stroke="#0f766e"
+                    stroke="var(--color-brand)"
                     strokeWidth="4"
                     strokeLinecap="round"
                     strokeDasharray={`${(readiness.score / 100) * 150.8} 150.8`}
@@ -509,9 +509,9 @@ function IntelligenceTab({
                   {readiness.factors.map((f) => (
                     <div key={f.label} className="flex items-center gap-1.5 text-xs">
                       {f.available ? (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                        <CheckCircle2 className="w-3.5 h-3.5 text-ok shrink-0" />
                       ) : (
-                        <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                        <XCircle className="w-3.5 h-3.5 text-danger shrink-0" />
                       )}
                       <span className="text-muted">{f.label}</span>
                     </div>
@@ -886,14 +886,14 @@ function OutboundActionRow({
             <>
               <button
                 onClick={onApprove}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-ok bg-ok-light rounded-md hover:bg-green-200 transition-colors cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-ok bg-ok-light rounded-md hover:bg-ok/15 transition-colors cursor-pointer"
               >
                 <ThumbsUp className="w-3.5 h-3.5" />
                 Review
               </button>
               <button
                 onClick={onReject}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-danger bg-danger-light rounded-md hover:bg-red-200 transition-colors cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-danger bg-danger-light rounded-md hover:bg-danger/15 transition-colors cursor-pointer"
               >
                 <ThumbsDown className="w-3.5 h-3.5" />
                 Review to reject
@@ -1082,13 +1082,13 @@ function PriorityBadge({ label, score }: { label: string; score: number }) {
 
 function TypeBadge({ type }: { type: string }) {
   const styles: Record<string, string> = {
-    SEND_EMAIL: "bg-blue-50 text-blue-700",
-    SEND_WHATSAPP: "bg-green-50 text-green-700",
-    SEND_SMS: "bg-cyan-50 text-cyan-700",
-    SEND_VOICE_CALL: "bg-orange-50 text-orange-700",
-    CREATE_HUMAN_TASK: "bg-purple-50 text-purple-700",
-    UPDATE_CRM: "bg-amber-50 text-amber-700",
-    RUN_RESEARCH: "bg-cyan-50 text-cyan-700",
+    SEND_EMAIL: "bg-brand-light text-brand-strong",
+    SEND_WHATSAPP: "bg-brand/5 text-brand-strong",
+    SEND_SMS: "bg-soft text-ink",
+    SEND_VOICE_CALL: "bg-soft text-ink",
+    CREATE_HUMAN_TASK: "bg-brand-light text-brand-strong",
+    UPDATE_CRM: "bg-soft text-muted",
+    RUN_RESEARCH: "bg-brand/5 text-brand-strong",
   };
   return (
     <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap", styles[type] ?? "bg-soft text-muted")}>

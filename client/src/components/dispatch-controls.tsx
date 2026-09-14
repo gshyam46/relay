@@ -84,7 +84,7 @@ function DispatchControlsForm({ organizationId, state, refresh, refreshError }: 
    </fieldset>
    <p className="text-xs text-muted">Pausing, raising a limit or starting a new day does not reset an action's retry budget or deadline. Accepted requests release their slot; acceptance does not confirm delivery. These controls do not impose a monetary spending cap.</p>
    {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-   {saved && <p role="status" className="text-sm text-green-700">Sending controls saved.</p>}
+   {saved && <p role="status" className="text-sm text-ok">Sending controls saved.</p>}
    {draft.revision === null && <p role="alert" className="text-sm text-red-600">The stored revision requires operator repair before it can be updated.</p>}
    <div className="flex flex-wrap gap-3 items-center">
     <button type="submit" disabled={busy || changed || draft.revision === null || !limitsValid || !draft.reason.trim()} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50 flex items-center gap-2">{busy && <Loader2 className="w-4 h-4 animate-spin" />}Save sending controls</button>

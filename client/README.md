@@ -135,3 +135,5 @@ Shared loading-screen components cover public/session loading, lazy workspace ro
 ## Unavailable signup and onboarding
 
 Account/session JSON requests have a 15-second deadline and reject invalid success payloads. Backend absence shows coming soon; failed transport shows currently unavailable; genuine account errors remain errors. AvailabilityNotice collects only explicitly consented contact information through the public intake endpoint. Its same-key retry never replays passwords or creates an account. On Vercel, intake is independent of the backend process. See [deployment](../docs/VERCEL.md).
+
+The product theme uses shared tokens in src/index.css, self-hosted fonts in public/fonts and the shared BrandMark component. See [design system](../docs/DESIGN_SYSTEM.md) and [verification](../docs/verification/PREMIUM_THEME.md). Rebuild the client to serve theme changes from the Node preview.

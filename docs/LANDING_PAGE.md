@@ -72,9 +72,9 @@ On desktop, use a legible workspace stage: source/queue rail, active intelligenc
 
 ## Visual direction
 
-Build on the existing teal, pale green and navy visual system. The design should feel precise, confident and alive: large editorial typography, generous space, crisp boundaries, high-quality data typography, and a central interface that reveals information as the visitor explores.
+Use the user-approved ivory and ultramarine [design system](DESIGN_SYSTEM.md), superseding the earlier teal, pale green and navy palette. The design should feel precise, confident and alive: large editorial typography, generous space, crisp boundaries, high-quality data typography, and a central interface that reveals information as the visitor explores.
 
-The implemented design uses a pale editorial canvas, a deep navy synthetic hero illustration and a dark interactive stage. Keep the actual evidence, queue rows and action states the visual focus. Introduce one limited accent for a selected signal if needed; do not replace the palette with a generic rainbow or neon-purple template.
+The refined design uses a warm ivory editorial canvas, an ultramarine product accent and a light interactive stage. Keep the actual evidence, queue rows and action states the visual focus. Introduce one limited accent for a selected signal if needed; do not replace the palette with a generic rainbow or neon-purple template.
 
 Use deliberate scene transitions: source text highlights into a claim, a selected claim connects to a reason, and an approved action enters the timeline. Motion should explain the state change. Use native CSS/SVG and existing icon primitives first. No animated particle background, scroll hijacking, automatic audio, cursor replacement or mandatory WebGL.
 
@@ -168,3 +168,7 @@ Implementation evidence is linked above; TASKS.md owns closure status. No real c
 ## Independent frontend hosting
 
 [VERCEL](VERCEL.md) prepares standalone public hosting and independent persisted acquisition. The walkthrough stays available without the application backend. Account entry points expose unavailable access and explicit update opt-in; both contact forms use the configured deployment intake store. Successful interest is separate from account creation, booking and live access. Actual Vercel/PG/operator acceptance remains required.
+
+## Readability and visual affordances - 2026-09-15
+
+The approved ivory/ultramarine design now uses larger supporting text and controls. The walkthrough signals interactivity through a restrained blue frame, selected number tabs, outlined rows/actions and pointer/focus feedback. There is no new instruction copy or automatic progression. See the [design system](DESIGN_SYSTEM.md) and [verification](verification/PREMIUM_THEME.md).

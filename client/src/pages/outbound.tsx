@@ -41,7 +41,7 @@ import { useTestControlsEnabled } from "@/hooks/use-auth";
 import { downloadCsv } from "@/lib/csv";
 import { cn } from "@/lib/utils";
 
-const CHART_COLORS = ["#0f766e", "#0ea5e9", "#8b5cf6", "#f59e0b", "#ef4444", "#10b981"];
+const CHART_COLORS = ["#2446E8", "#1935B8", "#5B70C7", "#8A99C5", "#B2BACF", "#686A73"];
 
 type Tab = "IN_PROGRESS" | "RECOVERY" | "READY" | "APPROVED" | "SCHEDULED" | "SENT" | "REPLIES" | "FOLLOW_UPS" | "FAILED";
 
@@ -246,7 +246,7 @@ function OutboundWithOrg() {
                         <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #d9e1e7" }} />
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid var(--color-line)", backgroundColor: "var(--color-surface)", color: "var(--color-ink)" }} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="space-y-0.5">
@@ -314,7 +314,7 @@ function OutboundWithOrg() {
                   <button
                     onClick={handleBulkReject}
                     disabled={bulkBusy}
-                    className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-danger bg-danger-light rounded-md hover:bg-red-200 transition-colors cursor-pointer disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-danger bg-danger-light rounded-md hover:bg-danger/15 transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ThumbsDown className="w-3.5 h-3.5" />}
                     Review to reject
@@ -510,14 +510,14 @@ function FollowUpRow({
           <button
             onClick={onComplete}
             title="Mark complete"
-            className="p-1.5 rounded-md bg-ok-light text-ok hover:bg-green-200 transition-colors cursor-pointer"
+            className="p-1.5 rounded-md bg-ok-light text-ok hover:bg-ok/15 transition-colors cursor-pointer"
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={onCancel}
             title="Cancel"
-            className="p-1.5 rounded-md bg-danger-light text-danger hover:bg-red-200 transition-colors cursor-pointer"
+            className="p-1.5 rounded-md bg-danger-light text-danger hover:bg-danger/15 transition-colors cursor-pointer"
           >
             <XCircle className="w-3.5 h-3.5" />
           </button>
@@ -621,14 +621,14 @@ function ActionRow({
                 <button
                   onClick={onApprove}
                   title="Review exact message"
-                  className="p-1.5 rounded-md bg-ok-light text-ok hover:bg-green-200 transition-colors cursor-pointer"
+                  className="p-1.5 rounded-md bg-ok-light text-ok hover:bg-ok/15 transition-colors cursor-pointer"
                 >
                   <span className="flex items-center gap-1 text-xs"><ThumbsUp className="w-3.5 h-3.5" />Review</span>
                 </button>
                 <button
                   onClick={onReject}
                   title="Open review before rejecting"
-                  className="p-1.5 rounded-md bg-danger-light text-danger hover:bg-red-200 transition-colors cursor-pointer"
+                  className="p-1.5 rounded-md bg-danger-light text-danger hover:bg-danger/15 transition-colors cursor-pointer"
                 >
                   <ThumbsDown className="w-3.5 h-3.5" />
                 </button>
@@ -726,13 +726,13 @@ function MessagePreview({ action, onOpenLead }: { action: OutboundAction; onOpen
 function TypeBadge({ type }: { type: string }) {
   const Icon = typeIcon(type);
   const styles: Record<string, string> = {
-    SEND_EMAIL: "bg-blue-50 text-blue-700",
-    SEND_WHATSAPP: "bg-green-50 text-green-700",
-    SEND_SMS: "bg-cyan-50 text-cyan-700",
-    SEND_VOICE_CALL: "bg-orange-50 text-orange-700",
-    CREATE_HUMAN_TASK: "bg-purple-50 text-purple-700",
-    UPDATE_CRM: "bg-amber-50 text-amber-700",
-    RUN_RESEARCH: "bg-cyan-50 text-cyan-700",
+    SEND_EMAIL: "bg-brand-light text-brand-strong",
+    SEND_WHATSAPP: "bg-brand/5 text-brand-strong",
+    SEND_SMS: "bg-soft text-ink",
+    SEND_VOICE_CALL: "bg-soft text-ink",
+    CREATE_HUMAN_TASK: "bg-brand-light text-brand-strong",
+    UPDATE_CRM: "bg-soft text-muted",
+    RUN_RESEARCH: "bg-brand/5 text-brand-strong",
   };
   return (
     <span className={cn("inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap", styles[type] ?? "bg-soft text-muted")}>

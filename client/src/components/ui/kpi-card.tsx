@@ -11,10 +11,10 @@ interface KpiCardProps {
 }
 
 const accentStyles = {
-  default: "bg-brand-light text-brand",
-  ok: "bg-ok-light text-ok",
-  warn: "bg-warn-light text-warn",
-  danger: "bg-danger-light text-danger",
+  default: "text-brand",
+  ok: "text-ok",
+  warn: "text-warn",
+  danger: "text-danger",
 };
 
 export function KpiCard({
@@ -28,25 +28,25 @@ export function KpiCard({
   return (
     <div
       className={cn(
-        "bg-surface border border-line rounded-xl p-4 flex flex-col gap-3",
+        "bg-surface border border-line rounded-lg p-5 flex min-w-0 flex-col gap-5",
         className,
       )}
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-muted uppercase tracking-wider">
+        <span className="text-[11px] font-medium leading-relaxed text-muted">
           {label}
         </span>
         <div
           className={cn(
-            "w-8 h-8 rounded-lg flex items-center justify-center",
+            "w-6 h-6 shrink-0 flex items-center justify-center",
             accentStyles[accent],
           )}
         >
-          <Icon className="w-4 h-4" />
+          <Icon className="w-4 h-4" strokeWidth={1.6} aria-hidden="true" />
         </div>
       </div>
-      <div className="flex items-end gap-2">
-        <span className="text-2xl font-bold text-ink leading-none">
+      <div className="flex flex-wrap items-end gap-2">
+        <span className="text-[32px] font-medium tracking-[-0.055em] tabular-nums text-ink leading-none">
           {value}
         </span>
         {trend && (

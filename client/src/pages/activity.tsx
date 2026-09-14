@@ -273,7 +273,7 @@ function FollowUpRow({
             aria-label="Mark follow-up complete"
             onClick={onComplete}
             title="Mark complete"
-            className="p-1.5 rounded-md bg-ok-light text-ok hover:bg-green-200 transition-colors cursor-pointer"
+            className="p-1.5 rounded-md bg-ok-light text-ok hover:bg-ok/15 transition-colors cursor-pointer"
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
           </button>}

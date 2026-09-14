@@ -135,3 +135,7 @@ Run the focused actual React check with node scripts/run-channel-setup-ui.js --p
 ## Vercel frontend preview
 
 The repository includes Vercel configuration for the React frontend, a bounded same-origin API gateway and an independent PostgreSQL interest intake. Missing backend access shows a coming-soon/unavailable page with explicit update opt-in. Passwords are never stored in interest records. See [Vercel setup](docs/VERCEL.md) for the required project, runtime secrets, one-time acquisition schema and verification boundaries.
+
+## Product theme
+
+The complete React product uses the [ivory and ultramarine design system](docs/DESIGN_SYSTEM.md), bundled Manrope/Newsreader fonts and a shared SVG Relay monogram. Browser and visual evidence is recorded in [theme verification](docs/verification/PREMIUM_THEME.md). Product identity and all account, intelligence and review contracts remain unchanged.

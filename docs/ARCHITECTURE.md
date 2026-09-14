@@ -399,3 +399,5 @@ WhatsApp/SMS/voice have partial adapters but are not released live workflows; Te
 ## Frontend-only hosting - 2026-09-14
 
 ADR-025 adds independent Vercel frontend hosting, a same-origin bounded gateway and application-owned PostgreSQL interest capture that survives an app-process outage. Business logic and workers stay in the modular monolith; no new service owns lead intelligence. The deployment contract and human acceptance are in [VERCEL](VERCEL.md).
+
+The [shared design system](DESIGN_SYSTEM.md) now owns React palette tokens, locally bundled Manrope/Newsreader fonts and the shared SVG monogram. Public, auth, workspace and loading surfaces consume this identity; standalone favicon/touch assets derive from the same vector. This is a presentation refinement with no API, schema, state authority or service-boundary change.

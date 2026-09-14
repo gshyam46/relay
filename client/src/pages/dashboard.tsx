@@ -5,16 +5,15 @@ import {SetupJourney} from "@/components/setup-journey";
 import {
   Users,
   UserCheck,
-  Sparkles,
   ClipboardCheck,
   Clock,
   Building2,
   ArrowRight,
   TrendingUp,
   BarChart3,
-  Brain,
+  FileSearch,
   CalendarDays,
-  Zap,
+  RefreshCw,
   Loader2,
   AlertCircle,
 } from "lucide-react";
@@ -44,16 +43,7 @@ import { useMe } from "@/hooks/use-auth";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { cn } from "@/lib/utils";
 
-const CHART_COLORS = [
-  "#0f766e",
-  "#0ea5e9",
-  "#8b5cf6",
-  "#f59e0b",
-  "#ef4444",
-  "#10b981",
-  "#6366f1",
-  "#ec4899",
-];
+const CHART_COLORS = ["#2446E8", "#1935B8", "#5B70C7", "#8A99C5", "#B2BACF", "#686A73"];
 
 export function DashboardPage() {
   const org = useWorkspaceStore((s) => s.currentOrg);
@@ -82,7 +72,7 @@ export function DashboardPage() {
 function AnalyzeEligibleButton() {
   const submission = useAnalysisSubmission(), query = useIntelligenceSummary(), { data: me } = useMe();
   const ids = (query.data?.eligible_lead_ids || []).slice(0, 50);
-  return <div className="max-w-xl space-y-2"><div className="flex flex-wrap items-center gap-2"><button type="button" disabled={me?.user.role !== "OWNER" || submission.busy || !!submission.pending || query.isError || !ids.length} onClick={() => void submission.submit(ids)} className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">{submission.busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}{submission.busy ? "Queuing analysis..." : ids.length ? "Analyze " + ids.length + " eligible leads" : "No leads need analysis"}</button>{submission.job && <Link className="text-sm text-brand underline" to={"/intelligence?view=jobs&job=" + submission.job.id}>View saved analysis job</Link>}</div><AnalysisSubmissionRecovery submission={submission} /></div>;
+  return <div className="max-w-xl space-y-2"><div className="flex flex-wrap items-center gap-2"><button type="button" disabled={me?.user.role !== "OWNER" || submission.busy || !!submission.pending || query.isError || !ids.length} onClick={() => void submission.submit(ids)} className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">{submission.busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}{submission.busy ? "Queuing analysis..." : ids.length ? "Analyze " + ids.length + " eligible leads" : "No leads need analysis"}</button>{submission.job && <Link className="text-sm text-brand underline" to={"/intelligence?view=jobs&job=" + submission.job.id}>View saved analysis job</Link>}</div><AnalysisSubmissionRecovery submission={submission} /></div>;
 }
 
 function DashboardContent() {
@@ -176,20 +166,20 @@ function DashboardContent() {
               <AreaChart data={trendData}>
                 <defs>
                   <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0f766e" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#0f766e" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#2446E8" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#2446E8" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#d9e1e7" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
                 <XAxis
                   dataKey="label"
-                  tick={{ fontSize: 10, fill: "#5d6b75" }}
-                  axisLine={{ stroke: "#d9e1e7" }}
+                  tick={{ fontSize: 10, fill: "var(--color-muted)" }}
+                  axisLine={{ stroke: "var(--color-line)" }}
                   tickLine={false}
                   interval="preserveStartEnd"
                 />
                 <YAxis
-                  tick={{ fontSize: 10, fill: "#5d6b75" }}
+                  tick={{ fontSize: 10, fill: "var(--color-muted)" }}
                   axisLine={false}
                   tickLine={false}
                   allowDecimals={false}
@@ -199,14 +189,16 @@ function DashboardContent() {
                   contentStyle={{
                     fontSize: 12,
                     borderRadius: 8,
-                    border: "1px solid #d9e1e7",
+                    border: "1px solid var(--color-line)",
+                    backgroundColor: "var(--color-surface)",
+                    color: "var(--color-ink)",
                     boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
                   }}
                 />
                 <Area
                   type="monotone"
                   dataKey="count"
-                  stroke="#0f766e"
+                  stroke="#2446E8"
                   strokeWidth={2}
                   fill="url(#areaGrad)"
                 />
@@ -252,7 +244,9 @@ function DashboardContent() {
                     contentStyle={{
                       fontSize: 12,
                       borderRadius: 8,
-                      border: "1px solid #d9e1e7",
+                      border: "1px solid var(--color-line)",
+                      backgroundColor: "var(--color-surface)",
+                      color: "var(--color-ink)",
                     }}
                   />
                 </PieChart>
@@ -296,12 +290,12 @@ function DashboardContent() {
               <BarChart data={statusData} barSize={24} layout="vertical">
                 <CartesianGrid
                   strokeDasharray="3 3"
-                  stroke="#d9e1e7"
+                  stroke="var(--color-line)"
                   horizontal={false}
                 />
                 <XAxis
                   type="number"
-                  tick={{ fontSize: 10, fill: "#5d6b75" }}
+                  tick={{ fontSize: 10, fill: "var(--color-muted)" }}
                   axisLine={false}
                   tickLine={false}
                   allowDecimals={false}
@@ -309,7 +303,7 @@ function DashboardContent() {
                 <YAxis
                   dataKey="name"
                   type="category"
-                  tick={{ fontSize: 11, fill: "#5d6b75" }}
+                  tick={{ fontSize: 11, fill: "var(--color-muted)" }}
                   axisLine={false}
                   tickLine={false}
                   width={80}
@@ -318,12 +312,14 @@ function DashboardContent() {
                   contentStyle={{
                     fontSize: 12,
                     borderRadius: 8,
-                    border: "1px solid #d9e1e7",
+                    border: "1px solid var(--color-line)",
+                    backgroundColor: "var(--color-surface)",
+                    color: "var(--color-ink)",
                   }}
                 />
                 <Bar
                   dataKey="value"
-                  fill="#0f766e"
+                  fill="#2446E8"
                   radius={[0, 4, 4, 0]}
                 />
               </BarChart>
@@ -400,7 +396,7 @@ function DashboardContent() {
         <div className="space-y-4">
           <div className="bg-surface border border-line rounded-xl p-5">
             <h3 className="text-sm font-semibold text-ink flex items-center gap-2 mb-3">
-              <Brain className="w-4 h-4 text-brand" />
+              <FileSearch className="w-4 h-4 text-brand" />
               Intelligence
             </h3>
             <div className="grid grid-cols-2 gap-3">
@@ -426,7 +422,7 @@ function DashboardContent() {
 
           <div className="bg-surface border border-line rounded-xl p-5">
             <h3 className="text-sm font-semibold text-ink flex items-center gap-2 mb-3">
-              <Sparkles className="w-4 h-4 text-brand" />
+              <BarChart3 className="w-4 h-4 text-brand" />
               Quick Stats
             </h3>
             <div className="space-y-2.5">
@@ -469,9 +465,9 @@ function MetricCard({
 }) {
   const ring: Record<string, string> = {
     default: "border-line",
-    ok: "border-emerald-200",
-    warn: "border-amber-200",
-    danger: "border-red-200",
+    ok: "border-ok/25",
+    warn: "border-warn/25",
+    danger: "border-danger/25",
   };
   const iconBg: Record<string, string> = {
     default: "bg-brand-light text-brand",

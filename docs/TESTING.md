@@ -411,3 +411,11 @@ Final customer-settings candidate: 67 browser checks passed (17 setup/customer, 
 ## Vercel and availability-update slice - 2026-09-14
 
 [Verification](verification/VERCEL_AVAILABILITY.md) records 36 passing targeted backend tests and the built frontend/gateway outage journey, alongside retained landing/setup/customer regressions. The availability launcher uses two separate owned in-memory databases and a local gateway; it does not claim actual Vercel, PostgreSQL/RLS or notification acceptance. The [runbook](VERCEL.md) names those required live checks.
+
+## Ivory and ultramarine theme verification - 2026-09-14
+
+Use the existing safe landing, availability, setup and customer-workflow browser launchers after the final client build. Preserve behavior assertions; inspect desktop/mobile appearance and contrast with self-hosted fonts loaded. [Design system](DESIGN_SYSTEM.md) defines scope and manual QA; evidence belongs in verification/PREMIUM_THEME.md.
+
+Theme candidate verification is recorded in [PREMIUM_THEME](verification/PREMIUM_THEME.md): existing behavior scenarios passed with the shared visual changes; the last hero-only CSS adjustment has a subsequent passing landing run. Keep these local results separate from actual-device, screen-reader and live deployment acceptance.
+
+The 2026-09-15 readability follow-up additionally checks computed small-text sizes, hover arrow movement and actual phone layout; the existing landing suite retains contrast, keyboard, reduced-motion and synthetic workflow assertions. Results and exact build identity are appended to [theme evidence](verification/PREMIUM_THEME.md).

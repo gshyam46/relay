@@ -194,3 +194,15 @@ Customer settings refinement implementation exists; [evidence](verification/CUST
 In progress under the user request. Dependencies: current public/auth boundaries, persistent pilot intake and an explicitly configured Vercel project/intake database. Acceptance: standalone landing/deep links; bounded unavailable auth/onboarding states; real account errors kept separate; explicit consented interest survives backend outage; no passwords captured; same-key replay without duplicate writes; no false saved state during database failure; documented setup/operator review. Automated gateway, intake and browser checks plus actual Vercel/PG/cookie/provider-independent human QA are required. The hosted account/database configuration is not currently connected locally.
 
 Vercel/outage slice: implementation and local focused tests are complete; [verification](verification/VERCEL_AVAILABILITY.md) and [deployment runbook](VERCEL.md) are recorded. Actual publication and durable hosted capture remain pending the intended Vercel project/account and explicitly provisioned PostgreSQL intake credentials, plus the documented live acceptance checks. This status does not close L5/L6.
+
+## Ivory and ultramarine presentation refinement - 2026-09-14
+
+In progress under the explicit user request. Dependencies are the shared React theme, existing public/auth boundaries and component-level interaction contracts. [Design system](DESIGN_SYSTEM.md) records palette, typography, brand asset ownership and acceptance. Automated browser regressions and visual checks are required before local completion; no API/schema changes or launch-gate closure.
+
+Local theme implementation is complete. [Verification](verification/PREMIUM_THEME.md) records the 68 existing browser scenarios, affected landing rerun, typography/contrast/assets and desktop/phone inspection. Human design acceptance and real-device/hosted checks remain identified; this does not close L5/L6.
+
+## Readability and walkthrough affordance refinement - 2026-09-15
+
+In progress after user visual review. Preserve the approved theme while increasing small copy and making the walkthrough controls visually discoverable without new instruction text. Acceptance: readable labels/captions, visible control/focus/selection states, preserved mobile fit, reduced motion and existing interaction semantics. Existing browser journeys and focused visual inspection are the verification requirements. No API/schema changes.
+
+Readability/affordance refinement is locally complete. [Theme evidence](verification/PREMIUM_THEME.md) records computed small-text sizes, hover behavior, final desktop/phone inspection and passing existing browser suites. No new instructional copy, API/schema or business behavior was introduced.

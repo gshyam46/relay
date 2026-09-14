@@ -12,14 +12,14 @@ interface HeaderProps {
 
 export function Header({ title, description, actions }: HeaderProps) {
   return (
-    <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-4 py-3 sm:px-6">
+    <header className="flex min-h-[76px] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-4 py-4 sm:px-6">
       <div className="flex min-w-0 items-center gap-4">
         <div>
-          <h1 className="text-base font-semibold text-ink leading-tight">
+          <h1 className="text-lg font-semibold tracking-[-0.035em] text-ink leading-tight">
             {title}
           </h1>
           {description && (
-            <p className="text-xs text-muted mt-0.5">{description}</p>
+            <p className="text-xs leading-relaxed text-muted mt-1">{description}</p>
           )}
         </div>
       </div>
@@ -44,12 +44,12 @@ function WorkspaceMenu() {
       <button
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex items-center gap-2 px-3 py-1.5 rounded-lg border border-line text-sm hover:bg-soft transition-colors cursor-pointer",
+          "flex min-h-11 items-center gap-2 px-3 py-2 rounded-md border border-line text-xs hover:bg-soft transition-colors cursor-pointer",
           open && "bg-soft",
         )}
       >
         <Building2 className="w-3.5 h-3.5 text-muted" />
-        <span className="max-w-[140px] truncate text-ink font-medium">
+        <span className="max-w-[120px] truncate text-ink font-medium">
           {currentOrg?.name ?? "Workspace"}
         </span>
         <ChevronDown className="w-3.5 h-3.5 text-muted" />
@@ -58,7 +58,7 @@ function WorkspaceMenu() {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 w-56 bg-surface border border-line rounded-xl shadow-lg z-50 overflow-hidden">
+          <div className="absolute right-0 top-full mt-2 w-56 bg-surface border border-line rounded-md shadow-lg z-50 overflow-hidden">
             <div className="px-3 py-2.5 border-b border-line">
               <p className="text-sm font-medium text-ink truncate">{me?.user.name}</p>
               <p className="text-xs text-muted truncate">{me?.user.email}</p>
@@ -66,7 +66,7 @@ function WorkspaceMenu() {
             <button
               onClick={() => logout.mutate()}
               disabled={logout.isPending}
-              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-danger hover:bg-danger-light transition-colors cursor-pointer disabled:opacity-50"
+              className="flex min-h-11 items-center gap-2 w-full px-3 py-2 text-xs text-danger hover:bg-danger-light transition-colors cursor-pointer disabled:opacity-50"
             >
               <LogOut className="w-3.5 h-3.5" />
               Sign out
