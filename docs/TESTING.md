@@ -423,3 +423,7 @@ The 2026-09-15 readability follow-up additionally checks computed small-text siz
 ## Landing composition restoration - 2026-09-15
 
 The latest user correction restores the earlier landing hero and section composition with the ivory/ultramarine palette. All 27 existing landing browser scenarios passed on final index-BdyoBXnw.js, including contrast, reduced motion, mobile, demo state, loading, request retry and registration. TypeScript/build and focused responsive visual inspection passed. [Theme evidence](verification/PREMIUM_THEME.md#restore-the-earlier-landing-experience---2026-09-15) records the corrected caption overlap, final artifacts and remaining human acceptance; previous broader suite counts remain historical.
+
+## Landing motion verification - 2026-09-15
+
+The safe landing browser launcher now runs 31 scenarios, retaining the previous 27 and adding four motion/fallback scenarios in helpers/landingMotionChecks.js. Final build index-DPztKlUN.js passed all checks. Coverage includes real scroll/pointer changes, finite settling, initial and live reduced-motion preference, missing observation/rejected animation APIs, and preserved keyboard CTA/FAQ behavior. [Motion evidence](verification/PREMIUM_THEME.md#landing-motion-enhancement---2026-09-15) records the corrected transient contrast failure and final artifacts. Human motion comfort and actual-device acceptance remain open.

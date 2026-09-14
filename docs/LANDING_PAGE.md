@@ -172,3 +172,7 @@ Implementation evidence is linked above; TASKS.md owns closure status. No real c
 ## Readability and visual affordances - 2026-09-15
 
 The approved ivory/ultramarine design now uses larger supporting text and controls. The walkthrough signals interactivity through a restrained blue frame, selected number tabs, outlined rows/actions and pointer/focus feedback. There is no new instruction copy or automatic progression. See the [design system](DESIGN_SYSTEM.md) and [verification](verification/PREMIUM_THEME.md).
+
+## Native motion enhancement - 15 September 2026
+
+The restored composition gains progressive section reveals, finite card/orbit entrances, fine-pointer hero depth and transitions on existing controls, FAQ, menu and walkthrough states. Keep content visible without JavaScript enhancement APIs; honor live reduced-motion preference changes, focused controls and hidden/offscreen states. Decorative entrances finish within five seconds. No new state, automatic progression or provider calls. The [design system](DESIGN_SYSTEM.md#motion-enhancement---15-september-2026) records the implementation boundaries.

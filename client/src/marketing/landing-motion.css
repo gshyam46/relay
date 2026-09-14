@@ -1,0 +1,219 @@
+/* Progressive motion for the existing landing composition; content stays visible by default. */
+.landing-page {
+  --landing-motion-ease: cubic-bezier(.2,.75,.25,1);
+  --hero-pointer-x: 0;
+  --hero-pointer-y: 0;
+}
+
+/* One finite settle while the hero is visible. Base card rotations survive completion. */
+.landing-page[data-motion="enabled"][data-hero-in-view="true"] .landing-visual-source {
+  animation: landing-source-settle 4.2s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"][data-hero-in-view="true"] .landing-visual-fact {
+  animation: landing-fact-settle 3.8s .2s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"][data-hero-in-view="true"] .landing-visual-budget {
+  animation: landing-budget-settle 3.7s .4s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"][data-hero-in-view="true"] .landing-visual-decision {
+  animation: landing-decision-settle 3.6s .65s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"][data-hero-in-view="true"] .landing-orbit path:first-child {
+  animation: landing-orbit-dashes 3.8s .15s ease-out;
+}
+.landing-page[data-motion="enabled"][data-hero-in-view="true"] .landing-orbit path + path {
+  animation: landing-orbit-trace 3.6s .25s var(--landing-motion-ease);
+}
+
+@keyframes landing-source-settle {
+  0% { transform: translateY(4px) rotate(-3.5deg); }
+  35% { transform: translateY(-4px) rotate(-2.6deg); }
+  72% { transform: translateY(2px) rotate(-3.2deg); }
+  100% { transform: rotate(-3deg); }
+}
+@keyframes landing-fact-settle {
+  0% { transform: translateY(4px) rotate(-5.6deg); }
+  38% { transform: translateY(-4px) rotate(-4.4deg); }
+  74% { transform: translateY(1px) rotate(-5.2deg); }
+  100% { transform: rotate(-5deg); }
+}
+@keyframes landing-budget-settle {
+  0% { transform: translateY(-3px) rotate(3.5deg); }
+  38% { transform: translateY(4px) rotate(2.5deg); }
+  74% { transform: translateY(-1px) rotate(3.2deg); }
+  100% { transform: rotate(3deg); }
+}
+@keyframes landing-decision-settle {
+  0% { transform: translateY(4px); }
+  40% { transform: translateY(-3px); }
+  76% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
+}
+@keyframes landing-orbit-dashes {
+  from { stroke-dashoffset: 65; opacity: .2; }
+  to { stroke-dashoffset: 0; opacity: 1; }
+}
+@keyframes landing-orbit-trace {
+  from { stroke-dasharray: 1400; stroke-dashoffset: 1400; opacity: .2; }
+  to { stroke-dasharray: 1400; stroke-dashoffset: 0; opacity: 1; }
+}
+
+/* Pointer depth is independent of the cards' existing rotation and finite settle. */
+@media (hover:hover) and (pointer:fine) {
+  .landing-page[data-motion="enabled"][data-hero-in-view="true"] .landing-visual-source {
+    translate: calc(var(--hero-pointer-x) * 2px) calc(var(--hero-pointer-y) * 2px);
+    transition: translate .55s var(--landing-motion-ease);
+  }
+  .landing-page[data-motion="enabled"][data-hero-in-view="true"] .landing-visual-fact {
+    translate: calc(var(--hero-pointer-x) * -3px) calc(var(--hero-pointer-y) * -3px);
+    transition: translate .65s var(--landing-motion-ease);
+  }
+  .landing-page[data-motion="enabled"][data-hero-in-view="true"] .landing-visual-budget {
+    translate: calc(var(--hero-pointer-x) * 3px) calc(var(--hero-pointer-y) * 3px);
+    transition: translate .6s var(--landing-motion-ease);
+  }
+  .landing-page[data-motion="enabled"][data-hero-in-view="true"] .landing-visual-decision {
+    translate: calc(var(--hero-pointer-x) * 1.5px) calc(var(--hero-pointer-y) * 1.5px);
+    transition: translate .5s var(--landing-motion-ease);
+  }
+}
+
+.landing-page[data-motion="enabled"] :is(.landing-workflow-rows article, .landing-start-grid article, .landing-proof-source, .landing-proof-claim, .landing-proof-unknown, .landing-start-symbol, .landing-loop-band > a) {
+  transition: translate .35s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"] :is(.landing-button, .landing-text-link, .landing-sign-in, .landing-loop-band > a) > svg:not(.landing-spinner) {
+  transition: translate .25s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"] .landing-workflow-rows article > svg {
+  transition: translate .35s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"] :is(.landing-desktop-nav a, .landing-sign-in, .landing-footer > div:nth-child(2) a) {
+  position: relative;
+}
+.landing-page[data-motion="enabled"] :is(.landing-desktop-nav a, .landing-sign-in, .landing-footer > div:nth-child(2) a)::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -5px;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform .25s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"] :is(.landing-desktop-nav a, .landing-sign-in, .landing-footer > div:nth-child(2) a):focus-visible::after {
+  transform: scaleX(1);
+}
+.landing-page[data-motion="enabled"] :is(.landing-button, .landing-text-link, .landing-sign-in):focus-visible:not(:disabled):not([aria-disabled="true"]) > svg:not(.landing-spinner) {
+  translate: 3px -2px;
+}
+.landing-page[data-motion="enabled"] .landing-start-grid article:focus-within {
+  translate: 0 -4px;
+}
+.landing-page[data-motion="enabled"] .landing-loop-band > a:focus-visible {
+  translate: 0 3px;
+}
+
+@media (hover:hover) and (pointer:fine) {
+  .landing-page[data-motion="enabled"] .landing-workflow-rows article:hover {
+    translate: 3px 0;
+  }
+  .landing-page[data-motion="enabled"] .landing-workflow-rows article:hover > svg {
+    translate: 2px -2px;
+  }
+  .landing-page[data-motion="enabled"] .landing-start-grid article:hover {
+    translate: 0 -4px;
+  }
+  .landing-page[data-motion="enabled"] .landing-start-grid article:hover .landing-start-symbol {
+    translate: 0 -2px;
+  }
+  .landing-page[data-motion="enabled"] .landing-control-art:hover .landing-proof-source {
+    translate: -2px -3px;
+  }
+  .landing-page[data-motion="enabled"] .landing-control-art:hover .landing-proof-claim {
+    translate: 3px -2px;
+  }
+  .landing-page[data-motion="enabled"] .landing-control-art:hover .landing-proof-unknown {
+    translate: -2px 2px;
+  }
+  .landing-page[data-motion="enabled"] :is(.landing-desktop-nav a, .landing-sign-in, .landing-footer > div:nth-child(2) a):hover::after {
+    transform: scaleX(1);
+  }
+  .landing-page[data-motion="enabled"] :is(.landing-button, .landing-text-link, .landing-sign-in):hover:not(:disabled):not([aria-disabled="true"]) > svg:not(.landing-spinner) {
+    translate: 3px -2px;
+  }
+  .landing-page[data-motion="enabled"] .landing-loop-band > a:hover {
+    translate: 0 3px;
+  }
+}
+
+/* User-triggered changes have a brief entrance, with no automatic demo progression. */
+.landing-page[data-motion="enabled"] .landing-mobile-menu {
+  transform-origin: top;
+  animation: landing-menu-enter .3s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"] .landing-faq-list details[open] > p {
+  animation: landing-answer-enter .32s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"] .landing-faq-list summary svg {
+  transition: transform .3s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"] .demo-canvas {
+  animation: landing-demo-enter .36s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"] :is(.demo-response-result, .demo-outcome-record) {
+  animation: landing-answer-enter .3s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"] .demo-step-nav button > span {
+  /* Selection colours change together so the number stays readable mid-transition. */
+  transition: transform .25s var(--landing-motion-ease);
+}
+.landing-page[data-motion="enabled"] .demo-step-nav button.is-selected > span {
+  transform: translateY(-1px);
+}
+.landing-page[data-motion="enabled"] :is(.demo-primary, .demo-secondary) {
+  transition: translate .2s var(--landing-motion-ease), background .2s, border-color .2s;
+}
+.landing-page[data-motion="enabled"] :is(.demo-primary, .demo-secondary):focus-visible:not(:disabled):not([aria-disabled="true"]) {
+  translate: 0 -2px;
+}
+@media (hover:hover) and (pointer:fine) {
+  .landing-page[data-motion="enabled"] :is(.demo-primary, .demo-secondary):hover:not(:disabled):not([aria-disabled="true"]) {
+    translate: 0 -2px;
+  }
+}
+.landing-page[data-motion="enabled"] :is(.landing-button, .demo-primary, .demo-secondary):active:not(:disabled):not([aria-disabled="true"]) {
+  translate: 0 1px;
+}
+@keyframes landing-menu-enter {
+  from { opacity: .4; transform: translateY(-7px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes landing-answer-enter {
+  from { opacity: .4; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes landing-demo-enter {
+  from { opacity: .45; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* No hover movement sticks after a touch; keyboard focus remains visible. */
+@media (hover:none), (pointer:coarse) {
+  .landing-page .landing-button:hover:not(:disabled) { transform: none; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .landing-page *, .landing-page *::before, .landing-page *::after {
+    animation: none !important;
+    transition: none !important;
+    translate: none !important;
+    scroll-behavior: auto !important;
+  }
+  .landing-page .landing-button,
+  .landing-page .demo-record > svg,
+  .landing-page .demo-stage-controls > .demo-quiet:last-child > svg,
+  .landing-page .demo-step-nav button > span {
+    transform: none !important;
+  }
+}

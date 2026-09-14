@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { gzipSync } from "node:zlib";
 import { safeTestEnvironment, verifyE2eHandshake } from "./helpers/testSafety.js";
 import { startLandingFixture } from "./helpers/landingFixture.js";
+import { verifyLandingMotion } from "./helpers/landingMotionChecks.js";
 
 const args = process.argv.slice(2);
 if (args.length !== 2 || args[0] !== "--playwright-module" || !path.isAbsolute(args[1]) || path.basename(args[1]) !== "index.mjs") throw new Error("Supply an absolute installed Playwright index.mjs path.");
@@ -82,6 +83,7 @@ try {
 
   const me = await request("get", "/api/auth/me"), org = me.user.organization_id; const lead = (await request("post", "/api/leads", { organization_id: org, name: "Synthetic deep-link lead", email: "deep-link@example.com" }, 201)).lead;
   const deepPath = "/leads/" + lead.id + "?tab=intelligence"; await page.goto(base + deepPath); await shown(page.getByRole("heading", { name: "Synthetic deep-link lead", exact: true }).first()); await request("post", "/api/auth/logout", {}); await page.reload(); await page.waitForURL(url => url.pathname === "/login"); assert.equal(new URL(page.url()).searchParams.get("returnTo"), deepPath); await page.getByLabel("Email", { exact: true }).fill(credentials.email); await page.locator('input[type="password"]').fill(credentials.password); await page.locator("form").getByRole("button", { name: "Sign in", exact: true }).click(); await page.waitForURL(base + deepPath); await shown(page.getByRole("heading", { name: "Synthetic deep-link lead", exact: true }).first()); pass("existing protected deep links preserve their query destination across expiry and explicit sign-in");
+  await verifyLandingMotion({ browser, base, artifacts, pass });
   assert.deepEqual(errors, []); assert.deepEqual(fixture.pumpErrors, []); assert.equal(fixture.calls.length, 0); assert.ok(writes.every(item => ["/api/public/pilot-requests", "/api/auth/register", "/api/auth/login"].includes(item.path)), JSON.stringify(writes)); assert.equal(await readFile("client/dist/index.html", "utf8"), initialBuild); pass("final actual-build run has no browser errors, model calls, unexpected mutations or asset changes");
   console.log("Browser " + browser.version()); console.log("Built assets " + JSON.stringify([...assets].sort())); console.log("Landing browser checks: " + count + " passed"); console.log("Synthetic artifacts " + artifacts);
 } catch (error) { if (page && artifacts) await page.screenshot({ path: path.join(artifacts, "failure.png"), fullPage: true }).catch(() => {}); console.error("FAILED after " + count + " checks; synthetic artifacts " + artifacts); throw error; }
